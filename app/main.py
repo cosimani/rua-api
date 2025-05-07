@@ -20,8 +20,15 @@ load_dotenv()
 
 security = HTTPBasic()
 
+app = FastAPI(
+    title="RUA API",
+    version="2.0",
+    root_path="/api",  # 👈 muy importante
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
+)
 
-app = FastAPI(title="RUA API", version="2.0")
 
 # Configurar CORS
 app.add_middleware(

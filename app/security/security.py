@@ -25,8 +25,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hora
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Configurar esquema de autenticación con OAuth2 (Bearer Token)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
-
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
 def verify_api_key(api_key: str = Header(None)):
