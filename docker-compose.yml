@@ -35,38 +35,6 @@ services:
           cpus: "0.4"  # Reserva 40% de un núcleo
           memory: "300M"  # Reserva 300MB de RAM
 
-
-  # task-scheduler:
-  #   container_name: task_scheduler
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   restart: always
-  #   depends_on:
-  #     - fastapi-app  # Se asegura de que fastapi-app esté en ejecución antes de iniciarse
-  #   networks:
-  #     - app-network
-  #   working_dir: /app
-  #   env_file:
-  #     - .env  # Cargar variables de entorno
-  #   command: python3 task_scheduler.py
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: "0.5"
-  #         memory: "300M"
-  #       reservations:
-  #         cpus: "0.2"
-  #         memory: "150M"
-
 networks:
   app-network:
-    name: app-network
-    driver: bridge
-
-# Comandos útiles:
-# docker compose -f /home/ubuntu/repos/rua-app-v2/backEnd/docker-compose.yml down
-# docker compose -f /home/ubuntu/repos/rua-app-v2/backEnd/docker-compose.yml up -d
-# docker compose -f /home/ubuntu/repos/rua-app-v2/backEnd/docker-compose.yml restart
-# docker compose -f /home/ubuntu/repos/rua-app-v2/backEnd/docker-compose.yml build
-
+    external: true
