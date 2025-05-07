@@ -1,0 +1,661 @@
+
+
+import bcrypt
+from fastapi import APIRouter, HTTPException, Depends, status, Form, Query, Request, Body
+from sqlalchemy.orm import Session
+from database.config import get_db
+from helpers.utils import check_consecutive_numbers, detect_hash_and_verify, generar_codigo_para_link, enviar_mail
+from datetime import timedelta, datetime
+from security.security import verify_password, create_access_token, get_password_hash, verify_api_key
+from helpers.moodle import existe_mail_en_moodle, existe_dni_en_moodle, is_curso_aprobado, get_setting_value, \
+    actualizar_clave_en_moodle
+
+from security.security import get_current_user, require_roles, verify_api_key
+
+
+import os
+import re
+from models.users import User, Group, UserGroup 
+from models.ddjj import DDJJ
+from models.proyecto import Proyecto
+from models.eventos_y_configs import RuaEvento, LoginIntentoIP
+from sqlalchemy.exc import SQLAlchemyError
+
+
+import hashlib
+import re
+from datetime import datetime
+
+from helpers.utils import check_consecutive_numbers
+
+
+
+login_router = APIRouter()
+
+
+# Cargar variables de entorno
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))  # 1 hora por defecto
+
+MAX_INTENTOS = 5
+TIEMPO_BLOQUEO_MINUTOS = 30
+
+MAX_INTENTOS_IP = 3
+CANTIDAD_USUARIOS_DISTINTOS_PARA_BLOQUEAR_IP = 3
+TIEMPO_BLOQUEO_IP_MINUTOS = 30
+
+
+
+
+@login_router.post("/login", response_model = dict)
+def login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Verifica las credenciales del usuario y devuelve un token si son correctas.
+    """
+
+    ip = request.client.host
+
+    # Buscar registro de esa IP
+    intento_ip = db.query(LoginIntentoIP).filter_by(ip=ip).first()
+    now = datetime.now()
+    
+
+    if intento_ip and intento_ip.bloqueo_hasta and intento_ip.bloqueo_hasta > now:
+        minutos_restantes = int((intento_ip.bloqueo_hasta - now).total_seconds() / 60)
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"IP bloqueada por múltiples intentos fallidos. Intente nuevamente en {minutos_restantes} minutos.",
+            "tiempo_mensaje": 8,
+            "next_page": "actual",
+        }
+
+    user = db.query(User).filter(User.login == username).first()
+
+
+    if not user:
+        if not intento_ip:
+            intento_ip = LoginIntentoIP(ip=ip, usuarios=username, ultimo_intento=now)
+            db.add(intento_ip)
+        else:
+            # Agregar el username a la lista de usuarios si no estaba
+            usuarios_actuales = set(intento_ip.usuarios.split(",")) if intento_ip.usuarios else set()
+            usuarios_actuales.add(username)
+            intento_ip.usuarios = ",".join(usuarios_actuales)
+
+            intento_ip.ultimo_intento = now
+
+            if len(usuarios_actuales) >= CANTIDAD_USUARIOS_DISTINTOS_PARA_BLOQUEAR_IP:
+                intento_ip.bloqueo_hasta = now + timedelta(minutes=30)
+                intento_ip.usuarios = ""
+
+                evento_bloqueo_ip = RuaEvento(
+                    login = "IP",
+                    evento_detalle = f"⚠️ La IP {ip} fue bloqueada por intentos fallidos con múltiples usuarios.",
+                    evento_fecha = now
+                )
+                db.add(evento_bloqueo_ip)
+
+
+        db.commit()
+
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "Usuario no encontrado.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual",
+        }
+        
+
+    # ⛔️ Verificar si está bloqueado
+    now = datetime.now()
+    if user.bloqueo_hasta and user.bloqueo_hasta > now:
+        minutos_restantes = int((user.bloqueo_hasta - now).total_seconds() / 60)
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Usuario bloqueado por intentos fallidos. Intente nuevamente en {minutos_restantes} minutos.",
+            "tiempo_mensaje": 8,
+            "next_page": "actual",
+        }
+
+    # 🔒 Validar si aún no activó su cuenta
+    if user.active == "N" and user.activation_code:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "La cuenta aún no fue activada. Por favor revise su correo electrónico.",
+            "tiempo_mensaje": 7,
+            "next_page": "actual",
+        }
+        
+    # 🔑 Verificar contraseña
+    if not detect_hash_and_verify(password, user.clave):
+        user.intentos_login = (user.intentos_login or 0) + 1
+
+        if user.intentos_login >= MAX_INTENTOS:
+            user.bloqueo_hasta = now + timedelta(minutes=TIEMPO_BLOQUEO_MINUTOS)
+            user.intentos_login = 0  # reiniciar contador después del bloqueo
+            db.commit()
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": f"Usuario bloqueado por exceder los intentos fallidos. Espere {TIEMPO_BLOQUEO_MINUTOS} minutos.",
+                "tiempo_mensaje": 8,
+                "next_page": "actual",
+            }
+
+        db.commit()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Contraseña incorrecta. Intento {user.intentos_login} de {MAX_INTENTOS}.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual",
+        }
+
+    # ✅ Login exitoso: resetear intentos
+    user.intentos_login = 0
+    user.bloqueo_hasta = None
+    db.commit()
+
+
+    # 🧾 Obtener grupo
+    group = (
+        db.query(Group.description)
+        .join(UserGroup, Group.group_id == UserGroup.group_id)
+        .filter(UserGroup.login == username)
+        .first()
+    )
+    group_name = group[0] if group else "Sin grupo asignado"
+
+    # 🔐 Generar token
+    access_token_expires = timedelta(minutes = ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(str(user.login), expires_delta = access_token_expires)
+
+    # 🕓 Último login exitoso
+    last_login = (
+        db.query(RuaEvento.evento_fecha)
+        .filter(RuaEvento.login == username, RuaEvento.evento_detalle.like("%Ingreso exitoso al sistema%"))
+        .order_by(RuaEvento.evento_fecha.desc())
+        .first()
+    )
+    last_login_date = last_login[0] if last_login else None
+
+    # 📝 Registrar evento actual
+    nuevo_evento = RuaEvento(
+        login = username,
+        evento_detalle = "Ingreso exitoso al sistema.",
+        evento_fecha = datetime.now()
+    )
+    db.add(nuevo_evento)
+    db.commit()
+
+    # 🧾 Construir respuesta base
+    response_data = {
+        "success": True,
+        "tipo_mensaje": "verde",
+        "mensaje": "Inicio de sesión exitoso.",
+        "tiempo_mensaje": 0,
+        "next_page": "portada",
+
+        "access_token": access_token,
+        "token_type": "bearer",
+        "login": user.login,
+        "nombre": user.nombre,
+        "apellido": user.apellido,
+        "mail": user.mail,
+        "group": group_name,
+        "last_login": last_login_date,
+    }
+
+
+    return response_data
+
+
+
+
+@login_router.post("/change-password", response_model=dict, dependencies=[Depends(verify_api_key)])
+def change_password(
+    username: str = Form(...),
+    old_password: str = Form(..., description="Ingrese su contraseña actual"),
+    new_password: str = Form(..., description="Ingrese la nueva contraseña"),
+    confirm_new_password: str = Form(..., description="Confirme la nueva contraseña"),
+    db: Session = Depends(get_db)
+):
+    """
+    - La nueva contraseña **siempre** se guarda en bcrypt por más que anteriormenta haya sido md5.
+    """
+    # Buscar el usuario en la base de datos
+    user = db.query(User).filter(User.login == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+
+
+    is_valid_password = detect_hash_and_verify(old_password, user.clave)
+
+
+    if not is_valid_password:
+        raise HTTPException(status_code=401, detail="La contraseña actual es incorrecta.")
+
+    # Verificar que las contraseñas nuevas coincidan
+    if new_password != confirm_new_password:
+        raise HTTPException(status_code=400, detail="Las contraseñas nuevas no coinciden.")
+
+    # Validar requisitos de la contraseña
+    if not new_password.isdigit() or len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 6 dígitos y solo números.")
+    if check_consecutive_numbers(new_password):
+        raise HTTPException(status_code=400, detail="La contraseña no puede tener números consecutivos.")
+
+    # Guardar la nueva contraseña en bcrypt (migración de MD5 a bcrypt)
+    hashed_new_password = get_password_hash(new_password)
+    user.clave = hashed_new_password  # Se sobrescribe la contraseña en bcrypt
+    db.commit()
+
+
+    if re.fullmatch(r"[a-fA-F0-9]{32}", user.clave):
+        evento_detalle = "Contraseña cambiada exitosamente. Migrada de MD5 a bcrypt."
+    else:
+        evento_detalle = "Contraseña cambiada exitosamente."
+
+    # Registrar el evento
+    nuevo_evento = RuaEvento(
+        login=username,
+        evento_detalle=evento_detalle,
+        evento_fecha=datetime.now()
+    )
+    db.add(nuevo_evento)
+    db.commit()
+
+    return {
+        "message": "Contraseña cambiada exitosamente."
+    } 
+
+
+
+
+@login_router.get("/activar-cuenta", response_model = dict)
+def activar_cuenta(activacion: str = Query(...), db: Session = Depends(get_db)):
+    """
+    Activa la cuenta de un usuario si el código de activación es válido.
+    Devuelve siempre una respuesta estructurada.
+    """
+    try:
+        user = db.query(User).filter(User.activation_code == activacion).first()
+        if not user:
+            return {
+                "tipo_mensaje": "rojo",
+                "mensaje": (
+                    "<p>El código de activación no es válido o ya fue usado.</p>"
+                    "<p>Si ya activaste tu cuenta, podés ingresar con tu usuario y contraseña.</p>"
+                ),
+                "tiempo_mensaje": 5,
+                "next_page": "login"
+            }
+
+        user.active = "Y"
+        user.activation_code = None
+        db.commit()
+
+        evento = RuaEvento(
+            login = user.login,
+            evento_detalle = "El usuario activó su cuenta correctamente.",
+            evento_fecha = datetime.now()
+        )
+        db.add(evento)
+        db.commit()
+
+        return {
+            "tipo_mensaje": "verde",
+            "mensaje": (
+                "<p>Tu cuenta ha sido activada correctamente.</p>"
+                "<p>Ya podés ingresar con tu usuario y contraseña.</p>"
+            ),
+            "tiempo_mensaje": 5,
+            "next_page": "login"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "tipo_mensaje": "rojo",
+            "mensaje": (
+                "<p>Ocurrió un error al activar tu cuenta.</p>"
+                "<p>Por favor, intentá nuevamente más tarde.</p>"
+            ),
+            "tiempo_mensaje": 5,
+            "next_page": "login"
+        }
+
+
+@login_router.get("/aceptar-invitacion", response_model = dict)
+def aceptar_invitacion(
+    invitacion: str = Query(..., description = "Código único de invitación"),
+    respuesta: str = Query(..., regex = "^[YN]$", description = "Y para aceptar, N para rechazar"),
+    db: Session = Depends(get_db)
+):
+    """
+    Permite que el segundo adoptante acepte o rechace la invitación a un proyecto adoptivo.
+    Se usa el código único aceptado_code, que se borra una vez procesada la respuesta.
+    """
+    try:
+        proyecto = db.query(Proyecto).filter(Proyecto.aceptado_code == invitacion).first()
+
+        if not proyecto:
+            return {
+                "tipo_mensaje": "amarillo",
+                "mensaje": (
+                    "<p>El código de invitación caducó o ya fue utilizado.</p>"
+                    "<p>Consultá con personal del RUA.</p>"
+                ),
+                "tiempo_mensaje": 6,
+                "next_page": "login"
+            }
+
+        login_2 = proyecto.login_2
+
+        if respuesta == "N":
+            proyecto.aceptado = "N"
+            proyecto.aceptado_code = None
+            proyecto.estado_general = "baja_rechazo_invitacion"
+
+            db.commit()
+
+            evento = RuaEvento(
+                login = login_2,
+                evento_detalle = "El usuario rechazó la invitación al proyecto.",
+                evento_fecha = datetime.now()
+            )
+            db.add(evento)
+            db.commit()
+
+            return {
+                "tipo_mensaje": "amarillo",
+                "mensaje": "<p>Has rechazado la invitación al proyecto adoptivo.</p>",
+                "tiempo_mensaje": 6,
+                "next_page": "login"
+            }
+
+        if respuesta == "Y":
+
+            # Consultar el usuario real desde sec_users
+            user2 = db.query(User).filter(User.login == login_2).first()
+
+            # Validar curso aprobado
+            if not user2 or getattr(user2, "doc_adoptante_curso_aprobado", "N") != "Y":
+                return {
+                    "tipo_mensaje": "naranja",
+                    "mensaje": (
+                        "<p>No podés aceptar la invitación porque aún no tenés aprobado el Curso Obligatorio.</p>"
+                        "<p>Completalo y volvé a ingresar desde el enlace de la invitación.</p>"
+                    ),
+                    "tiempo_mensaje": 6,
+                    "next_page": "login"
+                }
+
+
+            proyecto.aceptado = "Y"
+            proyecto.aceptado_code = None
+            proyecto.estado_general = "confeccionando"
+            
+            db.commit()
+
+            evento = RuaEvento(
+                login = login_2,
+                evento_detalle = "El usuario aceptó la invitación al proyecto.",
+                evento_fecha = datetime.now()
+            )
+            db.add(evento)
+            db.commit()
+
+            return {
+                "tipo_mensaje": "verde",
+                "mensaje": "<p>Has aceptado la invitación. Ya pueden continuar el proceso en el sistema RUA.</p>",
+                "tiempo_mensaje": 6,
+                "next_page": "login"
+            }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "tipo_mensaje": "amarillo",
+            "mensaje": (
+                "<p>Ocurrió un error al procesar tu respuesta.</p>"
+                "<p>Por favor, intentá nuevamente más tarde.</p>"
+            ),
+            "tiempo_mensaje": 6,
+            "next_page": "login"
+        }
+
+
+
+@login_router.post("/recuperar-clave", response_model = dict)
+def recuperar_clave(
+    dni: str = Form(...),
+    mail: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """
+    📩 Solicita recuperación de contraseña.
+    Valida DNI y correo, y envía un mail con un enlace para restablecer la clave.
+    """
+    user = db.query(User).filter(User.login == dni, User.mail == mail).first()
+
+    if not user:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": (
+                "<p>No se encontró ningún usuario con ese DNI y correo.</p>"
+                "<p>Verificá los datos o contactá con RUA.</p>"
+            ),
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    try:
+        # Asunto del correo
+        asunto = "Recuperación de contraseña - Sistema RUA"
+
+        # Generar código único de recuperación
+        act_code = generar_codigo_para_link(16)
+        user.recuperacion_code = act_code
+        db.commit()
+
+        # Configuración del sistema
+        protocolo = get_setting_value(db, "protocolo")
+        host = get_setting_value(db, "donde_esta_alojado")
+        puerto = get_setting_value(db, "puerto_tcp")
+        endpoint = get_setting_value(db, "endpoint_recuperar_clave")
+
+        if not endpoint.startswith("/"):
+            endpoint = "/" + endpoint
+
+        host_con_puerto = f"{host}:{puerto}" if puerto and puerto != "80" else host
+        link = f"{protocolo}://{host_con_puerto}{endpoint}?activacion={act_code}"
+
+        # Cuerpo del mail en estilo institucional
+        cuerpo = f"""
+        <html>
+        <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; padding: 20px; color: #343a40; font-size: 17px;">
+            <div style="max-width: 600px; margin: auto; background-color: #ffffff; border-radius: 10px; padding: 30px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+            <h2 style="color: #007bff; font-size: 24px;">Recuperación de contraseña</h2>
+            <p>Hola,</p>
+            <p>Desde este mail podrás cambiar tu contraseña de acceso al Sistema RUA.</p>
+            <p>Hacé clic en el siguiente botón:</p>
+
+            <div style="margin-top: 20px; margin-bottom: 30px;">
+                <a href="{link}" style="padding: 12px 20px; background-color: #0d6efd; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold;">🔐 Elegir nueva contraseña</a>
+            </div>
+
+            <p>Este enlace tiene validez limitada.</p>
+
+            <hr style="border: none; border-top: 1px solid #dee2e6; margin: 40px 0;">
+            <p style="font-size: 15px; color: #6c757d;">
+                <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+            </p>
+            </div>
+        </body>
+        </html>
+        """
+
+        enviar_mail(destinatario = mail, asunto = asunto, cuerpo = cuerpo)
+
+        evento = RuaEvento(
+            login = dni,
+            evento_detalle = "Se solicitó el mail para recuperación de contraseña.",
+            evento_fecha = datetime.now()
+        )
+        db.add(evento)
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": (
+                "<p>Se envió un correo para recuperar tu contraseña.</p>"
+                "<p>Revisá tu bandeja de entrada y correo no deseado.</p>"
+            ),
+            "tiempo_mensaje": 6,
+            "next_page": "login"
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": (
+                "<p>Ocurrió un error al enviar el correo de recuperación.</p>"
+                f"<p>{str(e)}</p>"
+            ),
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+
+
+@login_router.post("/nueva-clave", response_model = dict)
+def establecer_nueva_clave(
+    activacion: str = Form(..., description = "Código de recuperación enviado por correo"),
+    clave: str = Form(..., description = "Nueva contraseña"),
+    db: Session = Depends(get_db)
+):
+    """
+    ✅ Establece una nueva contraseña usando el código de recuperación.
+    Hashea y actualiza la contraseña en la base local y en Moodle si corresponde.
+    """
+    user = db.query(User).filter(User.recuperacion_code == activacion).first()
+
+    if not user:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": (
+                "<p>El enlace de recuperación no es válido o ya fue utilizado.</p>"
+                "<p>Solicitá uno nuevo desde la opción '¿Querés recuperar tu contraseña?'.</p>"
+            ),
+            "tiempo_mensaje": 8,
+            "next_page": "login"
+        }
+
+    if user.active != "Y":
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": (
+                "<p>Tu cuenta aún no fue activada.</p>"
+                "<p>Por favor activala desde el mail que recibiste antes de cambiar tu contraseña.</p>"
+            ),
+            "tiempo_mensaje": 8,
+            "next_page": "login"
+        }
+
+    try:
+        # 🔒 Validación básica
+        if not clave.isdigit() or len(clave) < 6:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": (
+                    "<p>La contraseña debe tener al menos 6 dígitos y estar compuesta solo por números.</p>"
+                ),
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        if check_consecutive_numbers(clave):
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "<p>La contraseña no puede tener números consecutivos (como 123456 o 654321).</p>",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # 🔐 Guardar nueva contraseña (bcrypt)
+        user.clave = get_password_hash(clave)
+        user.recuperacion_code = None  # ya fue usada
+        db.commit()
+
+        # 🌐 Actualizar también en Moodle si es adoptante
+        grupo = (
+            db.query(Group.description)
+            .join(UserGroup, Group.group_id == UserGroup.group_id)
+            .filter(UserGroup.login == user.login)
+            .first()
+        )
+
+
+        # 🌐 Intentar actualizar también en Moodle si es adoptante, pero no interrumpir si falla
+        mensaje_extra = ""
+        if grupo and grupo.description == "adoptante":
+            try:
+                actualizar_clave_en_moodle(user.mail, clave, db)
+            except Exception as e:
+                mensaje_extra = (
+                    "<p>⚠️ La contraseña se actualizó en el sistema, pero no fue posible sincronizarla con el campus virtual (Moodle).</p>"
+                    "<p>Si necesitás acceder al campus, por favor contactá con RUA.</p>"
+                )
+
+
+        # 📝 Registrar evento
+        evento = RuaEvento(
+            login = user.login,
+            evento_detalle = "El usuario estableció una nueva contraseña mediante recuperación.",
+            evento_fecha = datetime.now()
+        )
+        db.add(evento)
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": (
+                "<p>Tu contraseña fue actualizada exitosamente.</p>"
+                "<p>Ya podés ingresar al sistema RUA con tu nueva clave.</p>" +
+                mensaje_extra
+            ),
+            "tiempo_mensaje": 10 if mensaje_extra else 6,
+            "next_page": "login"
+        }
+
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": (
+                "<p>Ocurrió un error al guardar la nueva contraseña.</p>"
+                f"<p>{str(e)}</p>"
+            ),
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }

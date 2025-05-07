@@ -1,0 +1,81 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Logs
+*.log
+
+# Dependency directories
+**/node_modules/
+**/__pycache__/
+
+# Python
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.~*
+*.bak
+*.orig
+*.cover
+
+# Docker
+docker-compose.override.yml
+docker-compose.override.yaml
+**/docker-compose.override.yml
+**/docker-compose.override.yaml
+
+# Environment Variables
+**/.env
+.env.local
+.env.*
+.env
+
+# React Build
+**/build/
+**/dist/
+
+
+# IDEs/Editors
+.idea/
+.vscode/
+*.swp
+*.sublime-workspace
+*.sublime-project
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+**/coverage/
+.nyc_output/
+**/.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+**/tmp/
+**/temp/
+*.tmp
+*.temp
+
+# Compiled Typescript
+*.tsbuildinfo
+*.map
+*.d.ts
+
+# Git
+**/.git/
+*.orig
+
+# Specific Project Directories
+backEnd/app/database/__pycache__/
+backEnd/app/models/__pycache__/
+backEnd/app/routes/__pycache__/
+backEnd/app/schemas/__pycache__/
+backEnd/app/__pycache__/
+

@@ -1,0 +1,163 @@
+
+from sqlalchemy import Column, Integer, String, ForeignKey, Enum, Date, DateTime, Text
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
+from models.users import User
+from datetime import datetime
+
+from models.notif_y_observaciones import ObservacionesProyectos
+
+
+from models.base import Base
+
+class Proyecto(Base):
+    __tablename__ = "proyecto"
+
+    # Clave primaria
+    proyecto_id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Datos generales del proyecto
+    proyecto_tipo = Column(Enum('Monoparental', 'Matrimonio', 'Unión convivencial'), nullable=True)
+    proyecto_calle_y_nro = Column(String(50), nullable=True)
+    proyecto_depto_etc = Column(String(50), nullable=True)
+    proyecto_barrio = Column(String(50), nullable=True)
+    proyecto_localidad = Column(String(150), nullable=True)
+    proyecto_provincia = Column(String(20), nullable=True)
+
+    # Subregistros
+    subregistro_1 = Column(String(1), nullable=True)
+    subregistro_2 = Column(String(1), nullable=True)
+    subregistro_3 = Column(String(1), nullable=True)
+    subregistro_4 = Column(String(1), nullable=True)
+    subregistro_5_a = Column(String(1), nullable=True)
+    subregistro_5_b = Column(String(1), nullable=True)
+    subregistro_5_c = Column(String(1), nullable=True)
+    subregistro_6_a = Column(String(1), nullable=True)
+    subregistro_6_b = Column(String(1), nullable=True)
+    subregistro_6_c = Column(String(1), nullable=True)
+    subregistro_6_d = Column(String(1), nullable=True)
+    subregistro_6_2 = Column(String(1), nullable=True)
+    subregistro_6_3 = Column(String(1), nullable=True)
+    subregistro_6_mas_de_3 = Column(String(1), nullable=True)
+    subregistro_flexible = Column(String(1), nullable=True)
+    subregistro_otra_provincia = Column(String(1), nullable=True)
+
+    # Datos de usuarios relacionados
+    login_1 = Column(String(190), ForeignKey(User.login), nullable=True)
+    login_2 = Column(String(190), ForeignKey(User.login), nullable=True)
+
+    # Estado del proyecto
+    aceptado = Column(String(1), nullable=True)
+    aceptado_code = Column(String(50), nullable=True)
+    ultimo_cambio_de_estado = Column(String(20), nullable=True)
+    nro_orden_rua = Column(String(11), nullable=True)
+    fecha_asignacion_nro_orden = Column(String(20), nullable=True)
+    operativo = Column(String(1), nullable=True)
+    ratificacion_code = Column(String(32), nullable=True)
+
+    # Campos migrados de doc_proyecto
+    doc_proyecto_convivencia_o_estado_civil = Column(String(1024), nullable=True)
+    
+    estado_general = Column(Enum( 'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando', 'aprobado', 
+                                  'calendarizando', 'entrevistando', 'para_valorar',
+                                  'viable_disponible', 'viable_no_disponible', 'en_suspenso', 'no_viable', 'en_carpeta', 
+                                  'vinculacion', 'guarda', 'adopcion_definitiva', 'baja_anulacion', 'baja_caducidad', 
+                                  'baja_por_convocatoria', 'baja_rechazo_invitacion' ), nullable=True)             
+
+    ingreso_por = Column(Enum( 'rua', 'oficio', 'convocatoria' ), nullable=True)         
+
+    informe_profesionales = Column(String(1024), nullable=True)
+    
+    doc_dictamen = Column(String(1024), nullable=True)
+    doc_sentencia_guarda = Column(String(1024), nullable=True)
+    doc_sentencia_adopcion = Column(String(1024), nullable=True)
+
+
+    # Relaciones con sec_users
+    usuario_1 = relationship(User, foreign_keys=[login_1], backref="proyectos_login_1")
+    usuario_2 = relationship(User, foreign_keys=[login_2], backref="proyectos_login_2")
+
+    detalle_proyectos = relationship("DetalleProyectosEnCarpeta", back_populates="proyecto")
+    detalle_equipo_proyecto = relationship("DetalleEquipoEnProyecto", back_populates="proyecto")
+    historial_cambios = relationship("ProyectoHistorialEstado", back_populates="proyecto")
+    detalle_postulaciones = relationship("DetalleProyectoPostulacion", backref="proyecto", cascade="all, delete-orphan")
+    fechas_revision = relationship("FechaRevision", back_populates = "proyecto", cascade = "all, delete-orphan")
+
+
+
+
+
+
+class ProyectoHistorialEstado(Base):
+    __tablename__ = "proyecto_historial_estado"
+
+    historial_id = Column(Integer, primary_key=True, autoincrement=True)
+    proyecto_id = Column(Integer, ForeignKey("proyecto.proyecto_id"), nullable=False)
+    estado_anterior = Column(String(100), nullable=True)
+    estado_nuevo = Column(String(100), nullable=False)
+    fecha_hora = Column(DateTime, default=datetime.now)
+
+    proyecto = relationship("Proyecto", back_populates="historial_cambios")
+
+
+
+
+
+class DetalleEquipoEnProyecto(Base):
+    __tablename__ = "detalle_equipo_en_proyecto"
+
+    proyecto_id = Column(Integer, ForeignKey("proyecto.proyecto_id"), primary_key=True)
+    login = Column(String(190), ForeignKey("sec_users.login"), primary_key=True)
+    fecha_asignacion = Column(Date, nullable=True)
+
+    proyecto = relationship("Proyecto", back_populates="detalle_equipo_proyecto")
+    user = relationship("User", back_populates="detalle_equipo_proyecto")
+
+
+
+
+
+
+class AgendaEntrevistas(Base):
+    __tablename__ = "agenda_entrevistas"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # 🔗 ID del proyecto al que pertenece la entrevista
+    proyecto_id = Column(Integer, ForeignKey("proyecto.proyecto_id"), nullable=False)
+
+    # 🙋‍♀️ Login del usuario que agenda la entrevista (puede ser profesional o administrador)
+    login_que_agenda = Column(String(190), ForeignKey("sec_users.login"), nullable=False)
+
+    # 🕒 Fecha y hora programada para la entrevista
+    fecha_hora = Column(DateTime, nullable=False)
+
+    # 💬 Comentarios adicionales (opcional)
+    comentarios = Column(Text, nullable=True)
+
+    # 📅 Fecha de creación del registro en la base
+    creada_en = Column(DateTime, default=datetime.now)
+
+    # Relaciones (opcional si necesitás acceso desde otras entidades)
+    # proyecto = relationship("Proyecto", back_populates="agenda_entrevistas")
+    # quien_agenda = relationship("User", backref="entrevistas_agendadas")
+
+
+
+class FechaRevision(Base):
+    __tablename__ = "fecha_revision"
+
+    fecha_revision_id = Column(Integer, primary_key = True, autoincrement = True)
+    fecha_atencion = Column(Date, nullable = True)
+
+    observacion_id = Column(Integer, ForeignKey("observaciones_proyectos.observacion_id", ondelete = "SET NULL"), index = True, nullable = True)
+    login_que_registro = Column(String(190), ForeignKey("sec_users.login", ondelete = "SET NULL"), index = True, nullable = True)
+    proyecto_id = Column(Integer, ForeignKey("proyecto.proyecto_id", ondelete = "SET NULL"), index = True, nullable = True)
+
+    fecha_revision_resuelto = Column(Date, nullable = True)
+    cantidad_notificaciones = Column(Integer, nullable = True)
+
+    # Relaciones
+    proyecto = relationship("Proyecto", back_populates = "fechas_revision")
+    observacion = relationship("ObservacionesProyectos", backref = "fechas_revision")  # back_populates opcional
+    usuario_que_registro = relationship("User", backref = "fechas_revision_registradas")

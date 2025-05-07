@@ -1,0 +1,72 @@
+services:
+  rua_api:
+    container_name: rua_api
+    restart: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+    expose:
+      - "8000"
+    volumes:
+      - ./app:/app
+      - /etc/localtime:/etc/localtime:ro
+      - /home/ubuntu/docs-rua/pretensos:${UPLOAD_DIR_DOC_PRETENSOS}
+      - /home/ubuntu/docs-rua/proyectos:${UPLOAD_DIR_DOC_PROYECTOS}
+      - /home/ubuntu/docs-rua/informes:${UPLOAD_DIR_DOC_INFORMES}
+      - /home/ubuntu/docs-rua/nnas:${UPLOAD_DIR_DOC_NNAS}
+      - /home/ubuntu/docs-rua/pdfs:${DIR_PDF_GENERADOS}
+
+    environment:
+      TZ: America/Argentina/Cordoba
+    env_file:
+      - .env  # Cargar variables de entorno desde un archivo .env
+    networks:
+      - app-network
+    working_dir: /app  # Definimos el directorio de trabajo dentro del contenedor
+    # command: python3 -m main
+    command: >
+      uvicorn main:app --host 0.0.0.0 --port 8000 --reload 
+    deploy:
+      resources:
+        limits:
+          cpus: "0.8"  # Máximo 80% de un núcleo
+          memory: "600M"  # Máximo 600MB de RAM
+        reservations:
+          cpus: "0.4"  # Reserva 40% de un núcleo
+          memory: "300M"  # Reserva 300MB de RAM
+
+
+  # task-scheduler:
+  #   container_name: task_scheduler
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   restart: always
+  #   depends_on:
+  #     - fastapi-app  # Se asegura de que fastapi-app esté en ejecución antes de iniciarse
+  #   networks:
+  #     - app-network
+  #   working_dir: /app
+  #   env_file:
+  #     - .env  # Cargar variables de entorno
+  #   command: python3 task_scheduler.py
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "0.5"
+  #         memory: "300M"
+  #       reservations:
+  #         cpus: "0.2"
+  #         memory: "150M"
+
+networks:
+  app-network:
+    name: app-network
+    driver: bridge
+
+# Comandos útiles:
+# docker compose -f /home/ubuntu/repos/rua-app-v2/backEnd/docker-compose.yml down
+# docker compose -f /home/ubuntu/repos/rua-app-v2/backEnd/docker-compose.yml up -d
+# docker compose -f /home/ubuntu/repos/rua-app-v2/backEnd/docker-compose.yml restart
+# docker compose -f /home/ubuntu/repos/rua-app-v2/backEnd/docker-compose.yml build
+
