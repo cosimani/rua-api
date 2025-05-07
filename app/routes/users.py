@@ -1022,7 +1022,7 @@ def create_user(user: dict = Body(...), db: Session = Depends(get_db)):
             "tiempo_mensaje": 5,
             "next_page": "actual"
         }
-
+ 
 
     try:
 
