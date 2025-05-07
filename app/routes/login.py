@@ -459,6 +459,19 @@ def recuperar_clave(
             "next_page": "actual"
         }
 
+    if user.active != "Y" and user.activation_code:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": (
+                "<p>Tu cuenta aún no fue activada.</p>"
+                "<p>Revisá el correo de activación que recibiste o solicitá que te lo reenviemos.</p>"
+            ),
+            "tiempo_mensaje": 8,
+            "next_page": "actual"
+        }
+
+
     try:
         # Asunto del correo
         asunto = "Recuperación de contraseña - Sistema RUA"
@@ -468,17 +481,25 @@ def recuperar_clave(
         user.recuperacion_code = act_code
         db.commit()
 
+
         # Configuración del sistema
         protocolo = get_setting_value(db, "protocolo")
         host = get_setting_value(db, "donde_esta_alojado")
         puerto = get_setting_value(db, "puerto_tcp")
         endpoint = get_setting_value(db, "endpoint_recuperar_clave")
 
-        if not endpoint.startswith("/"):
+        # Asegurar formato correcto del endpoint
+        if endpoint and not endpoint.startswith("/"):
             endpoint = "/" + endpoint
 
-        host_con_puerto = f"{host}:{puerto}" if puerto and puerto != "80" else host
+
+        # Determinar si incluir el puerto en la URL
+        puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
+        host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
+
+        # Construir el enlace final
         link = f"{protocolo}://{host_con_puerto}{endpoint}?activacion={act_code}"
+
 
         # Cuerpo del mail en estilo institucional
         cuerpo = f"""
@@ -536,6 +557,135 @@ def recuperar_clave(
                 f"<p>{str(e)}</p>"
             ),
             "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+
+@login_router.post("/reenviar-activacion", response_model=dict)
+def reenviar_activacion(
+    dni: str = Form(...),
+    mail: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """
+    📩 Reenvía el correo de activación si el usuario existe y aún no activó su cuenta.
+    """
+    user = db.query(User).filter(User.login == dni, User.mail == mail).first()
+
+    if not user:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": (
+                "<p>No se encontró ningún usuario con ese DNI y correo.</p>"
+                "<p>Verificá los datos o contactá con RUA.</p>"
+            ),
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    if user.active == "Y":
+        return {
+            "success": False,
+            "tipo_mensaje": "verde",
+            "mensaje": (
+                "<p>Tu cuenta ya está activada.</p>"
+                "<p>Ingresá con tu usuario y contraseña.</p>"
+            ),
+            "tiempo_mensaje": 6,
+            "next_page": "login"
+        }
+
+    # Generar código de activación si no tiene (por seguridad)
+    if not user.activation_code:
+        user.activation_code = generar_codigo_para_link(16)
+        db.commit()
+
+    try:
+
+        # Preparar link y mail
+        protocolo = get_setting_value(db, "protocolo")
+        host = get_setting_value(db, "donde_esta_alojado")
+        puerto = get_setting_value(db, "puerto_tcp")
+        endpoint = get_setting_value(db, "endpoint_alta_adoptante")
+
+        # Asegurar formato correcto del endpoint
+        if endpoint and not endpoint.startswith("/"):
+            endpoint = "/" + endpoint
+
+        # Determinar si incluir el puerto en la URL
+        puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
+        host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
+
+        # Construir el enlace final
+        link_activacion = f"{protocolo}://{host_con_puerto}{endpoint}?activacion={user.activation_code}"
+
+
+
+
+        asunto = "Activación de cuenta - Sistema RUA"
+
+        cuerpo = f"""
+            <html>
+            <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; padding: 20px; color: #343a40; font-size: 17px;">
+                <div style="max-width: 600px; margin: auto; background-color: #ffffff; border-radius: 10px; padding: 30px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+
+                    <h2 style="color: #007bff; font-size: 24px;">Hola <strong>{user.nombre} {user.apellido}</strong></h2>
+
+                    <p>El sistema ha creado tu cuenta en <strong>RUA</strong>, el Registro Único de Adopción de Córdoba.</p>
+
+                    <p>Para completar tu registro y comenzar a utilizar la plataforma, activá tu cuenta haciendo clic en el siguiente botón:</p>
+
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{link_activacion}" style="padding: 12px 25px; background-color: #0d6efd; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold;">
+                            🔓 Activar mi cuenta
+                        </a>
+                    </div>
+
+                    <p style="text-align: center;"><strong>Muchas gracias</strong></p>
+
+                    <hr style="border: none; border-top: 1px solid #dee2e6; margin: 40px 0;">
+
+                    <p style="font-size: 15px; color: #6c757d;">
+                        <strong>Registro Único de Adopción (RUA) - Poder Judicial de Córdoba</strong>
+                    </p>
+                </div>
+            </body>
+            </html>
+            """
+
+
+        enviar_mail(user.mail, asunto, cuerpo)
+
+        evento = RuaEvento(
+            login=user.login,
+            evento_detalle="Se reenvió el mail de activación de cuenta.",
+            evento_fecha=datetime.now()
+        )
+        db.add(evento)
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": (
+                "<p>Se envió nuevamente el correo de activación.</p>"
+                "<p>Revisá tu bandeja de entrada y correo no deseado.</p>"
+            ),
+            "tiempo_mensaje": 6,
+            "next_page": "/login"
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": (
+                "<p>Ocurrió un error al reenviar el correo de activación.</p>"
+                f"<p>{str(e)}</p>"
+            ),
+            "tiempo_mensaje": 6,
             "next_page": "actual"
         }
 

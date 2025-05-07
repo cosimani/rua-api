@@ -1025,21 +1025,21 @@ def create_user(user: dict = Body(...), db: Session = Depends(get_db)):
 
 
     try:
+
         # Construir link de activación
         protocolo = get_setting_value(db, "protocolo")
         host = get_setting_value(db, "donde_esta_alojado")
         puerto = get_setting_value(db, "puerto_tcp")
         endpoint = get_setting_value(db, "endpoint_alta_adoptante")
 
-        # Asegurar que el endpoint comience con '/'
+        # Asegurar formato correcto del endpoint
         if endpoint and not endpoint.startswith("/"):
-            endpoint = f"/{endpoint}"
+            endpoint = "/" + endpoint
 
-        # Solo incluir el puerto si es distinto de 80
-        if puerto and puerto != "80":
-            host_con_puerto = f"{host}:{puerto}"
-        else:
-            host_con_puerto = host
+
+        # Determinar si incluir el puerto en la URL
+        puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
+        host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
 
         # Construir el link completo
         link_activacion = f"{protocolo}://{host_con_puerto}{endpoint}?activacion={activation_code}"

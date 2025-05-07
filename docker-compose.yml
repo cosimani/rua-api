@@ -1,7 +1,7 @@
 services:
   rua_api:
     container_name: rua_api
-    restart: always
+    restart: no
     build:
       context: .
       dockerfile: Dockerfile
