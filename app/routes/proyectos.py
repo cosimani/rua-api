@@ -393,6 +393,8 @@ def get_proyectos(
 
                 "proyecto_estado_general": proyecto.estado_general,
 
+                "ingreso_por": proyecto.ingreso_por,
+
                 # "carpeta_ids": carpeta_ids,  # Lista de carpetas asociadas al proyecto
 
             }
