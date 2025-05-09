@@ -212,8 +212,10 @@ def upsert_ddjj(
     if usuario.doc_adoptante_ddjj_firmada == 'Y':
         return {
             "success": False,
-            "tipo_mensaje": "naranja",
-            "mensaje": "<p>Su Declaración jurada ya se encuentra firmada.</p>",
+            "tipo_mensaje": "amarillo",
+            "mensaje": "<p>Su Declaración Jurada ya fue firmada previamente.</p>"
+                       "<p>Si necesita modificar algún dato, por favor comuníquese con la supervisión del RUA para "
+                       "solicitar la reapertura de la DDJJ y poder firmarla nuevamente.</p>",
             "tiempo_mensaje": 5,
             "next_page": "actual"
         }

@@ -639,15 +639,30 @@ def get_user_by_login(
             user.doc_adoptante_antecedentes,
         ])
 
+        docs_todos_vacios = all([
+            not user.doc_adoptante_salud,
+            not user.doc_adoptante_domicilio,
+            not user.doc_adoptante_dni_frente,
+            not user.doc_adoptante_dni_dorso,
+            not user.doc_adoptante_deudores_alimentarios,
+            not user.doc_adoptante_antecedentes,
+        ])
+
         # 🔤 Texto del botón de estado del pretenso
         if user.doc_adoptante_curso_aprobado == "N":
             texto_boton_estado_pretenso = "CURSO PENDIENTE"
         elif user.doc_adoptante_curso_aprobado == "Y" and user.doc_adoptante_ddjj_firmada == "N":
             texto_boton_estado_pretenso = "LLENANDO DDJJ"
+        elif user.doc_adoptante_curso_aprobado == "Y" and \
+             user.doc_adoptante_ddjj_firmada == "Y" and docs_todos_vacios:
+            texto_boton_estado_pretenso = "DDJJ FIRMADA"
         else:
             estado_a_texto = {
+                "inicial_cargando": "DOC. PERSONAL", 
+                "pedido_revision": "REVISIÓN DE DOC.", 
+                "rechazado": "RECHAZADO",
                 "invitacion_pendiente": "INVITACIÓN PENDIENTE",
-                "confeccionando": "CARGANDO DOC.",
+                "confeccionando": "DOC. PROYECTO",
                 "en_revision": "EN REVISIÓN",
                 "actualizando": "ACTUALIZANDO DOC.",
                 "aprobado": "DOC. APROBADA",
@@ -668,7 +683,12 @@ def get_user_by_login(
                 "baja_rechazo_invitacion": "BAJA - RECHAZO INVITACIÓN"
             }
 
-            texto_boton_estado_pretenso = estado_a_texto.get(user.estado_general, "DESCONOCIDO")
+            if not user.proyecto_id:
+                texto_boton_estado_pretenso = estado_a_texto.get(user.doc_adoptante_estado, "DESCONOCIDO")
+            else:
+                texto_boton_estado_pretenso = estado_a_texto.get(user.estado_general, "DESCONOCIDO")
+
+            # texto_boton_estado_pretenso = estado_a_texto.get(user.estado_general, "DESCONOCIDO")
 
 
 

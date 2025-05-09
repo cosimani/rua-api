@@ -49,7 +49,8 @@ def enviar_mail(destinatario: str, asunto: str, cuerpo: str):
     msg = MIMEMultipart()
     msg["From"] = formataddr((nombre_remitente, remitente))  # Ej: "RUA <sistemarua@...>"
     # msg["To"] = destinatario
-    msg["To"] = "cesarosimani@gmail.com"
+    # msg["To"] = "cesarosimani@gmail.com"
+    msg["To"] = "germanosimani@gmail.com"
     msg["Subject"] = asunto
     msg.attach(MIMEText(cuerpo, "html")) 
 
