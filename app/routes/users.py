@@ -27,8 +27,9 @@ from datetime import datetime, timedelta, date  # <--- ✅ esta línea incluye '
 from database.config import get_db  # Importá get_db desde config.py
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import case, func, and_, or_, select, union_all, join, literal_column
+from sqlalchemy import case, func, and_, or_, select, union_all, join, literal_column, desc
 from sqlalchemy.sql import literal_column
+
 
 from models.eventos_y_configs import RuaEvento
 from datetime import date, datetime
@@ -159,6 +160,24 @@ def get_users(
                 Proyecto.proyecto_provincia.label("proyecto_provincia"),
                 Proyecto.fecha_asignacion_nro_orden.label("fecha_asignacion_nro_orden"),
                 Proyecto.ultimo_cambio_de_estado.label("ultimo_cambio_de_estado"),
+
+                Proyecto.subregistro_1.label("subregistro_1"),
+                Proyecto.subregistro_2.label("subregistro_2"),
+                Proyecto.subregistro_3.label("subregistro_3"),
+                Proyecto.subregistro_4.label("subregistro_4"),
+                Proyecto.subregistro_5_a.label("subregistro_5_a"),
+                Proyecto.subregistro_5_b.label("subregistro_5_b"),
+                Proyecto.subregistro_5_c.label("subregistro_5_c"),
+                Proyecto.subregistro_6_a.label("subregistro_6_a"),
+                Proyecto.subregistro_6_b.label("subregistro_6_b"),
+                Proyecto.subregistro_6_c.label("subregistro_6_c"),
+                Proyecto.subregistro_6_d.label("subregistro_6_d"),
+                Proyecto.subregistro_6_2.label("subregistro_6_2"),
+                Proyecto.subregistro_6_3.label("subregistro_6_3"),
+                Proyecto.subregistro_6_mas_de_3.label("subregistro_6_mas_de_3"),
+                Proyecto.subregistro_flexible.label("subregistro_flexible"),
+                Proyecto.subregistro_otra_provincia.label("subregistro_otra_provincia"),
+                Proyecto.estado_general.label("estado_general"),
 
             )
             # El .join se usa para traer los usuarios solo si existe en ambas tablas, sino no trae los usuarios
@@ -321,6 +340,18 @@ def get_users(
             # Obtener solo los valores de `proyecto_id` en una lista
             proyectos_ids = [proyecto[0] for proyecto in proyectos_ids_subquery] if proyectos_ids_subquery else []
 
+            estado_general_row = db.query(
+                Proyecto.estado_general,
+                func.str_to_date(Proyecto.fecha_asignacion_nro_orden, "%d/%m/%Y").label("fecha_orden")
+            ).filter(
+                or_(Proyecto.login_1 == user.login, Proyecto.login_2 == user.login),
+                Proyecto.fecha_asignacion_nro_orden != None
+            ).order_by(desc("fecha_orden")).first()
+
+            estado_general = estado_general_row.estado_general if estado_general_row else ""
+
+
+
             # Verificar si la lista está vacía y asignar un valor por defecto
             if not proyectos_ids:
                 proyectos_ids = []
@@ -390,9 +421,15 @@ def get_users(
                 "fecha_asignacion_nro_orden": parse_date(user.fecha_asignacion_nro_orden),
                 "ultimo_cambio_de_estado": parse_date(user.ultimo_cambio_de_estado),
 
+                "subregistro_string": build_subregistro_string(user),  # Aquí se construye el string concatenado
+
                 "proyectos_no_definitivos": proyectos_no_definitivos,
 
+                "proyecto_estado_general": user.estado_general if user.estado_general else "",
+
                 "proyectos_ids": proyectos_ids  # Aquí agregamos la lista de proyecto_id
+
+                
 
 
             }
@@ -2537,6 +2574,7 @@ def get_estado_usuario(
         "curso_aprobado": curso_aprobado,
         "ddjj_firmada": user.doc_adoptante_ddjj_firmada,
         "doc_adoptante_estado": user.doc_adoptante_estado,
+        "datos_domicilio_faltantes": not (user.calle_y_nro or user.localidad)
     }
 
 
