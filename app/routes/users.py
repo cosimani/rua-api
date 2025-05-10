@@ -2222,7 +2222,17 @@ def actualizar_usuario_total(
 
         # 🧹 Limpieza y normalización
         mail_old  = (datos["mail_old"] or "").strip().lower()
-        nuevo_dni = (datos["dni"] or "").strip()
+
+        nuevo_dni = normalizar_y_validar_dni(datos["dni"])
+        if not nuevo_dni:
+            return {
+                "success": False,
+                "tipo_mensaje": "amarillo",
+                "mensaje": "El DNI ingresado no es válido.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
         nuevo_mail = (datos["mail"] or "").strip().lower()
         nuevo_nombre = capitalizar_nombre((datos["nombre"] or "").strip())
         nuevo_apellido = capitalizar_nombre((datos["apellido"] or "").strip())
@@ -2264,14 +2274,23 @@ def actualizar_usuario_total(
             db       = db
         )
 
+        # 🧠 Guardamos el DNI original antes de sobrescribirlo
+        dni_original = user.login
+
         # Actualización en base local
         user.login    = nuevo_dni
         user.mail     = nuevo_mail
         user.nombre   = nuevo_nombre
         user.apellido = nuevo_apellido
 
-        # 👉 Asegura que los cambios estén aplicados en la base antes del evento
+        # 👉 Asegura que los cambios estén aplicados antes de continuar
         db.flush()
+
+        # 🔄 Si el usuario estaba como login_2 en algún proyecto, actualizamos
+        proyectos_afectados = db.query(Proyecto).filter(Proyecto.login_2 == dni_original).all()
+        for proyecto in proyectos_afectados:
+            proyecto.login_2 = nuevo_dni
+
 
         evento = RuaEvento(
             login = datos["dni"],
