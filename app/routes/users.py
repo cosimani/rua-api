@@ -1256,11 +1256,12 @@ def delete_user(login: str, db: Session = Depends(get_db)):
 
 @users_router.put("/personal/{login}", response_model=dict, 
                   dependencies=[Depends( verify_api_key ), 
-                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
+                                Depends(require_roles(["administrador", "supervisora", "profesional"]))])
 def update_user_by_login(
     login: str,
     payload: dict = Body(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Actualiza campos del usuario identificado por `login`. Solo se actualizan los siguientes campos si están presentes en el JSON:
@@ -1329,7 +1330,16 @@ def update_user_by_login(
     if provincia:
         usuario.provincia = provincia
 
-    print( calle_y_nro )
+    # --- Evento de modificación ---
+    evento = RuaEvento(
+        login = login,
+        evento_detalle = (
+            f"📝 Datos personales básicos actualizados por {current_user['user'].get('nombre', '')} "
+            f"{current_user['user'].get('apellido', '')}."
+        ),
+        evento_fecha = datetime.now()
+    )
+    db.add(evento)
 
             
     # --- Commit y manejo de errores ---
@@ -1985,14 +1995,40 @@ def listar_observaciones_de_pretenso(
             .all()
         )
 
-        resultado = [
-            {
+        # Obtener todos los logins de quienes observaron
+        logins_observadores = [o.login_que_observo for o in observaciones]
+
+        # Obtener nombres y apellidos de esos logins
+        usuarios_observadores = (
+            db.query(User.login, User.nombre, User.apellido)
+            .filter(User.login.in_(logins_observadores))
+            .all()
+        )
+        # Convertir a diccionario {login: {nombre, apellido}}
+        mapa_observadores = {u.login: {"nombre": u.nombre, "apellido": u.apellido} for u in usuarios_observadores}
+
+        # Armar respuesta incluyendo nombre completo del observador
+        resultado = []
+        for o in observaciones:
+            datos_observador = mapa_observadores.get(o.login_que_observo, {"nombre": "", "apellido": ""})
+            nombre_completo = f"{datos_observador['nombre']} {datos_observador['apellido']}".strip()
+            resultado.append({
                 "observacion": o.observacion,
                 "fecha": o.observacion_fecha.strftime("%Y-%m-%d %H:%M"),
-                "login_que_observo": o.login_que_observo
-            }
-            for o in observaciones
-        ]
+                "login_que_observo": o.login_que_observo,
+                "nombre_completo_que_observo": nombre_completo
+            })
+
+
+
+        # resultado = [
+        #     {
+        #         "observacion": o.observacion,
+        #         "fecha": o.observacion_fecha.strftime("%Y-%m-%d %H:%M"),
+        #         "login_que_observo": o.login_que_observo
+        #     }
+        #     for o in observaciones
+        # ]
 
         return {
             "page": page,
@@ -2003,6 +2039,7 @@ def listar_observaciones_de_pretenso(
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener las observaciones: {str(e)}")
+
 
 
 
@@ -2156,7 +2193,8 @@ def listar_observaciones_login(
                                 Depends(require_roles(["administrador", "supervisora"]))])
 def actualizar_usuario_total(
     datos: dict = Body(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     🔄 Actualiza los datos de un usuario en Moodle y en la base local (tabla `sec_users`).
@@ -2188,6 +2226,8 @@ def actualizar_usuario_total(
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
+
+        dni_supervisora = current_user["user"]["login"]
 
         user = db.query(User).filter(User.mail == datos["mail_old"]).first()
 
@@ -2294,7 +2334,11 @@ def actualizar_usuario_total(
 
         evento = RuaEvento(
             login = datos["dni"],
-            evento_detalle = f"📝 Datos personales actualizados por el usuario. Se sincronizó con Moodle.",
+            evento_detalle = (
+                f"📝 Datos personales críticos actualizados por supervisión {current_user['user'].get('nombre', '')} "
+                f"{current_user['user'].get('apellido', '')}. "
+                "Se sincronizó con Moodle."
+            ),
             evento_fecha = datetime.now()
         )
         db.add(evento)
