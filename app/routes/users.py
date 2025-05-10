@@ -1228,14 +1228,14 @@ def delete_user(login: str, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code = 500, detail = f"Error al eliminar el usuario: {str(e)}")
 
-
+    
 
 @users_router.put("/personal/{login}", response_model=dict, 
                   dependencies=[Depends( verify_api_key ), 
                                 Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
 def update_user_by_login(
     login: str,
-    data: dict = Body(...),
+    payload: dict = Body(...),
     db: Session = Depends(get_db)
 ):
     """
@@ -1254,26 +1254,80 @@ def update_user_by_login(
 
     usuario = db.query(User).filter(User.login == login).first()
     if not usuario:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": (
+                "<p>Usuario no encontrado.</p>"
+            ),
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
 
-    campos_permitidos = {
-        "nombre", "apellido", "celular", "fecha_nacimiento", "foto_perfil", "calle_y_nro",
-        "depto_etc", "barrio", "localidad", "provincia", "profesion",
-    }
+    
+    # --- Extracción y normalización de campos ---
 
-    campos_actualizables = {
-        k: v for k, v in data.items() if k in campos_permitidos
-    }
+    nombre      = (payload.get("nombre")      or "").strip()
+    apellido    = (payload.get("apellido")    or "").strip()
+    celular     = (payload.get("celular")     or "").strip()
+    calle_y_nro = (payload.get("calle_y_nro") or "").strip()
+    depto_etc   = (payload.get("depto_etc")   or "").strip()
+    barrio      = (payload.get("barrio")      or "").strip()
+    localidad   = (payload.get("localidad")   or "").strip()
+    provincia   = (payload.get("provincia")   or "").strip()
 
-    for campo, valor in campos_actualizables.items():
-        setattr(usuario, campo, valor)
+    # --- Asignaciones condicionales con transformación ---
+    if nombre:
+        usuario.nombre = capitalizar_nombre(nombre)
+    if apellido:
+        usuario.apellido = capitalizar_nombre(apellido)
 
+    if celular:
+        resultado = normalizar_celular(celular)
+        if resultado["valido"]:
+            usuario.celular = resultado["celular"]
+        else:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": f"<p>Celular inválido: {resultado['motivo']}</p>",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+    if calle_y_nro:
+        usuario.calle_y_nro = calle_y_nro
+    if depto_etc:
+        usuario.depto_etc = depto_etc
+    if barrio:
+        usuario.barrio = barrio
+    if localidad:
+        usuario.localidad = localidad
+    if provincia:
+        usuario.provincia = provincia
+
+    print( calle_y_nro )
+
+            
+    # --- Commit y manejo de errores ---
     try:
         db.commit()
-        return {"message": "Usuario actualizado exitosamente"}
-    except SQLAlchemyError as e:
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "<p>Usuario actualizado correctamente.</p>",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+    except SQLAlchemyError:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al actualizar usuario: {str(e)}")
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "<p>Error al actualizar usuario.</p>",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+    
 
 
 
@@ -2056,8 +2110,8 @@ def actualizar_usuario_total(
         "mail_old": "actual@correo.com",
         "dni": "nuevoDNI",
         "mail": "nuevo@correo.com",
-        "nombre": "NuevoNombre",
-        "apellido": "NuevoApellido"
+        "nombre": "Nuevo Nombre",
+        "apellido": "Nuevo Apellido"
     }
     ```
 
@@ -2651,7 +2705,6 @@ def actualizar_mis_datos_personales(
     "nombre": "Lidia Angélica",
     "apellido": "de Gómez",
     "celular": "351-123-4567",
-    "mail": "lidia.gomez@example.com",
     "calle_y_nro": "Calle Falsa 123",
     "depto_etc": "Dpto B",
     "barrio": "Centro",
