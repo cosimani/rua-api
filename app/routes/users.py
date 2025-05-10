@@ -1108,37 +1108,61 @@ def create_user(user: dict = Body(...), db: Session = Depends(get_db)):
         # Cuerpo en HTML
         cuerpo = f"""
         <html>
-        <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; padding: 20px; color: #343a40; font-size: 17px;">
-            <div style="max-width: 600px; margin: auto; background-color: #ffffff; border-radius: 10px; padding: 30px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+            <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                <tr>
+                    <td align="center">
+                    <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                        <tr>
+                        <td style="font-size: 24px; color: #007bff;">
+                            <strong>¡Hola!</strong>
+                        </td>
+                        </tr>
+                        <tr>
+                        <td style="padding-top: 20px; font-size: 17px;">
+                            <p>El Sistema ha creado tu cuenta en el sistema <strong>RUA</strong> para que presentes tu <strong>Proyecto Adoptivo</strong>.</p>
+                            <p>También se creó tu cuenta en el <strong>Campus Virtual del Poder Judicial</strong>, donde realizarás el curso de sensibilización.</p>
+                            <p>Solo hacé clic en el botón para continuar:</p>
+                        </td>
+                        </tr>
+                        <tr>
+                        <td align="center" style="padding: 30px 0;">
+                            <!-- BOTÓN RESPONSIVE -->
+                            <table cellpadding="0" cellspacing="0" border="0" style="border-radius: 8px;">
+                            <tr>
+                                <td align="center" bgcolor="#0d6efd" style="border-radius: 8px;">
+                                <a href="{link_activacion}"
+                                    target="_blank"
+                                    style="display: inline-block; padding: 12px 25px; font-size: 16px; color: #ffffff; background-color: #0d6efd; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                                    Confirmo mi registro en el sistema RUA
+                                </a>
+                                </td>
+                            </tr>
+                            </table>
+                        </td>
+                        </tr>
+                        <tr>
+                        <td align="center" style="font-size: 17px;">
+                            <p><strong>Muchas gracias</strong></p>
+                        </td>
+                        </tr>
+                        <tr>
+                        <td style="padding-top: 30px;">
+                            <hr style="border: none; border-top: 1px solid #dee2e6;">
+                            <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
+                            <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                            </p>
+                        </td>
+                        </tr>
+                    </table>
+                    </td>
+                </tr>
+                </table>
+            </body>
+            </html>
 
-                <h2 style="color: #007bff; font-size: 24px;">¡Hola!</h2>
-
-                <p>El Sistema ha creado tu cuenta en el sistema <strong>RUA</strong> para que presentes tu <strong>Proyecto Adoptivo</strong>.</p>
-
-                <p>También se creó tu cuenta en el <strong>Campus Virtual del Poder Judicial</strong>, donde realizarás el curso de sensibilización.</p>
-
-                <p>Solo hacé clic en el botón para continuar:</p>
-
-                <div style="text-align: center; margin: 30px 0;">
-                    <a href="{link_activacion}" style="padding: 12px 25px; background-color: #0d6efd; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold;">
-                        Confirmo mi registro en el sistema RUA
-                    </a>
-                </div>
-
-                <p style="text-align: center;"><strong>Muchas gracias</strong></p>
-
-                <hr style="border: none; border-top: 1px solid #dee2e6; margin: 40px 0;">
-
-                <p style="font-size: 15px; color: #6c757d;">
-                    <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
-                </p>
-
-            </div>
-        </body>
-        </html>
         """
-
-
+        
 
         # Enviar el correo HTML
         enviar_mail(destinatario = mail, asunto = asunto, cuerpo = cuerpo)
@@ -1822,30 +1846,63 @@ def notificacion_a_pretenso(
 
                 cuerpo_html = f"""
                 <html>
-                <body style="font-family: Arial, sans-serif; font-size: 16px; color: #333;">
-                    <p style="font-size: 18px;">Hola <strong>{usuario_destino.nombre}</strong>,</p>
-
-                    <p>Se ha registrado una observación en tu perfil:</p>
-
-                    <blockquote style="border-left: 4px solid #ccc; margin: 12px 0; padding-left: 12px; color: #555; font-size: 17px;">
-                    {observacion}
-                    </blockquote>
-                """
-
+                <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                    <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                    <tr>
+                        <td align="center">
+                        <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: Arial, sans-serif; color: #333333; box-shadow: 0 0 10px rgba(0,0,0,0.05);">
+                            <tr>
+                            <td style="font-size: 18px; padding-bottom: 20px;">
+                                Hola <strong>{usuario_destino.nombre}</strong>,
+                            </td>
+                            </tr>
+                            <tr>
+                            <td style="font-size: 16px; padding-bottom: 10px;">
+                                Se ha registrado una observación en tu perfil:
+                            </td>
+                            </tr>
+                            <tr>
+                            <td>
+                                <table cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td style="border-left: 4px solid #ccc; padding-left: 12px; font-size: 17px; color: #555555; background-color: #f9f9f9; padding: 12px; border-radius: 4px;">
+                                    {observacion}
+                                    </td>
+                                </tr>
+                                </table>
+                            </td>
+                            </tr>"""
+                
                 if accion == "aprobar_documentacion":
                     cuerpo_html += """
-                    <p style="color: green; font-size: 17px;">📄 Tu documentación ha sido <strong>aprobada</strong>.</p>
-                    """
+                            <tr>
+                            <td style="font-size: 17px; color: green; padding-top: 20px;">
+                                📄 Tu documentación ha sido <strong>aprobada</strong>.
+                            </td>
+                            </tr>"""
+                    
                 elif accion == "solicitar_actualizacion":
                     cuerpo_html += """
-                    <p style="color: #d48806; font-size: 17px;">📄 Se ha solicitado que <strong>actualices</strong> tu documentación.</p>
-                    """
+                            <tr>
+                            <td style="font-size: 17px; color: #d48806; padding-top: 20px;">
+                                📄 Se ha solicitado que <strong>actualices</strong> tu documentación.
+                            </td>
+                            </tr>"""
 
                 cuerpo_html += """
-                    <p style="margin-top: 24px;">Saludos cordiales,<br><strong>Equipo RUA</strong></p>
+                            <tr>
+                            <td style="padding-top: 30px; font-size: 16px;">
+                                Saludos cordiales,<br><strong>Equipo RUA</strong>
+                            </td>
+                            </tr>
+                        </table>
+                        </td>
+                    </tr>
+                    </table>
                 </body>
                 </html>
                 """
+                
 
                 enviar_mail(
                     destinatario = usuario_destino.mail,
@@ -2094,7 +2151,9 @@ def listar_observaciones_login(
 
 
 
-@users_router.put("/usuario/actualizar", response_model = dict, dependencies = [Depends(get_db)])
+@users_router.put("/usuario/actualizar", response_model = dict, 
+                  dependencies=[Depends(verify_api_key),
+                                Depends(require_roles(["administrador", "supervisora"]))])
 def actualizar_usuario_total(
     datos: dict = Body(...),
     db: Session = Depends(get_db)
@@ -2160,12 +2219,31 @@ def actualizar_usuario_total(
                 "next_page": "actual"
             }
 
+
+        # 🧹 Limpieza y normalización
+        mail_old  = (datos["mail_old"] or "").strip().lower()
+        nuevo_dni = (datos["dni"] or "").strip()
+        nuevo_mail = (datos["mail"] or "").strip().lower()
+        nuevo_nombre = capitalizar_nombre((datos["nombre"] or "").strip())
+        nuevo_apellido = capitalizar_nombre((datos["apellido"] or "").strip())
+
+        if not validar_correo(nuevo_mail):
+            return {
+                "success": False,
+                "tipo_mensaje": "amarillo",
+                "mensaje": "El nuevo correo electrónico no tiene un formato válido.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+
         hubo_cambio = (
-            user.login    != datos["dni"]      or
-            user.mail     != datos["mail"]     or
-            user.nombre   != datos["nombre"]   or
-            user.apellido != datos["apellido"]
+            user.login    != nuevo_dni or
+            user.mail     != nuevo_mail or
+            user.nombre   != nuevo_nombre or
+            user.apellido != nuevo_apellido
         )
+
 
         if not hubo_cambio:
             return {
@@ -2176,19 +2254,24 @@ def actualizar_usuario_total(
                 "next_page": "actual"
             }
 
+        # Actualización en Moodle
         resultado_moodle = actualizar_usuario_en_moodle(
-            mail_old = datos["mail_old"],
-            dni      = datos["dni"],
-            mail     = datos["mail"],
-            nombre   = datos["nombre"],
-            apellido = datos["apellido"],
+            mail_old = mail_old,
+            dni      = nuevo_dni,
+            mail     = nuevo_mail,
+            nombre   = nuevo_nombre,
+            apellido = nuevo_apellido,
             db       = db
         )
 
-        user.login    = datos["dni"]
-        user.mail     = datos["mail"]
-        user.nombre   = datos["nombre"]
-        user.apellido = datos["apellido"]
+        # Actualización en base local
+        user.login    = nuevo_dni
+        user.mail     = nuevo_mail
+        user.nombre   = nuevo_nombre
+        user.apellido = nuevo_apellido
+
+        # 👉 Asegura que los cambios estén aplicados en la base antes del evento
+        db.flush()
 
         evento = RuaEvento(
             login = datos["dni"],

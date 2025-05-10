@@ -49,8 +49,7 @@ def enviar_mail(destinatario: str, asunto: str, cuerpo: str):
     msg = MIMEMultipart()
     msg["From"] = formataddr((nombre_remitente, remitente))  # Ej: "RUA <sistemarua@...>"
     # msg["To"] = destinatario
-    # msg["To"] = "cesarosimani@gmail.com"
-    msg["To"] = "germanosimani@gmail.com"
+    msg["To"] = "cesarosimani@gmail.com"
     msg["Subject"] = asunto
     msg.attach(MIMEText(cuerpo, "html")) 
 
@@ -528,9 +527,26 @@ def calculate_age(birthdate: str) -> int:
     
 
 def validar_correo(correo: str) -> bool:
-    # Expresión regular básica para validar correos electrónicos
-    patron = r"(^[\w\.\-]+@[\w\-]+\.[\w\.\-]+$)"
+    """
+    Valida si el email tiene un formato correcto.
+    Acepta letras, números, puntos, guiones y subrayados antes del @.
+    Acepta dominios válidos después del @, incluyendo subdominios.
+
+    Ejemplos válidos:
+    - usuario@mail.com
+    - user.name@mail.co.uk
+    - user_name123@sub.domain.org
+
+    Retorna True si es válido, False si no.
+    """
+    if not correo:
+        return False
+
+    correo = correo.strip().lower()
+    patron = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
     return re.match(patron, correo) is not None
+
+
 
 
 def normalizar_y_validar_dni(dni: str) -> Optional[str]:

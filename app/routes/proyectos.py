@@ -902,34 +902,83 @@ def crear_proyecto_preliminar(
                     aviso_curso = "<p style='color: red;'><strong>⚠️ Para aceptar la invitación, debés tener aprobado el Curso Obligatorio.</strong></p>"
 
                 cuerpo = f"""
-                <html>
-                <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; padding: 20px; color: #343a40; font-size: 17px;">
-                    <div style="max-width: 600px; margin: auto; background-color: #ffffff; border-radius: 10px; padding: 30px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-                    <h2 style="color: #007bff; font-size: 24px;">Invitación a Proyecto Adoptivo</h2>
-                    <p>Hola,</p>
-                    <p>
-                        Has sido invitado/a a conformar un proyecto adoptivo junto a 
-                        <strong>{nombre_actual} {apellido_actual}</strong> (DNI: {usuario_actual_login}).
-                    </p>
-                    {aviso_curso}
-                    <p>Por favor, confirmá tu participación haciendo clic en uno de los siguientes botones:</p>
+                    <html>
+                    <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                        <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                        <tr>
+                            <td align="center">
+                            <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                <tr>
+                                <td style="font-size: 24px; color: #007bff; padding-bottom: 20px;">
+                                    <strong>Invitación a Proyecto Adoptivo</strong>
+                                </td>
+                                </tr>
+                                <tr>
+                                <td style="font-size: 17px; padding-bottom: 10px;">
+                                    Hola,
+                                </td>
+                                </tr>
+                                <tr>
+                                <td style="font-size: 17px; padding-bottom: 10px;">
+                                    Has sido invitado/a a conformar un proyecto adoptivo junto a
+                                    <strong>{nombre_actual} {apellido_actual}</strong> (DNI: {usuario_actual_login}).
+                                </td>
+                                </tr>
+                                <tr>
+                                <td style="font-size: 17px; padding-bottom: 10px;">
+                                    {aviso_curso}
+                                </td>
+                                </tr>
+                                <tr>
+                                <td style="font-size: 17px; padding-bottom: 10px;">
+                                    Por favor, confirmá tu participación haciendo clic en uno de los siguientes botones:
+                                </td>
+                                </tr>
+                                <tr>
+                                <td align="center" style="padding: 20px 0 30px 0;">
+                                    <!-- Botones en tabla para mayor compatibilidad -->
+                                    <table cellpadding="0" cellspacing="0" style="text-align: center;">
+                                    <tr>
+                                        <td style="padding-bottom: 10px;">
+                                        <a href="{link_aceptar}"
+                                            style="display: inline-block; padding: 12px 20px; background-color: #28a745; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px; margin-right: 10px;">
+                                            ✅ Acepto la invitación
+                                        </a>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                        <a href="{link_rechazar}"
+                                            style="display: inline-block; padding: 12px 20px; background-color: #dc3545; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+                                            ❌ Rechazo la invitación
+                                        </a>
+                                        </td>
+                                    </tr>
+                                    </table>
+                                </td>
+                                </tr>
+                                <tr>
+                                <td style="font-size: 17px;">
+                                    Muchas gracias por tu tiempo.
+                                </td>
+                                </tr>
+                                <tr>
+                                <td>
+                                    <hr style="border: none; border-top: 1px solid #dee2e6; margin: 40px 0;">
+                                    <p style="font-size: 15px; color: #6c757d;">
+                                    Equipo Técnico<br>
+                                    <strong>Sistema RUA</strong>
+                                    </p>
+                                </td>
+                                </tr>
+                            </table>
+                            </td>
+                        </tr>
+                        </table>
+                    </body>
+                    </html>
+                    """
 
-                    <div style="margin-top: 20px; margin-bottom: 30px;">
-                        <a href="{link_aceptar}" style="padding: 12px 20px; background-color: #28a745; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; margin-right: 15px;">✅ Acepto la invitación</a>
-                        <a href="{link_rechazar}" style="padding: 12px 20px; background-color: #dc3545; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold;">❌ Rechazo la invitación</a>
-                    </div>
-
-                    <p>Muchas gracias por tu tiempo.</p>
-
-                    <hr style="border: none; border-top: 1px solid #dee2e6; margin: 40px 0;">
-                    <p style="font-size: 15px; color: #6c757d;">
-                        Equipo Técnico<br>
-                        <strong>Sistema RUA</strong>
-                    </p>
-                    </div>
-                </body>
-                </html>
-                """
 
                 enviar_mail(destinatario = user2.mail, asunto = asunto, cuerpo = cuerpo)
 
@@ -1307,22 +1356,51 @@ def crear_notificacion_proyecto(
             if usuario and usuario.mail:
                 try:
                     cuerpo_html = f"""
-                    <html>
-                    <body style="font-family: Arial, sans-serif; font-size: 16px; color: #333;">
-                        <p style="font-size: 18px;">Hola <strong>{usuario.nombre}</strong>,</p>
+                        <html>
+                        <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                            <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                            <tr>
+                                <td align="center">
+                                <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: Arial, sans-serif; color: #333333; box-shadow: 0 0 10px rgba(0,0,0,0.05);">
+                                    <tr>
+                                    <td style="font-size: 18px; padding-bottom: 20px;">
+                                        Hola <strong>{usuario.nombre}</strong>,
+                                    </td>
+                                    </tr>
+                                    <tr>
+                                    <td style="font-size: 17px; padding-bottom: 10px;">
+                                        Se ha registrado una observación sobre tu proyecto adoptivo:
+                                    </td>
+                                    </tr>
+                                    <tr>
+                                    <td>
+                                        <table cellpadding="0" cellspacing="0" width="100%">
+                                        <tr>
+                                            <td style="border-left: 4px solid #ccc; padding-left: 12px; font-size: 17px; color: #555555; background-color: #f9f9f9; padding: 12px; border-radius: 4px;">
+                                            {observacion}
+                                            </td>
+                                        </tr>
+                                        </table>
+                                    </td>
+                                    </tr>
+                                    <tr>
+                                    <td style="font-size: 17px; color: #d48806; padding-top: 20px;">
+                                        📄 Se ha solicitado que <strong>actualices</strong> los datos.
+                                    </td>
+                                    </tr>
+                                    <tr>
+                                    <td style="padding-top: 30px; font-size: 16px;">
+                                        Saludos cordiales,<br><strong>Equipo RUA</strong>
+                                    </td>
+                                    </tr>
+                                </table>
+                                </td>
+                            </tr>
+                            </table>
+                        </body>
+                        </html>
+                        """
 
-                        <p>Se ha registrado una observación sobre tu proyecto adoptivo:</p>
-
-                        <blockquote style="border-left: 4px solid #ccc; margin: 12px 0; padding-left: 12px; color: #555; font-size: 17px;">
-                        {observacion}
-                        </blockquote>
-
-                        <p style="color: #d48806; font-size: 17px;">📄 Se ha solicitado que <strong>actualices</strong> los datos.</p>
-
-                        <p style="margin-top: 24px;">Saludos cordiales,<br><strong>Equipo RUA</strong></p>
-                    </body>
-                    </html>
-                    """
 
                     enviar_mail(
                         destinatario = usuario.mail,

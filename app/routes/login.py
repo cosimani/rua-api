@@ -503,28 +503,69 @@ def recuperar_clave(
 
         # Cuerpo del mail en estilo institucional
         cuerpo = f"""
-        <html>
-        <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; padding: 20px; color: #343a40; font-size: 17px;">
-            <div style="max-width: 600px; margin: auto; background-color: #ffffff; border-radius: 10px; padding: 30px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-            <h2 style="color: #007bff; font-size: 24px;">Recuperación de contraseña</h2>
-            <p>Hola,</p>
-            <p>Desde este mail podrás cambiar tu contraseña de acceso al Sistema RUA.</p>
-            <p>Hacé clic en el siguiente botón:</p>
+            <html>
+            <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                <tr>
+                    <td align="center">
+                    <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                        <tr>
+                        <td style="font-size: 24px; color: #007bff; padding-bottom: 20px;">
+                            <strong>Recuperación de contraseña</strong>
+                        </td>
+                        </tr>
+                        <tr>
+                        <td style="font-size: 17px; padding-bottom: 10px;">
+                            Hola,
+                        </td>
+                        </tr>
+                        <tr>
+                        <td style="font-size: 17px; padding-bottom: 10px;">
+                            Desde este mail podrás cambiar tu contraseña de acceso al Sistema RUA.
+                        </td>
+                        </tr>
+                        <tr>
+                        <td style="font-size: 17px; padding-bottom: 10px;">
+                            Hacé clic en el siguiente botón:
+                        </td>
+                        </tr>
+                        <tr>
+                        <td align="center" style="padding: 20px 0 30px 0;">
+                            <!-- BOTÓN RESPONSIVE -->
+                            <table cellpadding="0" cellspacing="0" border="0" style="border-radius: 8px;">
+                            <tr>
+                                <td align="center" bgcolor="#0d6efd" style="border-radius: 8px;">
+                                <a href="{link}"
+                                    target="_blank"
+                                    style="display: inline-block; padding: 12px 20px; font-size: 16px; color: #ffffff; background-color: #0d6efd; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                                    🔐 Elegir nueva contraseña
+                                </a>
+                                </td>
+                            </tr>
+                            </table>
+                        </td>
+                        </tr>
+                        <tr>
+                        <td style="font-size: 17px; padding-bottom: 30px;">
+                            Este enlace tiene validez limitada.
+                        </td>
+                        </tr>
+                        <tr>
+                        <td>
+                            <hr style="border: none; border-top: 1px solid #dee2e6; margin: 40px 0;">
+                            <p style="font-size: 15px; color: #6c757d;">
+                            <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                            </p>
+                        </td>
+                        </tr>
+                    </table>
+                    </td>
+                </tr>
+                </table>
+            </body>
+            </html>
+            """
 
-            <div style="margin-top: 20px; margin-bottom: 30px;">
-                <a href="{link}" style="padding: 12px 20px; background-color: #0d6efd; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold;">🔐 Elegir nueva contraseña</a>
-            </div>
-
-            <p>Este enlace tiene validez limitada.</p>
-
-            <hr style="border: none; border-top: 1px solid #dee2e6; margin: 40px 0;">
-            <p style="font-size: 15px; color: #6c757d;">
-                <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
-            </p>
-            </div>
-        </body>
-        </html>
-        """
 
         enviar_mail(destinatario = mail, asunto = asunto, cuerpo = cuerpo)
 
@@ -627,32 +668,63 @@ def reenviar_activacion(
 
         cuerpo = f"""
             <html>
-            <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; padding: 20px; color: #343a40; font-size: 17px;">
-                <div style="max-width: 600px; margin: auto; background-color: #ffffff; border-radius: 10px; padding: 30px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-
-                    <h2 style="color: #007bff; font-size: 24px;">Hola <strong>{user.nombre} {user.apellido}</strong></h2>
-
-                    <p>El sistema ha creado tu cuenta en <strong>RUA</strong>, el Registro Único de Adopción de Córdoba.</p>
-
-                    <p>Para completar tu registro y comenzar a utilizar la plataforma, activá tu cuenta haciendo clic en el siguiente botón:</p>
-
-                    <div style="text-align: center; margin: 30px 0;">
-                        <a href="{link_activacion}" style="padding: 12px 25px; background-color: #0d6efd; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold;">
-                            🔓 Activar mi cuenta
-                        </a>
-                    </div>
-
-                    <p style="text-align: center;"><strong>Muchas gracias</strong></p>
-
-                    <hr style="border: none; border-top: 1px solid #dee2e6; margin: 40px 0;">
-
-                    <p style="font-size: 15px; color: #6c757d;">
-                        <strong>Registro Único de Adopción (RUA) - Poder Judicial de Córdoba</strong>
-                    </p>
-                </div>
+            <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                <tr>
+                    <td align="center">
+                    <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                        <tr>
+                        <td style="font-size: 24px; color: #007bff; padding-bottom: 20px;">
+                            <strong>Hola {user.nombre} {user.apellido}</strong>
+                        </td>
+                        </tr>
+                        <tr>
+                        <td style="font-size: 17px; padding-bottom: 10px;">
+                            El sistema ha creado tu cuenta en <strong>RUA</strong>, el Registro Único de Adopción de Córdoba.
+                        </td>
+                        </tr>
+                        <tr>
+                        <td style="font-size: 17px; padding-bottom: 10px;">
+                            Para completar tu registro y comenzar a utilizar la plataforma, activá tu cuenta haciendo clic en el siguiente botón:
+                        </td>
+                        </tr>
+                        <tr>
+                        <td align="center" style="padding: 30px 0;">
+                            <!-- BOTÓN RESPONSIVE -->
+                            <table cellpadding="0" cellspacing="0" border="0" style="border-radius: 8px;">
+                            <tr>
+                                <td align="center" bgcolor="#0d6efd" style="border-radius: 8px;">
+                                <a href="{link_activacion}"
+                                    target="_blank"
+                                    style="display: inline-block; padding: 12px 25px; font-size: 16px; color: #ffffff; background-color: #0d6efd; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                                    🔓 Activar mi cuenta
+                                </a>
+                                </td>
+                            </tr>
+                            </table>
+                        </td>
+                        </tr>
+                        <tr>
+                        <td align="center" style="font-size: 17px; padding-bottom: 30px;">
+                            <strong>Muchas gracias</strong>
+                        </td>
+                        </tr>
+                        <tr>
+                        <td>
+                            <hr style="border: none; border-top: 1px solid #dee2e6; margin: 40px 0;">
+                            <p style="font-size: 15px; color: #6c757d;">
+                            <strong>Registro Único de Adopción (RUA) - Poder Judicial de Córdoba</strong>
+                            </p>
+                        </td>
+                        </tr>
+                    </table>
+                    </td>
+                </tr>
+                </table>
             </body>
             </html>
             """
+
 
 
         enviar_mail(user.mail, asunto, cuerpo)
