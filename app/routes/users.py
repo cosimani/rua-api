@@ -21,7 +21,9 @@ from models.notif_y_observaciones import ObservacionesPretensos, NotificacionesR
 from models.ddjj import DDJJ
 import hashlib
 import time
-from datetime import datetime, timedelta, date, time  # <--- ✅ esta línea incluye 'time.min'
+from datetime import datetime, timedelta, date, time as dt_time
+
+import time
 
 
 from database.config import get_db  # Importá get_db desde config.py
@@ -35,6 +37,7 @@ from models.eventos_y_configs import RuaEvento
 from datetime import date, datetime
 from security.security import get_current_user, require_roles, verify_api_key, get_password_hash
 import os
+import re
 from dotenv import load_dotenv
 
 import shutil
@@ -2586,7 +2589,8 @@ def obtener_timeline_usuario(
                 })
 
         # Ordenar cronológicamente
-        timeline.sort(key=lambda x: datetime.combine(x["fecha"], time.min) if isinstance(x["fecha"], date) else x["fecha"])
+        timeline.sort( key=lambda x: datetime.combine(x["fecha"], dt_time.min) if isinstance(x["fecha"], date) else x["fecha"] )
+
 
         # Formatear fechas a "YYYY-MM-DD"
         for item in timeline:
@@ -2597,6 +2601,12 @@ def obtener_timeline_usuario(
                 item["fecha"] = fecha.strftime("%Y-%m-%d")
             else:
                 item["fecha"] = str(fecha)
+
+        # Limpiar posibles etiquetas HTML del campo 'evento'
+        for item in timeline:
+            evento_original = item["evento"]
+            evento_limpio = re.sub(r"<[^>]*?>", "", evento_original)  # Quita cualquier etiqueta HTML
+            item["evento"] = evento_limpio.strip()
         
 
         return {
@@ -3128,3 +3138,92 @@ def registrar_observacion_directa(
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
+
+
+
+@users_router.put("/usuarios/{login}/darse-de-baja", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "supervisora", "adoptante"]))])
+def darse_de_baja_del_sistema(
+    login: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Permite dar de baja a un usuario del sistema RUA.
+    
+    🟢 Si el usuario autenticado es administrador o supervisora, puede dar de baja a cualquier persona.
+    🔵 Si es adoptante, solo puede darse de baja a sí mismo.
+
+    Marca el campo `operativo` en 'N' en `sec_users` y registra un evento.
+    """
+
+    login_actual = current_user["user"]["login"]
+    
+    # Buscar usuario a dar de baja
+    user = db.query(User).filter(User.login == login).first()
+    if not user:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Usuario no encontrado.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    # Validar grupo adoptante
+    grupo = (
+        db.query(Group.description)
+        .join(UserGroup, Group.group_id == UserGroup.group_id)
+        .filter(UserGroup.login == login)
+        .first()
+    )
+    if not grupo or grupo.description.lower() != "adoptante":
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Solo los usuarios adoptantes pueden solicitar la baja.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    if user.operativo == "N":
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "El usuario ya se encuentra dado de baja.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    try:
+        user.operativo = "N"
+        db.add(RuaEvento(
+            login=login,
+            evento_detalle=f"El usuario fue dado de baja por {login_actual}.",
+            evento_fecha=datetime.now()
+        ))
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "La baja fue registrada correctamente.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+
+
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Ocurrió un error al registrar la baja: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+

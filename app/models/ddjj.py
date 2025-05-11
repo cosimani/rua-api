@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Date
 from sqlalchemy.ext.declarative import declarative_base
 
 
@@ -26,7 +26,7 @@ class DDJJ(Base):
     ddjj_localidad_legal = Column(String(64))
     ddjj_cp_legal = Column(String(64))
     ddjj_provincia_legal = Column(String(64))
-    ddjj_fecha_nac = Column(String(64))
+    ddjj_fecha_nac = Column(Date, nullable=True)  # fecha_nacimiento date
     ddjj_nacionalidad = Column(String(64))
     ddjj_sexo = Column(String(64))
     ddjj_correo_electronico = Column(String(64))

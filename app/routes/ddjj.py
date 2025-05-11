@@ -6,6 +6,7 @@ from models.users import User, Group, UserGroup
 from database.config import SessionLocal, get_db
 from security.security import verify_api_key
 from sqlalchemy.exc import SQLAlchemyError
+from datetime import datetime
 
 from security.security import get_current_user, require_roles, verify_api_key, get_password_hash
 
@@ -293,6 +294,23 @@ def upsert_ddjj(
             "tiempo_mensaje": 5,
             "next_page": "actual"
         }
+    
+
+    # Normalizar fecha de nacimiento si existe
+    if "ddjj_fecha_nac" in data:
+        valor_original = data["ddjj_fecha_nac"]
+        try:
+            # Detectar si viene en formato DD/MM/YYYY y convertir
+            if isinstance(valor_original, str) and "/" in valor_original:
+                fecha = datetime.strptime(valor_original, "%d/%m/%Y").date()
+                data["ddjj_fecha_nac"] = fecha.isoformat()  # convierte a YYYY-MM-DD
+        except ValueError:
+            return {
+                "tipo_mensaje": "amarillo",
+                "mensaje": "<p>La fecha de nacimiento no tiene un formato válido (esperado: DD/MM/YYYY o YYYY-MM-DD).</p>",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
 
     ddjj = db.query(DDJJ).filter(DDJJ.login == login).first()
 
@@ -330,12 +348,53 @@ def upsert_ddjj(
                 "next_page": "actual"
             }
     else:
+        
         campos_actualizables = {
             k: v for k, v in data.items() if k != "login" and hasattr(ddjj, k)
         }
 
-        for campo, valor in campos_actualizables.items():
+        # Diccionario que guardará valores ya transformados y listos para usar
+        valores_normalizados = {}
+
+        # Capitalizar nombre y apellido
+        if "ddjj_nombre" in campos_actualizables:
+            valores_normalizados["ddjj_nombre"] = capitalizar_nombre((campos_actualizables["ddjj_nombre"] or "").strip())
+
+        if "ddjj_apellido" in campos_actualizables:
+            valores_normalizados["ddjj_apellido"] = capitalizar_nombre((campos_actualizables["ddjj_apellido"] or "").strip())
+
+        # Normalizar celular
+        if "ddjj_telefono" in campos_actualizables:
+            celular = (campos_actualizables["ddjj_telefono"] or "").strip()
+            resultado = normalizar_celular(celular)
+            if resultado["valido"]:
+                valores_normalizados["ddjj_telefono"] = resultado["celular"]
+
+        # Copiar sin modificación pero con limpieza
+        for campo in ["ddjj_fecha_nac", "ddjj_calle", "ddjj_depto", "ddjj_barrio", "ddjj_localidad", "ddjj_provincia"]:
+            if campo in campos_actualizables:
+                valores_normalizados[campo] = (campos_actualizables[campo] or "").strip()
+
+        # Asignar los valores transformados a la DDJJ
+        for campo, valor in valores_normalizados.items():
             setattr(ddjj, campo, valor)
+
+        # Asignar también a sec_users
+        mapeo_ddjj_a_user = {
+            "ddjj_nombre": "nombre",
+            "ddjj_apellido": "apellido",
+            "ddjj_telefono": "celular",
+            "ddjj_fecha_nac": "fecha_nacimiento",
+            "ddjj_calle": "calle_y_nro",
+            "ddjj_depto": "depto_etc",
+            "ddjj_barrio": "barrio",
+            "ddjj_localidad": "localidad",
+            "ddjj_provincia": "provincia"
+        }
+
+        for campo_ddjj, campo_user in mapeo_ddjj_a_user.items():
+            if campo_ddjj in valores_normalizados:
+                setattr(usuario, campo_user, valores_normalizados[campo_ddjj])
 
         try:
             usuario.doc_adoptante_ddjj_firmada = "Y"

@@ -133,6 +133,17 @@ def login(
             "tiempo_mensaje": 7,
             "next_page": "actual",
         }
+
+    # ❌ No permitir ingreso a usuarios dados de baja
+    if user.operativo != "Y":
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "Tu cuenta está dada de baja y no podrás acceder al sistema.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual",
+        }
+
         
     # 🔑 Verificar contraseña
     if not detect_hash_and_verify(password, user.clave):
@@ -174,6 +185,7 @@ def login(
     )
     group_name = group[0] if group else "Sin grupo asignado"
 
+    
     # 🔐 Generar token
     access_token_expires = timedelta(minutes = ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(str(user.login), expires_delta = access_token_expires)

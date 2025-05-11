@@ -512,19 +512,33 @@ def parse_date(date_value):
     return ""
 
 
+from datetime import datetime, date
 
-def calculate_age(birthdate: str) -> int:
-    """Calcula la edad a partir de una fecha de nacimiento en formato 'YYYY-MM-DD'."""
+
+
+def calculate_age(birthdate) -> int:
+    """Calcula la edad a partir de una fecha de nacimiento en formato 'YYYY-MM-DD' o tipo date."""
     if not birthdate:
-        return 0  # Si no hay fecha, devuelve 0
+        return 0
+
     try:
-        birthdate_date = datetime.strptime(birthdate, "%Y-%m-%d").date()
-        today = datetime.now().date()
-        age = today.year - birthdate_date.year - ((today.month, today.day) < (birthdate_date.month, birthdate_date.day))
+        if isinstance(birthdate, str):
+            birthdate_date = datetime.strptime(birthdate, "%Y-%m-%d").date()
+        elif isinstance(birthdate, date):
+            birthdate_date = birthdate
+        else:
+            return 0  # tipo no válido
+
+        today = date.today()
+        age = today.year - birthdate_date.year - (
+            (today.month, today.day) < (birthdate_date.month, birthdate_date.day)
+        )
         return age
-    except ValueError:
-        return 0  # Si la fecha no tiene el formato correcto, devuelve 0
-    
+    except Exception:
+        return 0
+
+
+
 
 def validar_correo(correo: str) -> bool:
     """
