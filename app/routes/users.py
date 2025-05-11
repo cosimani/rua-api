@@ -2014,21 +2014,10 @@ def listar_observaciones_de_pretenso(
             nombre_completo = f"{datos_observador['nombre']} {datos_observador['apellido']}".strip()
             resultado.append({
                 "observacion": o.observacion,
-                "fecha": o.observacion_fecha.strftime("%Y-%m-%d %H:%M"),
+                "fecha": o.observacion_fecha.strftime("%Y-%m-%d %H:%M") if o.observacion_fecha else None,
                 "login_que_observo": o.login_que_observo,
                 "nombre_completo_que_observo": nombre_completo
             })
-
-
-
-        # resultado = [
-        #     {
-        #         "observacion": o.observacion,
-        #         "fecha": o.observacion_fecha.strftime("%Y-%m-%d %H:%M"),
-        #         "login_que_observo": o.login_que_observo
-        #     }
-        #     for o in observaciones
-        # ]
 
         return {
             "page": page,
@@ -2091,7 +2080,7 @@ def listar_eventos_login(
         resultado = [
             {
                 "detalle": evento.evento_detalle,
-                "fecha": evento.evento_fecha.strftime("%Y-%m-%d %H:%M:%S") if evento.evento_fecha else None
+                "fecha": evento.evento_fecha.strftime("%Y-%m-%d %H:%M") if evento.evento_fecha else None
             }
             for evento in eventos
         ]
@@ -2922,6 +2911,120 @@ def actualizar_mis_datos_personales(
         "next_page": "actual"
     }
 
+
+
+@users_router.post("/notificacion/pretenso/mensaje", response_model=dict,
+                   dependencies=[Depends(verify_api_key),
+                                 Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def notificar_pretenso_mensaje(
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    📢 Envía una notificación completa a un pretenso:
+    - Crea una notificación individual
+    - Registra observación interna
+    - Envía un correo electrónico
+
+    ### Ejemplo del JSON esperado:
+    ```json
+    {
+        "login_destinatario": "12345678",
+        "mensaje": "Recordá subir el certificado de salud.",
+        "link": "/menu_adoptantes/documentacion",
+        "data_json": { "doc_pendiente": "salud" },
+        "tipo_mensaje": "naranja"
+    }
+    ```
+    """
+    login_destinatario = data.get("login_destinatario")
+    mensaje = data.get("mensaje")
+    link = data.get("link")
+    data_json = data.get("data_json")
+    tipo_mensaje = data.get("tipo_mensaje", "naranja")  # por defecto
+    login_que_observa = current_user["user"]["login"]
+
+    if not all([login_destinatario, mensaje, link]):
+        raise HTTPException(status_code=400, detail="Faltan campos requeridos: login_destinatario, mensaje o link.")
+
+    # Validar que el destinatario exista y sea adoptante
+    user_destino = db.query(User).filter(User.login == login_destinatario).first()
+    if not user_destino:
+        raise HTTPException(status_code=404, detail="El usuario destinatario no existe.")
+    
+    grupo = (
+        db.query(Group.description)
+        .join(UserGroup, Group.group_id == UserGroup.group_id)
+        .filter(UserGroup.login == login_destinatario)
+        .first()
+    )
+    if not grupo or grupo.description != "adoptante":
+        raise HTTPException(status_code=400, detail="El login destino no pertenece al grupo 'adoptante'.")
+
+    try:
+        # Crear notificación individual
+        resultado = crear_notificacion_individual(
+            db=db,
+            login_destinatario=login_destinatario,
+            mensaje=mensaje,
+            link=link,
+            data_json=data_json,
+            tipo_mensaje=tipo_mensaje,
+            enviar_por_whatsapp=False
+        )
+        if not resultado["success"]:
+            raise Exception(resultado["mensaje"])
+
+        # Registrar observación interna
+        nueva_obs = ObservacionesPretensos(
+            observacion_fecha=datetime.now(),
+            observacion=mensaje,
+            login_que_observo=login_que_observa,
+            observacion_a_cual_login=login_destinatario
+        )
+        db.add(nueva_obs)
+
+        # Registrar evento
+        db.add(RuaEvento(
+            login=login_destinatario,
+            evento_detalle=f"Notificación enviada: {mensaje[:100]}",
+            evento_fecha=datetime.now()
+        ))
+
+        db.commit()
+
+        # Enviar correo
+        if user_destino.mail:
+            try:
+                cuerpo = f"""
+                <html>
+                <body style="font-family: Arial, sans-serif; font-size: 16px; color: #333;">
+                    <p style="font-size: 18px;">Hola <strong>{user_destino.nombre}</strong>,</p>
+                    <p>{mensaje}</p>
+                    <p style="margin-top: 24px;">Saludos cordiales,<br><strong>Equipo RUA</strong></p>
+                </body>
+                </html>
+                """
+                enviar_mail(
+                    destinatario=user_destino.mail,
+                    asunto="Notificación del Sistema RUA",
+                    cuerpo=cuerpo
+                )
+            except Exception as e:
+                print(f"⚠️ Error al enviar correo: {str(e)}")
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "Notificación enviada y registrada correctamente.",
+            "tiempo_mensaje": 4,
+            "next_page": "actual"
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al procesar la notificación: {str(e)}")
 
 
 

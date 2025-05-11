@@ -243,4 +243,39 @@ def listar_notificaciones(
     return resultado
 
 
+
+@notificaciones_router.get("/notificaciones/{login}/listado", response_model=dict,
+    dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def listar_notificaciones_de_usuario(
+    login: str,
+    filtro: Literal["vistas", "no_vistas", "todas"] = Query(..., description="Filtrar por estado de vista"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(5, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """
+    📄 Devuelve un listado paginado de notificaciones para el `login` indicado,
+    incluyendo la cantidad total de no vistas.
+
+    🔐 Solo accesible para roles supervisora y profesional.
+
+    El parámetro `filtro` puede ser:
+    - "vistas": solo notificaciones ya vistas
+    - "no_vistas": solo notificaciones no vistas
+    - "todas": todas las notificaciones
+    """
+    resultado = obtener_notificaciones_para_usuario(
+        db=db,
+        login=login,
+        filtro=filtro,
+        page=page,
+        limit=limit
+    )
+
+    if not resultado.get("success", True):
+        raise HTTPException(500, resultado["mensaje"])
+
+    return resultado
+
+
     
