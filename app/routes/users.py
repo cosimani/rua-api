@@ -21,7 +21,7 @@ from models.notif_y_observaciones import ObservacionesPretensos, NotificacionesR
 from models.ddjj import DDJJ
 import hashlib
 import time
-from datetime import datetime, timedelta, date  # <--- ✅ esta línea incluye 'time.min'
+from datetime import datetime, timedelta, date, time  # <--- ✅ esta línea incluye 'time.min'
 
 
 from database.config import get_db  # Importá get_db desde config.py
@@ -720,31 +720,11 @@ def get_user_by_login(
             "operativo": user.operativo if user.operativo else "N",
             "mail": user.mail if user.mail else "",
             # Prioridad: proyecto > ddjj_legal > ddjj > sec_users > ""
-            "calle_y_nro": (
-                user.proyecto_calle_y_nro if user.proyecto_calle_y_nro else
-                user.ddjj_calle_legal if user.ddjj_calle_legal else
-                user.ddjj_calle if user.ddjj_calle else
-                user.calle_y_nro if user.calle_y_nro else ""
-            ),
+            "calle_y_nro": user.calle_y_nro if user.calle_y_nro else "",
             "depto_etc": user.depto_etc if user.depto_etc else "",
-            "barrio": (
-                user.proyecto_barrio if user.proyecto_barrio else
-                user.ddjj_barrio_legal if user.ddjj_barrio_legal else
-                user.ddjj_barrio if user.ddjj_barrio else
-                user.barrio if user.barrio else ""
-            ),
-            "localidad": (
-                user.proyecto_localidad if user.proyecto_localidad else
-                user.ddjj_localidad_legal if user.ddjj_localidad_legal else
-                user.ddjj_localidad if user.ddjj_localidad else
-                user.localidad if user.localidad else ""
-            ),
-            "provincia": (
-                user.proyecto_provincia if user.proyecto_provincia else
-                user.ddjj_provincia_legal if user.ddjj_provincia_legal else
-                user.ddjj_provincia if user.ddjj_provincia else
-                user.provincia if user.provincia else ""
-            ),
+            "barrio": user.barrio if user.barrio else "",
+            "localidad": user.localidad if user.localidad else "",
+            "provincia": user.provincia if user.provincia else "",
             "cp": (
                 user.ddjj_cp_legal if user.ddjj_cp_legal else
                 user.ddjj_cp if user.ddjj_cp else ""
@@ -2498,53 +2478,36 @@ def cambiar_clave_usuario(
 
 
 
-
-@users_router.get("/timeline/{login}", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+@users_router.get("/timeline/{login}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
 def obtener_timeline_usuario(
     login: str,
+    nivel: Literal["hitos", "notificaciones", "observaciones", "eventos"] = Query("hitos"),
     db: Session = Depends(get_db)
 ):
     """
-    📅 Devuelve una línea de tiempo de eventos relevantes en el recorrido adoptivo del usuario.
-
-    Incluye: alta de usuario, curso, DDJJ, proyecto y estados clave como entrevistas, valoraciones y sentencias.
+    📅 Devuelve una línea de tiempo del usuario con distintos niveles de detalle.
+    - hitos: solo los momentos clave (curso, DDJJ, proyecto, estados).
+    - notificaciones: agrega notificaciones recibidas.
+    - observaciones: agrega observaciones internas.
+    - eventos: incluye además todos los eventos registrados.
     """
     try:
         user = db.query(User).filter(User.login == login).first()
         if not user:
-            raise HTTPException(status_code = 404, detail = "Usuario no encontrado.")
+            raise HTTPException(status_code=404, detail="Usuario no encontrado.")
 
         timeline = []
 
-        # Alta del usuario
         if user.fecha_alta:
-            timeline.append({
-                "fecha": user.fecha_alta,
-                "evento": "Alta del usuario en el sistema"
-            })
+            timeline.append({ "fecha": user.fecha_alta, "evento": "Alta del usuario en el sistema" })
 
         if user.doc_adoptante_curso_aprobado == "Y":
-            timeline.append({
-                "fecha": user.fecha_alta,  # asumimos que fue en la misma fecha
-                "evento": "Curso de adopción aprobado"
-            })
+            timeline.append({ "fecha": user.fecha_alta, "evento": "Curso de adopción aprobado" })
 
         if user.doc_adoptante_ddjj_firmada == "Y":
-            timeline.append({
-                "fecha": user.fecha_alta,
-                "evento": "Declaración Jurada firmada"
-            })
+            timeline.append({ "fecha": user.fecha_alta, "evento": "Declaración Jurada firmada" })
 
-        # Eventos del sistema (RuaEvento)
-        eventos = db.query(RuaEvento).filter(RuaEvento.login == login).order_by(RuaEvento.evento_fecha).all()
-        for evento in eventos:
-            timeline.append({
-                "fecha": evento.evento_fecha,
-                "evento": evento.evento_detalle
-            })
-
-        # Buscar proyecto asociado
         proyecto = db.query(Proyecto).filter(
             or_(Proyecto.login_1 == login, Proyecto.login_2 == login)
         ).first()
@@ -2555,19 +2518,16 @@ def obtener_timeline_usuario(
                 "evento": "Creación del proyecto adoptivo"
             })
 
-            # Historial de estados del proyecto
             historial = db.query(ProyectoHistorialEstado)\
                 .filter(ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id)\
                 .order_by(ProyectoHistorialEstado.fecha_hora).all()
 
             for h in historial:
-                descripcion = f"Cambio de estado del proyecto: {h.estado_nuevo.replace('_', ' ').capitalize()}"
                 timeline.append({
                     "fecha": h.fecha_hora,
-                    "evento": descripcion
+                    "evento": f"Cambio de estado del proyecto: {h.estado_nuevo.replace('_', ' ').capitalize()}"
                 })
 
-            # Entrevistas agendadas
             entrevistas = db.query(AgendaEntrevistas).filter(
                 AgendaEntrevistas.proyecto_id == proyecto.proyecto_id
             ).order_by(AgendaEntrevistas.fecha_hora).all()
@@ -2578,17 +2538,66 @@ def obtener_timeline_usuario(
                     "evento": f"{idx+1}° Entrevista: {e.comentarios or 'Sin comentarios'}"
                 })
 
-            # Informe de profesionales
             if proyecto.informe_profesionales:
-                fecha_info = os.path.getmtime(proyecto.informe_profesionales)
+                try:
+                    fecha_info = os.path.getmtime(proyecto.informe_profesionales)
+                    timeline.append({
+                        "fecha": datetime.fromtimestamp(fecha_info),
+                        "evento": "Presentación del informe de profesionales"
+                    })
+                except Exception:
+                    pass
+
+        # ➕ NOTIFICACIONES
+        if nivel in ["notificaciones", "observaciones", "eventos"]:
+            notificaciones = db.query(NotificacionesRUA)\
+                .filter(NotificacionesRUA.login_destinatario == login)\
+                .order_by(NotificacionesRUA.fecha_creacion).all()
+
+            for n in notificaciones:
                 timeline.append({
-                    "fecha": datetime.fromtimestamp(fecha_info),
-                    "evento": "Presentación del informe de profesionales"
+                    "fecha": n.fecha_creacion,
+                    "evento": f"📢 Notificación: {n.mensaje}"
                 })
 
-        # Ordenar por fecha
-        # timeline.sort(key = lambda x: x["fecha"] if isinstance(x["fecha"], datetime) else datetime.combine(x["fecha"], time.min), reverse = True)
+        # ➕ OBSERVACIONES
+        if nivel in ["observaciones", "eventos"]:
+            observaciones = db.query(ObservacionesPretensos)\
+                .filter(ObservacionesPretensos.observacion_a_cual_login == login)\
+                .order_by(ObservacionesPretensos.observacion_fecha).all()
 
+            for obs in observaciones:
+                resumen = obs.observacion[:100] + "..." if len(obs.observacion) > 100 else obs.observacion
+                timeline.append({
+                    "fecha": obs.observacion_fecha,
+                    "evento": f"📝 Observación registrada: {resumen}"
+                })
+
+        # ➕ EVENTOS
+        if nivel == "eventos":
+            eventos = db.query(RuaEvento)\
+                .filter(RuaEvento.login == login)\
+                .order_by(RuaEvento.evento_fecha).all()
+
+            for evento in eventos:
+                timeline.append({
+                    "fecha": evento.evento_fecha,
+                    "evento": evento.evento_detalle
+                })
+
+        # Ordenar cronológicamente
+        timeline.sort(key=lambda x: datetime.combine(x["fecha"], time.min) if isinstance(x["fecha"], date) else x["fecha"])
+
+        # Formatear fechas a "YYYY-MM-DD"
+        for item in timeline:
+            fecha = item["fecha"]
+            if isinstance(fecha, datetime):
+                item["fecha"] = fecha.strftime("%Y-%m-%d")
+            elif isinstance(fecha, date):
+                item["fecha"] = fecha.strftime("%Y-%m-%d")
+            else:
+                item["fecha"] = str(fecha)
+        
 
         return {
             "success": True,
@@ -2596,8 +2605,7 @@ def obtener_timeline_usuario(
         }
 
     except SQLAlchemyError as e:
-        raise HTTPException(status_code = 500, detail = f"Error al generar la línea de tiempo: {str(e)}")
-
+        raise HTTPException(status_code=500, detail=f"Error al generar la línea de tiempo: {str(e)}")
 
 
 
@@ -3029,4 +3037,94 @@ def notificar_pretenso_mensaje(
 
 
 
-    
+
+@users_router.post("/observacion/{login}/registrar", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def registrar_observacion_directa(
+    login: str,
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Registra una observación interna para un pretenso, sin enviar mail ni modificar el estado documental.
+    """
+    observacion = data.get("observacion")
+    login_que_observo = current_user["user"]["login"]
+
+    if not observacion or not observacion.strip():
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Debe proporcionar el campo 'observacion'.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+        
+
+    # Verificar que el usuario destino exista y sea adoptante
+    grupo_destinatario = (
+        db.query(Group.description)
+        .join(UserGroup, Group.group_id == UserGroup.group_id)
+        .filter(UserGroup.login == login)
+        .first()
+    )
+    if not grupo_destinatario:
+        return  {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "El login del pretenso no existe.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+        
+    if grupo_destinatario.description != "adoptante":
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "El login destino no pertenece al grupo 'adoptante'.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    try:
+        # Registrar observación
+        nueva_obs = ObservacionesPretensos(
+            observacion_fecha=datetime.now(),
+            observacion=observacion.strip(),
+            login_que_observo=login_que_observo,
+            observacion_a_cual_login=login
+        )
+        db.add(nueva_obs)
+
+        # Registrar evento
+        resumen = observacion.strip()
+        resumen = resumen[:100] + "..." if len(resumen) > 100 else resumen
+
+        nuevo_evento = RuaEvento(
+            login=login,
+            evento_detalle=f"Observación registrada por {login_que_observo}: {resumen}",
+            evento_fecha=datetime.now()
+        )
+        db.add(nuevo_evento)
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "Observación registrada correctamente.",
+            "tiempo_mensaje": 4,
+            "next_page": "actual"
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Ocurrió un error al registrar la observación: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
