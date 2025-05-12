@@ -1501,7 +1501,7 @@ def solicitar_revision_documentos(
             rol = "supervisora",
             mensaje = f"El usuario {usuario.nombre} {usuario.apellido} ha solicitado revisión de su documentación.",
             link = "/menu_supervisoras/detallePretenso",
-            data_json= { "login": usuario.login },
+            data_json= { "dni": usuario.login },
             tipo_mensaje = "naranja"
         )
 
@@ -2801,7 +2801,7 @@ def get_estado_usuario(
                                 <p>Por favor, comuníquese con el equipo técnico para ratificar su deseo de continuar formando parte de la lista.</p>
                             </div>
                         """
-                                                
+
 
             if estado in estados_mensajes:
                 titulo, mensaje, detalle = estados_mensajes[estado]
