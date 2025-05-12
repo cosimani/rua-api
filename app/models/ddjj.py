@@ -187,3 +187,65 @@ class DDJJ(Base):
     ddjj_guardo_6 = Column(String(1), nullable=False, default="N")
     ddjj_guardo_7 = Column(String(1), nullable=False, default="N")
     ddjj_guardo_8 = Column(String(1), nullable=False, default="N")
+
+    # Campos nuevos ############
+
+    # Flexibilidad edad (Subregistro general)
+    ddjj_flex_edad_1 = Column(String(1))
+    ddjj_flex_edad_2 = Column(String(1))
+    ddjj_flex_edad_3 = Column(String(1))
+    ddjj_flex_edad_4 = Column(String(1))
+    ddjj_flex_edad_todos = Column(String(1))
+
+    # Condiciones especiales: Discapacidad
+    ddjj_discapacidad_1 = Column(String(1))  # sin necesidad de apoyos
+    ddjj_discapacidad_2 = Column(String(1))  # con necesidad de apoyos
+
+    ddjj_edad_discapacidad_0 = Column(String(1))  # 0 a 3
+    ddjj_edad_discapacidad_1 = Column(String(1))  # 4 a 6
+    ddjj_edad_discapacidad_2 = Column(String(1))  # 7 a 11
+    ddjj_edad_discapacidad_3 = Column(String(1))  # 12 a 17
+    ddjj_edad_discapacidad_4 = Column(String(1))  # 0 a 17
+
+    # Condiciones especiales: Enfermedades
+    ddjj_enfermedad_1 = Column(String(1))  # no afecta calidad de vida
+    ddjj_enfermedad_2 = Column(String(1))  # afecta relativamente
+    ddjj_enfermedad_3 = Column(String(1))  # afecta significativamente
+
+    ddjj_edad_enfermedad_0 = Column(String(1))  # 0 a 3
+    ddjj_edad_enfermedad_1 = Column(String(1))  # 4 a 6
+    ddjj_edad_enfermedad_2 = Column(String(1))  # 7 a 11
+    ddjj_edad_enfermedad_3 = Column(String(1))  # 12 a 17
+    ddjj_edad_enfermedad_4 = Column(String(1))  # 0 a 17
+
+    # Flexibilidad condiciones de salud
+    ddjj_flex_condiciones_salud = Column(String(1))
+    ddjj_flex_salud_edad_0 = Column(String(1))
+    ddjj_flex_salud_edad_1 = Column(String(1))
+    ddjj_flex_salud_edad_2 = Column(String(1))
+    ddjj_flex_salud_edad_3 = Column(String(1))
+    ddjj_flex_salud_edad_4 = Column(String(1))
+
+    # Subregistro N°6: Grupo de hermanos
+    ddjj_hermanos_comp_1 = Column(String(1))  # hasta 2
+    ddjj_hermanos_comp_2 = Column(String(1))  # hasta 3
+    ddjj_hermanos_comp_3 = Column(String(1))  # 4 o más
+
+    ddjj_hermanos_edad_0 = Column(String(1))  # 0 a 6
+    ddjj_hermanos_edad_1 = Column(String(1))  # 7 a 11
+    ddjj_hermanos_edad_2 = Column(String(1))  # 12 a 17
+    ddjj_hermanos_edad_3 = Column(String(1))  # 0 a 17
+
+    ddjj_flex_hermanos_comp_1 = Column(String(1))
+    ddjj_flex_hermanos_comp_2 = Column(String(1))
+    ddjj_flex_hermanos_comp_3 = Column(String(1))
+
+    ddjj_flex_hermanos_edad_0 = Column(String(1))
+    ddjj_flex_hermanos_edad_1 = Column(String(1))
+    ddjj_flex_hermanos_edad_2 = Column(String(1))
+    ddjj_flex_hermanos_edad_3 = Column(String(1))
+
+
+
+
+

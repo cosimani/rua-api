@@ -250,11 +250,41 @@ def upsert_ddjj(
 
     # Validar que al menos un subregistro esté en "Y", True o similar
     subregistros = [
-        "ddjj_subregistro_flexible", "ddjj_subregistro_1", "ddjj_subregistro_2", "ddjj_subregistro_3",
-        "ddjj_subregistro_4", "ddjj_subregistro_5_a", "ddjj_subregistro_5_b", "ddjj_subregistro_5_c",
-        "ddjj_subregistro_6_a", "ddjj_subregistro_6_b", "ddjj_subregistro_6_c", "ddjj_subregistro_6_d",
-        "ddjj_subregistro_6_2", "ddjj_subregistro_6_3", "ddjj_subregistro_6_mas_de_3"
+        # Subregistros principales
+        "ddjj_subregistro_flexible",
+        "ddjj_subregistro_1", "ddjj_subregistro_2", "ddjj_subregistro_3", "ddjj_subregistro_4",
+        "ddjj_subregistro_5_a", "ddjj_subregistro_5_b", "ddjj_subregistro_5_c",
+        "ddjj_subregistro_6_a", "ddjj_subregistro_6_b", "ddjj_subregistro_6_c",
+        "ddjj_subregistro_6_d", "ddjj_subregistro_6_2", "ddjj_subregistro_6_3", "ddjj_subregistro_6_mas_de_3",
+
+        # Flexibilidad edad
+        "ddjj_flex_edad_1", "ddjj_flex_edad_2", "ddjj_flex_edad_3", "ddjj_flex_edad_4", "ddjj_flex_edad_todos",
+
+        # Discapacidad
+        "ddjj_discapacidad_1", "ddjj_discapacidad_2",
+        "ddjj_edad_discapacidad_0", "ddjj_edad_discapacidad_1", "ddjj_edad_discapacidad_2",
+        "ddjj_edad_discapacidad_3", "ddjj_edad_discapacidad_4",
+
+        # Enfermedad
+        "ddjj_enfermedad_1", "ddjj_enfermedad_2", "ddjj_enfermedad_3",
+        "ddjj_edad_enfermedad_0", "ddjj_edad_enfermedad_1", "ddjj_edad_enfermedad_2",
+        "ddjj_edad_enfermedad_3", "ddjj_edad_enfermedad_4",
+
+        # Flexibilidad salud
+        "ddjj_flex_condiciones_salud",
+        "ddjj_flex_salud_edad_0", "ddjj_flex_salud_edad_1", "ddjj_flex_salud_edad_2",
+        "ddjj_flex_salud_edad_3", "ddjj_flex_salud_edad_4",
+
+        # Hermanos
+        "ddjj_hermanos_comp_1", "ddjj_hermanos_comp_2", "ddjj_hermanos_comp_3",
+        "ddjj_hermanos_edad_0", "ddjj_hermanos_edad_1", "ddjj_hermanos_edad_2", "ddjj_hermanos_edad_3",
+
+        # Flexibilidad hermanos
+        "ddjj_flex_hermanos_comp_1", "ddjj_flex_hermanos_comp_2", "ddjj_flex_hermanos_comp_3",
+        "ddjj_flex_hermanos_edad_0", "ddjj_flex_hermanos_edad_1", "ddjj_flex_hermanos_edad_2", "ddjj_flex_hermanos_edad_3"
     ]
+
+
 
     if not any(data.get(s) in ["Y", True, "true", "True"] for s in subregistros):
         campos_faltantes.append("al_menos_un_subregistro")
@@ -376,8 +406,16 @@ def upsert_ddjj(
                 valores_normalizados[campo] = (campos_actualizables[campo] or "").strip()
 
         # Asignar los valores transformados a la DDJJ
-        for campo, valor in valores_normalizados.items():
+        # for campo, valor in valores_normalizados.items():
+        #     setattr(ddjj, campo, valor)
+
+        for campo, valor in campos_actualizables.items():
+            if isinstance(valor, bool):
+                valor = "Y" if valor else "N"
+            elif isinstance(valor, str) and valor.strip().lower() in ["true", "false"]:
+                valor = "Y" if valor.strip().lower() == "true" else "N"
             setattr(ddjj, campo, valor)
+
 
         # Asignar también a sec_users
         mapeo_ddjj_a_user = {
@@ -582,6 +620,7 @@ def get_ddjj_by_login(
             },
 
             "disponibilidad_adoptiva": {
+                # Subregistros ya existentes
                 "subregistro_1": ddjj.ddjj_subregistro_1,
                 "subregistro_2": ddjj.ddjj_subregistro_2,
                 "subregistro_3": ddjj.ddjj_subregistro_3,
@@ -597,6 +636,57 @@ def get_ddjj_by_login(
                 "subregistro_6_3": ddjj.ddjj_subregistro_6_3,
                 "subregistro_6_mas_de_3": ddjj.ddjj_subregistro_6_mas_de_3,
                 "subregistro_flexible": ddjj.ddjj_subregistro_flexible,
+
+                # Campos nuevos
+                "flex_edad_1": ddjj.ddjj_flex_edad_1,
+                "flex_edad_2": ddjj.ddjj_flex_edad_2,
+                "flex_edad_3": ddjj.ddjj_flex_edad_3,
+                "flex_edad_4": ddjj.ddjj_flex_edad_4,
+                "flex_edad_todos": ddjj.ddjj_flex_edad_todos,
+
+                "discapacidad_1": ddjj.ddjj_discapacidad_1,
+                "discapacidad_2": ddjj.ddjj_discapacidad_2,
+
+                "edad_discapacidad_0": ddjj.ddjj_edad_discapacidad_0,
+                "edad_discapacidad_1": ddjj.ddjj_edad_discapacidad_1,
+                "edad_discapacidad_2": ddjj.ddjj_edad_discapacidad_2,
+                "edad_discapacidad_3": ddjj.ddjj_edad_discapacidad_3,
+                "edad_discapacidad_4": ddjj.ddjj_edad_discapacidad_4,
+
+                "enfermedad_1": ddjj.ddjj_enfermedad_1,
+                "enfermedad_2": ddjj.ddjj_enfermedad_2,
+                "enfermedad_3": ddjj.ddjj_enfermedad_3,
+
+                "edad_enfermedad_0": ddjj.ddjj_edad_enfermedad_0,
+                "edad_enfermedad_1": ddjj.ddjj_edad_enfermedad_1,
+                "edad_enfermedad_2": ddjj.ddjj_edad_enfermedad_2,
+                "edad_enfermedad_3": ddjj.ddjj_edad_enfermedad_3,
+                "edad_enfermedad_4": ddjj.ddjj_edad_enfermedad_4,
+
+                "flex_condiciones_salud": ddjj.ddjj_flex_condiciones_salud,
+                "flex_salud_edad_0": ddjj.ddjj_flex_salud_edad_0,
+                "flex_salud_edad_1": ddjj.ddjj_flex_salud_edad_1,
+                "flex_salud_edad_2": ddjj.ddjj_flex_salud_edad_2,
+                "flex_salud_edad_3": ddjj.ddjj_flex_salud_edad_3,
+                "flex_salud_edad_4": ddjj.ddjj_flex_salud_edad_4,
+
+                "hermanos_comp_1": ddjj.ddjj_hermanos_comp_1,
+                "hermanos_comp_2": ddjj.ddjj_hermanos_comp_2,
+                "hermanos_comp_3": ddjj.ddjj_hermanos_comp_3,
+
+                "hermanos_edad_0": ddjj.ddjj_hermanos_edad_0,
+                "hermanos_edad_1": ddjj.ddjj_hermanos_edad_1,
+                "hermanos_edad_2": ddjj.ddjj_hermanos_edad_2,
+                "hermanos_edad_3": ddjj.ddjj_hermanos_edad_3,
+
+                "flex_hermanos_comp_1": ddjj.ddjj_flex_hermanos_comp_1,
+                "flex_hermanos_comp_2": ddjj.ddjj_flex_hermanos_comp_2,
+                "flex_hermanos_comp_3": ddjj.ddjj_flex_hermanos_comp_3,
+
+                "flex_hermanos_edad_0": ddjj.ddjj_flex_hermanos_edad_0,
+                "flex_hermanos_edad_1": ddjj.ddjj_flex_hermanos_edad_1,
+                "flex_hermanos_edad_2": ddjj.ddjj_flex_hermanos_edad_2,
+                "flex_hermanos_edad_3": ddjj.ddjj_flex_hermanos_edad_3
             },
 
             "tramo_final": {
