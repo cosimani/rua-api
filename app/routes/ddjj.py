@@ -215,8 +215,8 @@ def upsert_ddjj(
             "success": False,
             "tipo_mensaje": "amarillo",
             "mensaje": "<p>Su Declaración Jurada ya fue firmada previamente.</p>"
-                       "<p>Si necesita modificar algún dato, por favor comuníquese con la supervisión del RUA para "
-                       "solicitar la reapertura de la DDJJ y poder firmarla nuevamente.</p>",
+                    "<p>Si necesita realizar modificaciones, puede reabrirla desde y volver a firmarla. "
+                    "La nueva firma será notificada al equipo de supervisión del RUA para su revisión.</p>",
             "tiempo_mensaje": 5,
             "next_page": "actual"
         }
@@ -648,3 +648,91 @@ def get_ddjj_by_login(
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al recuperar la DDJJ: {str(e)}")
+
+
+
+@ddjj_router.post("/reabrir", response_model=dict, 
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
+def reabrir_ddjj(
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    🔓 Reabre una Declaración Jurada (DDJJ) firmada, permitiendo su modificación y nueva firma.
+
+    - Adoptantes solo pueden reabrir su propia DDJJ.
+    - Otros roles (administrador, supervisora, profesional) pueden reabrir cualquier DDJJ.
+    """
+
+    login = data.get("login")
+    if not login:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "<p>El campo 'login' es obligatorio.</p>",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    login_actual = current_user["user"]["login"]
+
+    # Obtener roles del usuario actual
+    roles_actual = (
+        db.query(Group.description)
+        .join(UserGroup, Group.group_id == UserGroup.group_id)
+        .filter(UserGroup.login == login_actual)
+        .all()
+    )
+    roles_actual = [r.description for r in roles_actual]
+
+    # Si es adoptante, solo puede reabrir su propia DDJJ
+    if "adoptante" in roles_actual and login != login_actual:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "<p>No tiene permiso para reabrir la DDJJ de otro usuario.</p>",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    usuario = db.query(User).filter(User.login == login).first()
+    if not usuario:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "<p>Usuario no encontrado.</p>",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    if usuario.doc_adoptante_ddjj_firmada != "Y":
+        return {
+            "success": False,
+            "tipo_mensaje": "amarillo",
+            "mensaje": "<p>La DDJJ ya se encuentra abierta para edición.</p>",
+            "tiempo_mensaje": 4,
+            "next_page": "actual"
+        }
+
+    try:
+        usuario.doc_adoptante_ddjj_firmada = "N"
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "<p>La DDJJ fue reabierta correctamente. Ahora puede editar y firmar nuevamente.</p>",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"<p>Error al reabrir la DDJJ: {str(e)}</p>",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }

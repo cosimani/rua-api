@@ -2780,6 +2780,29 @@ def get_estado_usuario(
                 ),
             }
 
+            if estado == "viable_disponible" and proyecto.ultimo_cambio_de_estado:
+                fecha_cambio = proyecto.ultimo_cambio_de_estado
+
+                # Convertir solo si es string (precaución extra)
+                if isinstance(fecha_cambio, str):
+                    try:
+                        fecha_cambio = datetime.strptime(fecha_cambio, "%Y-%m-%d").date()
+                    except ValueError:
+                        fecha_cambio = None
+
+                if isinstance(fecha_cambio, date):
+                    dias_transcurridos = (datetime.today().date() - fecha_cambio).days
+                    if dias_transcurridos >= 330:
+                        tipo_mensaje = "naranja"
+                        mensaje_para_portada += """
+                            <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
+                                <h5>🔔 Ratificación necesaria</h5>
+                                <p>Han pasado más de 11 meses desde su última actualización en la lista RUA.</p>
+                                <p>Por favor, comuníquese con el equipo técnico para ratificar su deseo de continuar formando parte de la lista.</p>
+                            </div>
+                        """
+                                                
+
             if estado in estados_mensajes:
                 titulo, mensaje, detalle = estados_mensajes[estado]
                 mensaje_para_portada = f"""
@@ -2794,6 +2817,9 @@ def get_estado_usuario(
                     <h5>Motivo: {motivo_baja}.</h5>
                     <h6>Para más información, contacte al equipo técnico.</h6>
                 """
+
+
+
 
     return {
         "tipo_mensaje": tipo_mensaje,

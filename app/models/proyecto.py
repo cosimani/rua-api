@@ -49,9 +49,9 @@ class Proyecto(Base):
     # Estado del proyecto
     aceptado = Column(String(1), nullable=True)
     aceptado_code = Column(String(50), nullable=True)
-    ultimo_cambio_de_estado = Column(String(20), nullable=True)
+    ultimo_cambio_de_estado = Column(Date, nullable=True)
     nro_orden_rua = Column(String(11), nullable=True)
-    fecha_asignacion_nro_orden = Column(String(20), nullable=True)
+    fecha_asignacion_nro_orden = Column(Date, nullable=True)
     operativo = Column(String(1), nullable=True)
     ratificacion_code = Column(String(32), nullable=True)
 
