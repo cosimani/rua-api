@@ -10,6 +10,7 @@ from models.notif_y_observaciones import ObservacionesProyectos
 
 from models.base import Base
 
+
 class Proyecto(Base):
     __tablename__ = "proyecto"
 
@@ -71,6 +72,64 @@ class Proyecto(Base):
     doc_dictamen = Column(String(1024), nullable=True)
     doc_sentencia_guarda = Column(String(1024), nullable=True)
     doc_sentencia_adopcion = Column(String(1024), nullable=True)
+
+    # Campos nuevos ############
+
+    # Flexibilidad edad (Subregistro general)
+    flex_edad_1 = Column(String(1))
+    flex_edad_2 = Column(String(1))
+    flex_edad_3 = Column(String(1))
+    flex_edad_4 = Column(String(1))
+    flex_edad_todos = Column(String(1))
+
+    # Condiciones especiales: Discapacidad
+    discapacidad_1 = Column(String(1))  # sin necesidad de apoyos
+    discapacidad_2 = Column(String(1))  # con necesidad de apoyos
+
+    edad_discapacidad_0 = Column(String(1))  # 0 a 3
+    edad_discapacidad_1 = Column(String(1))  # 4 a 6
+    edad_discapacidad_2 = Column(String(1))  # 7 a 11
+    edad_discapacidad_3 = Column(String(1))  # 12 a 17
+    edad_discapacidad_4 = Column(String(1))  # 0 a 17
+
+    # Condiciones especiales: Enfermedades
+    enfermedad_1 = Column(String(1))  # no afecta calidad de vida
+    enfermedad_2 = Column(String(1))  # afecta relativamente
+    enfermedad_3 = Column(String(1))  # afecta significativamente
+
+    edad_enfermedad_0 = Column(String(1))  # 0 a 3
+    edad_enfermedad_1 = Column(String(1))  # 4 a 6
+    edad_enfermedad_2 = Column(String(1))  # 7 a 11
+    edad_enfermedad_3 = Column(String(1))  # 12 a 17
+    edad_enfermedad_4 = Column(String(1))  # 0 a 17
+
+    # Flexibilidad condiciones de salud
+    flex_condiciones_salud = Column(String(1))
+    flex_salud_edad_0 = Column(String(1))
+    flex_salud_edad_1 = Column(String(1))
+    flex_salud_edad_2 = Column(String(1))
+    flex_salud_edad_3 = Column(String(1))
+    flex_salud_edad_4 = Column(String(1))
+
+    # Subregistro N°6: Grupo de hermanos
+    hermanos_comp_1 = Column(String(1))  # hasta 2
+    hermanos_comp_2 = Column(String(1))  # hasta 3
+    hermanos_comp_3 = Column(String(1))  # 4 o más
+
+    hermanos_edad_0 = Column(String(1))  # 0 a 6
+    hermanos_edad_1 = Column(String(1))  # 7 a 11
+    hermanos_edad_2 = Column(String(1))  # 12 a 17
+    hermanos_edad_3 = Column(String(1))  # 0 a 17
+
+    flex_hermanos_comp_1 = Column(String(1))
+    flex_hermanos_comp_2 = Column(String(1))
+    flex_hermanos_comp_3 = Column(String(1))
+
+    flex_hermanos_edad_0 = Column(String(1))
+    flex_hermanos_edad_1 = Column(String(1))
+    flex_hermanos_edad_2 = Column(String(1))
+    flex_hermanos_edad_3 = Column(String(1))
+
 
 
     # Relaciones con sec_users

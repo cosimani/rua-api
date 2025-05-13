@@ -388,6 +388,47 @@ def get_users(
             else:
                 edad = ""
 
+            MAPA_ESTADOS_PROYECTO = {
+                "sin_curso": "Curso pendiente",
+                "ddjj_pendiente": "DDJJ pendiente",
+                "inicial_cargando": "Doc. inicial",
+                "pedido_revision": "Doc. en revisión",
+                "actualizando": "Actualizando doc.",
+                "aprobado": "Doc. aprobada",
+                "rechazado": "Doc. rechazada",
+
+                "invitacion_pendiente": "Invit. pendiente",
+                "confeccionando": "Confeccionando",
+                "en_revision": "Proy. en revisión",
+                "calendarizando": "Agendando entrev.",
+                "entrevistando": "Entrev. en curso",
+                "para_valorar": "En valoración.",
+                "viable_disponible": "Viable disponible",
+                "viable_no_disponible": "Viable no disp.",
+                "en_suspenso": "En suspenso",
+                "no_viable": "No viable",
+                "en_carpeta": "En carpeta",
+                "vinculacion": "Vinculación",
+                "guarda": "Guarda",
+                "adopcion_definitiva": "Adopción def.",
+                "baja_anulacion": "Baja anulación",
+                "baja_caducidad": "Baja caducidad",
+                "baja_por_convocatoria": "Baja conv.",
+                "baja_rechazo_invitacion": "Baja por rechazo"
+                
+            }
+
+            # Determinar el estado en bruto
+            estado_raw = (
+                user.estado_general if user.estado_general else (
+                    "sin_curso" if not user.doc_adoptante_curso_aprobado or user.doc_adoptante_curso_aprobado != "Y"
+                    else "ddjj_pendiente" if not user.doc_adoptante_ddjj_firmada or user.doc_adoptante_ddjj_firmada != "Y"
+                    else user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states
+                    else ""
+                )
+            )
+
+
             user_dict = {
                 "login": user.login,
                 "nombre": user.nombre if user.nombre else "",
@@ -445,7 +486,8 @@ def get_users(
 
                 "proyectos_no_definitivos": proyectos_no_definitivos,
 
-                "proyecto_estado_general": user.estado_general if user.estado_general else "",
+                # "proyecto_estado_general": user.estado_general if user.estado_general else "",
+                "proyecto_estado_general": MAPA_ESTADOS_PROYECTO.get(estado_raw, estado_raw),
 
                 "proyectos_ids": proyectos_ids  # Aquí agregamos la lista de proyecto_id
 
@@ -2714,6 +2756,13 @@ def get_estado_usuario(
             mensaje_para_portada = """
                 <h4>Documentación en revisión</h4>
                 <h5>Aguarde la revisión de su documentación.</h5>
+                <h6>¡Muchas gracias!</h6>
+            """ 
+        elif ddjj and user.doc_adoptante_ddjj_firmada == "Y" and \
+                user.doc_adoptante_estado in ( 'aprobado' ) and not proyecto :
+            mensaje_para_portada = """
+                <h4>Documentación aprobada</h4>
+                <h5>Puede presetar su proyecto adoptivo.</h5>
                 <h6>¡Muchas gracias!</h6>
             """ 
 
