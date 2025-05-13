@@ -7,7 +7,7 @@ from database.config import SessionLocal, get_db
 from security.security import verify_api_key
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime
-
+from models.eventos_y_configs import RuaEvento
 from security.security import get_current_user, require_roles, verify_api_key, get_password_hash
 
 from helpers.utils import convertir_booleans_a_string, normalizar_celular, capitalizar_nombre
@@ -354,11 +354,30 @@ def upsert_ddjj(
             "next_page": "actual"
         }
     
+    
     if not ddjj:
+
         nueva_ddjj = DDJJ(**data)
         db.add(nueva_ddjj)
+
+        usuario.doc_adoptante_ddjj_firmada = "Y"
+
+        es_creacion = not ddjj
+        es_mismo_usuario = usuario_actual_login == login
+
+        evento_detalle = (
+            "DDJJ creada y firmada" if es_creacion else "DDJJ actualizada y firmada"
+        )
+        evento_detalle += " por el mismo usuario." if es_mismo_usuario else f" por {usuario_actual_login}."
+
+        db.add(RuaEvento(
+            login=login,
+            evento_detalle=evento_detalle,
+            evento_fecha=datetime.now()
+        ))
+
+  
         try:
-            usuario.doc_adoptante_ddjj_firmada = "Y"
             db.commit()
             db.refresh(nueva_ddjj)
             return {
@@ -377,6 +396,7 @@ def upsert_ddjj(
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
             }
+    
     else:
         
         campos_actualizables = {
@@ -436,7 +456,23 @@ def upsert_ddjj(
 
         try:
             usuario.doc_adoptante_ddjj_firmada = "Y"
+
+            es_creacion = not ddjj
+            es_mismo_usuario = usuario_actual_login == login
+
+            evento_detalle = (
+                "DDJJ creada y firmada" if es_creacion else "DDJJ actualizada y firmada"
+            )
+            evento_detalle += " por el mismo usuario." if es_mismo_usuario else f" por {usuario_actual_login}."
+
+            db.add(RuaEvento(
+                login=login,
+                evento_detalle=evento_detalle,
+                evento_fecha=datetime.now()
+            ))
+
             db.commit()
+
             return {
                 "tipo_mensaje": "verde",
                 "mensaje": "<p>DDJJ actualizada exitosamente.</p>",
@@ -806,7 +842,15 @@ def reabrir_ddjj(
         }
 
     try:
+
         usuario.doc_adoptante_ddjj_firmada = "N"
+
+        db.add(RuaEvento(
+            login=login,
+            evento_detalle="DDJJ reabierta por el mismo usuario." if login_actual == login else f"DDJJ reabierta por {login_actual}",
+            evento_fecha=datetime.now()
+        ))
+
         db.commit()
 
         return {

@@ -778,7 +778,7 @@ def get_user_by_login(
             "mostrar_boton_proyecto": bool(user.proyecto_id),
 
             "boton_aprobar_documentacion": docs_de_pretenso_presentados and user.doc_adoptante_estado == "pedido_revision",
-            "boton_solicitar_actualizacion": docs_de_pretenso_presentados and user.doc_adoptante_estado in ("pedido_revision", "actualizando"),
+            "boton_solicitar_actualizacion": docs_de_pretenso_presentados and user.doc_adoptante_estado == "pedido_revision",
 
             "boton_ver_proyecto": bool(user.proyecto_id),
 
@@ -2969,6 +2969,7 @@ def notificar_pretenso_mensaje(
     📢 Envía una notificación completa a un pretenso:
     - Crea una notificación individual
     - Registra observación interna
+    - Cambia estado de documentación si corresponde
     - Envía un correo electrónico
 
     ### Ejemplo del JSON esperado:
@@ -2977,26 +2978,40 @@ def notificar_pretenso_mensaje(
         "login_destinatario": "12345678",
         "mensaje": "Recordá subir el certificado de salud.",
         "link": "/menu_adoptantes/documentacion",
-        "data_json": { "doc_pendiente": "salud" },
+        "data_json": { "accion": "solicitar_actualizacion_doc" },
         "tipo_mensaje": "naranja"
     }
-    ```
     """
     login_destinatario = data.get("login_destinatario")
     mensaje = data.get("mensaje")
     link = data.get("link")
-    data_json = data.get("data_json")
-    tipo_mensaje = data.get("tipo_mensaje", "naranja")  # por defecto
+    data_json = data.get("data_json") or {}
+    tipo_mensaje = data.get("tipo_mensaje", "naranja")
     login_que_observa = current_user["user"]["login"]
+    accion = data_json.get("accion")  # puede ser None, "solicitar_actualizacion_doc", "aprobar_documentacion"
 
     if not all([login_destinatario, mensaje, link]):
-        raise HTTPException(status_code=400, detail="Faltan campos requeridos: login_destinatario, mensaje o link.")
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Faltan campos requeridos: login_destinatario, mensaje o link.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
 
-    # Validar que el destinatario exista y sea adoptante
+
+    # Validar usuario destinatario
     user_destino = db.query(User).filter(User.login == login_destinatario).first()
     if not user_destino:
-        raise HTTPException(status_code=404, detail="El usuario destinatario no existe.")
-    
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "El usuario destinatario no existe.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+
     grupo = (
         db.query(Group.description)
         .join(UserGroup, Group.group_id == UserGroup.group_id)
@@ -3004,7 +3019,14 @@ def notificar_pretenso_mensaje(
         .first()
     )
     if not grupo or grupo.description != "adoptante":
-        raise HTTPException(status_code=400, detail="El login destino no pertenece al grupo 'adoptante'.")
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "El login destino no pertenece al grupo 'adoptante'.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
 
     try:
         # Crear notificación individual
@@ -3020,6 +3042,16 @@ def notificar_pretenso_mensaje(
         if not resultado["success"]:
             raise Exception(resultado["mensaje"])
 
+        # Cambiar estado si la acción es válida
+        nuevo_estado = None
+        if accion == "solicitar_actualizacion_doc":
+            nuevo_estado = "actualizando"
+        elif accion == "aprobar_documentacion":
+            nuevo_estado = "aprobado"
+
+        if nuevo_estado:
+            user_destino.doc_adoptante_estado = nuevo_estado
+
         # Registrar observación interna
         nueva_obs = ObservacionesPretensos(
             observacion_fecha=datetime.now(),
@@ -3029,34 +3061,99 @@ def notificar_pretenso_mensaje(
         )
         db.add(nueva_obs)
 
-        # Registrar evento
+        # Registrar único evento con detalle completo
+        evento_detalle = f"Notificación enviada por {login_que_observa}: {mensaje[:150]}"
+        if nuevo_estado:
+            evento_detalle += f" | Se cambió el estado de documentación a '{nuevo_estado}'"
+
         db.add(RuaEvento(
             login=login_destinatario,
-            evento_detalle=f"Notificación enviada: {mensaje[:100]}",
+            evento_detalle=evento_detalle,
             evento_fecha=datetime.now()
         ))
 
         db.commit()
 
-        # Enviar correo
+        # Enviar correo si hay mail
         if user_destino.mail:
             try:
+                if accion == "solicitar_actualizacion_doc":
+                    cuerpo_mensaje_html = f"""
+                    <p>Desde el equipo de supervisión del <strong>RUA</strong>, solicitamos que revise y actualice su documentación personal en el sistema.</p>
+                    <p>A continuación, compartimos el mensaje enviado por el equipo:</p>
+                    <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
+                        <em>{mensaje}</em>
+                    </div>
+                    """
+                elif accion == "aprobar_documentacion":
+                    cuerpo_mensaje_html = f"""
+                    <p>Desde el equipo de supervisión del <strong>RUA</strong>, informamos que su documentación personal fue <strong>revisada y aprobada</strong>.</p>
+                    <p>A continuación, compartimos el mensaje enviado por el equipo:</p>
+                    <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #198754; border-radius: 6px; margin-top: 10px;">
+                        <em>{mensaje}</em>
+                    </div>
+                    """
+                else:
+                    cuerpo_mensaje_html = f"""
+                    <p>Recibiste una notificación del equipo del <strong>RUA</strong>:</p>
+                    <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
+                        <em>{mensaje}</em>
+                    </div>
+                    """
+
                 cuerpo = f"""
                 <html>
-                <body style="font-family: Arial, sans-serif; font-size: 16px; color: #333;">
-                    <p style="font-size: 18px;">Hola <strong>{user_destino.nombre}</strong>,</p>
-                    <p>{mensaje}</p>
-                    <p style="margin-top: 24px;">Saludos cordiales,<br><strong>Equipo RUA</strong></p>
+                <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                    <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                    <tr>
+                        <td align="center">
+                        <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                            <tr>
+                            <td style="font-size: 24px; color: #007bff;">
+                                <strong>Hola {user_destino.nombre},</strong>
+                            </td>
+                            </tr>
+                            <tr>
+                            <td style="padding-top: 20px; font-size: 17px;">
+                                {cuerpo_mensaje_html}
+                            </td>
+                            </tr>
+                            <tr>
+                            <td align="center" style="font-size: 17px; padding-top: 30px;">
+                                <p><strong>Muchas gracias.</strong></p>
+                            </td>
+                            </tr>
+                            <tr>
+                            <td style="padding-top: 30px;">
+                                <hr style="border: none; border-top: 1px solid #dee2e6;">
+                                <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
+                                <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                </p>
+                            </td>
+                            </tr>
+                        </table>
+                        </td>
+                    </tr>
+                    </table>
                 </body>
                 </html>
                 """
+
+
                 enviar_mail(
                     destinatario=user_destino.mail,
                     asunto="Notificación del Sistema RUA",
                     cuerpo=cuerpo
                 )
             except Exception as e:
-                print(f"⚠️ Error al enviar correo: {str(e)}")
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": f"⚠️ Error al enviar correo: {str(e)}",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+
 
         return {
             "success": True,
@@ -3068,8 +3165,13 @@ def notificar_pretenso_mensaje(
 
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al procesar la notificación: {str(e)}")
-
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al procesar la notificación: {str(e)}",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
 
 
 
@@ -3251,5 +3353,4 @@ def darse_de_baja_del_sistema(
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
-
 
