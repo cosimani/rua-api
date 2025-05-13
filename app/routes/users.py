@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Request, Body, UploadFile, File, Form
-from typing import List, Dict, Optional, Literal
+
+from typing import List, Dict, Optional, Literal, Tuple
 from math import ceil
 from database.config import SessionLocal
 from helpers.utils import check_consecutive_numbers, get_user_name_by_login, \
@@ -41,9 +42,15 @@ import re
 from dotenv import load_dotenv
 
 import shutil
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from helpers.utils import enviar_mail, get_setting_value, detect_hash_and_verify
+
+import fitz  # PyMuPDF
+from PIL import Image
+import subprocess
+from pathlib import Path
+
 
  
 
@@ -59,6 +66,16 @@ if not UPLOAD_DIR_DOC_PRETENSOS:
 
 # Crear la carpeta si no existe
 os.makedirs(UPLOAD_DIR_DOC_PRETENSOS, exist_ok=True)
+
+
+# Obtener y validar la variable
+DIR_PDF_GENERADOS = os.getenv("DIR_PDF_GENERADOS")
+
+if not DIR_PDF_GENERADOS:
+    raise RuntimeError("La variable de entorno DIR_PDF_GENERADOS no está definida. Verificá tu archivo .env")
+
+# Crear la carpeta si no existe
+os.makedirs(DIR_PDF_GENERADOS, exist_ok=True)
 
 
 
@@ -3354,3 +3371,180 @@ def darse_de_baja_del_sistema(
             "next_page": "actual"
         }
 
+
+
+
+@users_router.get("/{login}/descargar-documentos", response_class=FileResponse,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
+def descargar_documentos_usuario(
+    login: str,
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.login == login).first()
+    if not user:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "El usuario indicado no fue encontrado.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+        )
+
+    try:
+        output_path = os.path.join(DIR_PDF_GENERADOS, f"documentos_usuario_{login}.pdf")
+        pdf_paths: List[Tuple[str, str]] = []
+
+
+        def agregar_documentos(modelo, campos: List[str]):
+            for campo in campos:
+                ruta = getattr(modelo, campo, None)
+                if ruta and os.path.exists(ruta):
+                    ext = os.path.splitext(ruta)[1].lower()
+                    nombre_base = f"{modelo.__class__.__name__.lower()}_{campo}_{os.path.basename(ruta)}"
+                    out_pdf = os.path.join(DIR_PDF_GENERADOS, nombre_base + ".pdf")
+
+                    if ext == ".pdf":
+                        shutil.copy(ruta, out_pdf)
+                        # pdf_paths.append(out_pdf)
+                        pdf_paths.append((campo, out_pdf))
+                    elif ext in [".jpg", ".jpeg", ".png"]:
+                        Image.open(ruta).convert("RGB").save(out_pdf)
+                        # pdf_paths.append(out_pdf)
+                        pdf_paths.append((campo, out_pdf))
+                    elif ext in [".doc", ".docx"]:
+                        subprocess.run([
+                            "libreoffice", "--headless", "--convert-to", "pdf", "--outdir", DIR_PDF_GENERADOS, ruta
+                        ], check=True)
+                        converted = os.path.join(DIR_PDF_GENERADOS, os.path.splitext(os.path.basename(ruta))[0] + ".pdf")
+                        if os.path.exists(converted):
+                            # pdf_paths.append(converted)
+                            pdf_paths.append((campo, converted))
+
+        # Agregamos los documentos personales del usuario
+        agregar_documentos(user, [
+            "doc_adoptante_salud", "doc_adoptante_dni_frente", "doc_adoptante_dni_dorso", "doc_adoptante_domicilio",
+            "doc_adoptante_deudores_alimentarios", "doc_adoptante_antecedentes",
+            "doc_adoptante_migraciones"
+        ])
+
+        if not pdf_paths:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": "No se encontraron documentos disponibles para este usuario.",
+                    "tiempo_mensaje": 6,
+                    "next_page": "actual"
+                }
+            )
+        
+        TITULOS_DOCUMENTOS = {
+            "doc_adoptante_salud": "Certificado de salud",
+            "doc_adoptante_dni_frente": "DNI - Frente",
+            "doc_adoptante_dni_dorso": "DNI - Dorso",
+            "doc_adoptante_domicilio": "Comprobante de domicilio",
+            "doc_adoptante_deudores_alimentarios": "Certificado de deudores alimentarios",
+            "doc_adoptante_antecedentes": "Certificado de antecedentes penales",
+            "doc_adoptante_migraciones": "Certificado de migraciones"
+        }
+
+        # Fusionamos todos los PDF
+        merged = fitz.open()
+
+        # Página inicial con datos personales del pretenso
+        page = merged.new_page(pno=0, width=595, height=842)
+
+        # Encabezado centrado grande
+        page.insert_textbox(
+            rect=fitz.Rect(0, 60, page.rect.width, 100),
+            buffer="Documentación del Pretenso Adoptante",
+            fontname="helv",
+            fontsize=22,
+            align=1
+        )
+
+        # Datos personales: insertados bien visibles más abajo
+        datos = [
+            f"Nombre: {user.nombre} {user.apellido}",
+            f"DNI: {user.login}",
+            f"Correo electrónico: {user.mail or 'No registrado'}",
+            f"Celular: {user.celular or 'No registrado'}"
+        ]
+
+        # Espaciado vertical correcto
+        y_pos = 120
+        for linea in datos:
+            rect_linea = fitz.Rect(60, y_pos, page.rect.width - 60, y_pos + 25)
+            page.insert_textbox(
+                rect=rect_linea,
+                buffer=linea,
+                fontname="helv",
+                fontsize=14,
+                align=0  # alineado a la izquierda
+            )
+            y_pos += 35  # mayor espaciado para visibilidad
+
+        # Línea decorativa final
+        page.draw_line(p1=(60, y_pos), p2=(page.rect.width - 60, y_pos), color=(0.5, 0.5, 0.5), width=0.8)
+
+
+
+
+        for campo, path in pdf_paths:
+            print(f"➡️  Procesando: {campo} -> {path}")
+            titulo_base = TITULOS_DOCUMENTOS.get(campo, "Documento")
+            titulo_completo = f"{titulo_base} de {user.nombre} {user.apellido}"
+            print(f"📝 Título insertado: {titulo_completo}")
+
+            # Página de título
+            page = merged.new_page(width=595, height=842)  # A4
+            print("✅ Página de título creada.")
+
+            text_rect = fitz.Rect(0, 280, page.rect.width, 320)
+            page.insert_textbox(
+                rect=text_rect,
+                buffer=titulo_completo,
+                fontname="helv",
+                fontsize=20,
+                align=1
+            )
+
+            print("🖋️ Texto insertado en página de título.")
+
+            ICONO_FLECHA_PATH = "/app/recursos/imagenes/flecha_hacia_abajo.png"
+            if os.path.exists(ICONO_FLECHA_PATH):
+                img_rect = fitz.Rect(250, 340, 345, 440)
+                page.insert_image(img_rect, filename=ICONO_FLECHA_PATH)
+                print("📌 Flecha insertada.")
+            else:
+                print("⚠️ No se encontró el ícono de flecha:", ICONO_FLECHA_PATH)
+
+            # Insertar el documento real
+            with fitz.open(path) as doc:
+                merged.insert_pdf(doc)
+                print(f"📎 Documento {path} insertado.")
+
+        print(f"📄 Total de páginas generadas: {merged.page_count}")
+        merged.save(output_path)
+
+        return FileResponse(
+            path=output_path,
+            filename=f"documentos_pretenso_{login}.pdf",
+            media_type="application/pdf"
+        )
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": f"Ocurrió un error al generar el PDF: {str(e)}",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+        )
