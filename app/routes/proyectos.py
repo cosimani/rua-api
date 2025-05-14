@@ -3415,3 +3415,257 @@ def confirmar_sentencia_adopcion(
         "tiempo_mensaje": 5,
         "next_page": "actual"
     }
+
+
+
+
+@proyectos_router.post("/crear-proyecto-completo", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["adoptante"]))])
+def crear_proyecto_completo(
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        login_1 = current_user["user"]["login"]
+        nombre_1 = current_user["user"]["nombre"]
+        apellido_1 = current_user["user"]["apellido"]
+
+        tipo = data.get("proyecto_tipo")
+        login_2 = data.get("login_2")
+        provincia = data.get("proyecto_provincia")
+
+        if tipo not in ["Monoparental", "Matrimonio", "Unión convivencial"]:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Tipo de proyecto inválido.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+        user1_roles = db.query(UserGroup).filter(UserGroup.login == login_1).all()
+        if not any(db.query(Group).filter(Group.group_id == r.group_id, Group.description == "adoptante").first() for r in user1_roles):
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": f"El usuario '{login_1}' no tiene el rol 'adoptante'.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+
+        aceptado_code = None
+        login_2_user = None
+        doc_adoptante_curso_aprobado = True
+        estado = "confeccionando"
+
+        if tipo != "Monoparental":
+            if not login_2:
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": "Debe especificar el DNI de la pareja para proyectos biparentales.",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+            if login_2 == login_1:
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": f"El DNI de la peraja debe ser distinto a {login_1}.",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+            
+            login_2_user = db.query(User).filter(User.login == login_2).first()
+            if not login_2_user:
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": f"El usuario con DNI {login_2} no exite.",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+            
+
+            login_2_roles = db.query(UserGroup).filter(UserGroup.login == login_2).all()
+            if not any(db.query(Group).filter(Group.group_id == r.group_id, Group.description == "adoptante").first() for r in login_2_roles):
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": f"El usuario con DNI {login_2} no tiene el rol 'adoptante'.",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+            
+
+            aceptado_code = generar_codigo_para_link(16)
+            estado = "invitacion_pendiente"
+
+            # Verificar que login_2 no tenga proyecto activo
+            if db.query(Proyecto).filter(Proyecto.login_2 == login_2,
+                Proyecto.estado_general.in_(["creado", "confeccionando", "en_revision", "actualizando", "aprobado", 
+                                             "calendarizando", "entrevistando", "para_valorar", "viable_disponible", 
+                                             "en_suspenso", "en_carpeta", "vinculacion", "guarda"])).first():
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": f"El usuario con DNI {login_2} ya forma parte de un proyecto activo.",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+            
+
+            doc_adoptante_curso_aprobado = (getattr(login_2_user, "doc_adoptante_curso_aprobado", "N") == "Y")
+
+        def subreg(k):
+            return "Y" if data.get(k) == "Y" else "N"
+
+        nuevo = Proyecto(
+            login_1=login_1,
+            login_2=login_2,
+            
+            proyecto_tipo=tipo,
+            proyecto_calle_y_nro=data.get("proyecto_calle_y_nro"),
+            proyecto_depto_etc=data.get("proyecto_depto_etc"),
+            proyecto_barrio=data.get("proyecto_barrio"),
+            proyecto_localidad=data.get("proyecto_localidad"),
+            proyecto_provincia=provincia,
+
+            subregistro_1=subreg("subregistro_1"),
+            subregistro_2=subreg("subregistro_2"),
+            subregistro_3=subreg("subregistro_3"),
+            subregistro_4=subreg("subregistro_4"),
+            subregistro_5_a=subreg("subregistro_5_a"),
+            subregistro_5_b=subreg("subregistro_5_b"),
+            subregistro_5_c=subreg("subregistro_5_c"),
+            subregistro_6_a=subreg("subregistro_6_a"),
+            subregistro_6_b=subreg("subregistro_6_b"),
+            subregistro_6_c=subreg("subregistro_6_c"),
+            subregistro_6_d=subreg("subregistro_6_d"),
+            subregistro_6_2=subreg("subregistro_6_2"),
+            subregistro_6_3=subreg("subregistro_6_3"),
+            subregistro_6_mas_de_3=subreg("subregistro_6_mas_de_3"),
+            subregistro_flexible=subreg("subregistro_flexible"),
+            subregistro_otra_provincia=subreg("subregistro_otra_provincia"),
+
+            # Flexibilidad edad
+            flex_edad_1=subreg("flex_edad_1"),
+            flex_edad_2=subreg("flex_edad_2"),
+            flex_edad_3=subreg("flex_edad_3"),
+            flex_edad_4=subreg("flex_edad_4"),
+            flex_edad_todos=subreg("flex_edad_todos"),
+
+            # Discapacidad
+            discapacidad_1=subreg("discapacidad_1"),
+            discapacidad_2=subreg("discapacidad_2"),
+            edad_discapacidad_0=subreg("edad_discapacidad_0"),
+            edad_discapacidad_1=subreg("edad_discapacidad_1"),
+            edad_discapacidad_2=subreg("edad_discapacidad_2"),
+            edad_discapacidad_3=subreg("edad_discapacidad_3"),
+            edad_discapacidad_4=subreg("edad_discapacidad_4"),
+
+            # Enfermedades
+            enfermedad_1=subreg("enfermedad_1"),
+            enfermedad_2=subreg("enfermedad_2"),
+            enfermedad_3=subreg("enfermedad_3"),
+            edad_enfermedad_0=subreg("edad_enfermedad_0"),
+            edad_enfermedad_1=subreg("edad_enfermedad_1"),
+            edad_enfermedad_2=subreg("edad_enfermedad_2"),
+            edad_enfermedad_3=subreg("edad_enfermedad_3"),
+            edad_enfermedad_4=subreg("edad_enfermedad_4"),
+
+            # Flexibilidad salud
+            flex_condiciones_salud=subreg("flex_condiciones_salud"),
+            flex_salud_edad_0=subreg("flex_salud_edad_0"),
+            flex_salud_edad_1=subreg("flex_salud_edad_1"),
+            flex_salud_edad_2=subreg("flex_salud_edad_2"),
+            flex_salud_edad_3=subreg("flex_salud_edad_3"),
+            flex_salud_edad_4=subreg("flex_salud_edad_4"),
+
+            # Grupo de hermanos
+            hermanos_comp_1=subreg("hermanos_comp_1"),
+            hermanos_comp_2=subreg("hermanos_comp_2"),
+            hermanos_comp_3=subreg("hermanos_comp_3"),
+            hermanos_edad_0=subreg("hermanos_edad_0"),
+            hermanos_edad_1=subreg("hermanos_edad_1"),
+            hermanos_edad_2=subreg("hermanos_edad_2"),
+            hermanos_edad_3=subreg("hermanos_edad_3"),
+            flex_hermanos_comp_1=subreg("flex_hermanos_comp_1"),
+            flex_hermanos_comp_2=subreg("flex_hermanos_comp_2"),
+            flex_hermanos_comp_3=subreg("flex_hermanos_comp_3"),
+            flex_hermanos_edad_0=subreg("flex_hermanos_edad_0"),
+            flex_hermanos_edad_1=subreg("flex_hermanos_edad_1"),
+            flex_hermanos_edad_2=subreg("flex_hermanos_edad_2"),
+            flex_hermanos_edad_3=subreg("flex_hermanos_edad_3"),
+
+
+            aceptado="N" if aceptado_code else None,
+            aceptado_code=aceptado_code,
+            operativo="Y",
+            estado_general=estado
+        )
+
+        db.add(nuevo)
+        db.commit()
+        db.refresh(nuevo)
+
+        if aceptado_code:
+            try:
+                protocolo = get_setting_value(db, "protocolo")
+                host = get_setting_value(db, "donde_esta_alojado")
+                puerto = get_setting_value(db, "puerto_tcp")
+                endpoint = get_setting_value(db, "endpoint_aceptar_invitacion")
+                if endpoint and not endpoint.startswith("/"):
+                    endpoint = "/" + endpoint
+
+                puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
+                host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
+
+                link_aceptar = f"{protocolo}://{host_con_puerto}{endpoint}?invitacion={aceptado_code}&respuesta=Y"
+                link_rechazar = f"{protocolo}://{host_con_puerto}{endpoint}?invitacion={aceptado_code}&respuesta=N"
+
+                cuerpo = f"""
+                <html><body><p>Has sido invitado/a por <strong>{nombre_1} {apellido_1}</strong> (DNI: {login_1})</p>
+                {"<p style='color:red;'><strong>⚠️ Debés tener aprobado el Curso Obligatorio.</strong></p>" if not doc_adoptante_curso_aprobado else ""}
+                <p><a href='{link_aceptar}'>✅ Aceptar</a> | <a href='{link_rechazar}'>❌ Rechazar</a></p>
+                <p>Gracias.<br>Equipo del Sistema RUA</p></body></html>"""
+
+                enviar_mail(destinatario=login_2_user.mail, asunto="Invitación a proyecto adoptivo - RUA", cuerpo=cuerpo)
+
+                evento = RuaEvento(
+                    login=login_1,
+                    evento_detalle=f"Se envío invitación a {login_2} para sumarse al proyecto.",
+                    evento_fecha=datetime.now()
+                )
+                db.add(evento)
+                db.commit()
+            except Exception as e:
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": f"⚠️ Error al enviar correo de invitación: {str(e)}",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "Proyecto creado correctamente.",
+            "tiempo_mensaje": 4,
+            "next_page": "menu_adoptantes/proyecto"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": f"Error al crear el proyecto avanzado: {str(e)}",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
