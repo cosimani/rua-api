@@ -2780,8 +2780,8 @@ def get_estado_usuario(
                     ""
                 ),
                 "en_revision": (
-                    "Documentación en revisión",
-                    "Aguarde la revisión del RUA.",
+                    "Proyecto en revisión",
+                    "Aguarde la revisión de su proyecto adoptivo por parte de la Supervisión del RUA.",
                     ""
                 ),
                 "aprobado": (

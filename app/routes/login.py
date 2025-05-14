@@ -346,60 +346,49 @@ def activar_cuenta(activacion: str = Query(...), db: Session = Depends(get_db)):
         }
 
 
-@login_router.get("/aceptar-invitacion", response_model = dict)
+
+
+
+@login_router.get("/aceptar-invitacion", response_model=dict)
 def aceptar_invitacion(
-    invitacion: str = Query(..., description = "Código único de invitación"),
-    respuesta: str = Query(..., regex = "^[YN]$", description = "Y para aceptar, N para rechazar"),
+    invitacion: str = Query(..., description="Código único de invitación"),
+    respuesta: str = Query(..., regex="^[YN]$", description="Y para aceptar, N para rechazar"),
     db: Session = Depends(get_db)
 ):
     """
     Permite que el segundo adoptante acepte o rechace la invitación a un proyecto adoptivo.
     Se usa el código único aceptado_code, que se borra una vez procesada la respuesta.
     """
+
     try:
         proyecto = db.query(Proyecto).filter(Proyecto.aceptado_code == invitacion).first()
 
         if not proyecto:
             return {
                 "tipo_mensaje": "amarillo",
-                "mensaje": (
-                    "<p>El código de invitación caducó o ya fue utilizado.</p>"
-                    "<p>Consultá con personal del RUA.</p>"
-                ),
+                "mensaje": "<p>El código de invitación caducó o ya fue utilizado.</p><p>Consultá con personal del RUA.</p>",
                 "tiempo_mensaje": 6,
                 "next_page": "login"
             }
 
         login_2 = proyecto.login_2
+        user2 = db.query(User).filter(User.login == login_2).first()
 
         if respuesta == "N":
             proyecto.aceptado = "N"
             proyecto.aceptado_code = None
             proyecto.estado_general = "baja_rechazo_invitacion"
-
             db.commit()
 
             evento = RuaEvento(
-                login = login_2,
-                evento_detalle = "El usuario rechazó la invitación al proyecto.",
-                evento_fecha = datetime.now()
+                login=login_2,
+                evento_detalle="El usuario rechazó la invitación al proyecto.",
+                evento_fecha=datetime.now()
             )
             db.add(evento)
             db.commit()
 
-            return {
-                "tipo_mensaje": "amarillo",
-                "mensaje": "<p>Has rechazado la invitación al proyecto adoptivo.</p>",
-                "tiempo_mensaje": 6,
-                "next_page": "login"
-            }
-
-        if respuesta == "Y":
-
-            # Consultar el usuario real desde sec_users
-            user2 = db.query(User).filter(User.login == login_2).first()
-
-            # Validar curso aprobado
+        elif respuesta == "Y":
             if not user2 or getattr(user2, "doc_adoptante_curso_aprobado", "N") != "Y":
                 return {
                     "tipo_mensaje": "naranja",
@@ -411,39 +400,118 @@ def aceptar_invitacion(
                     "next_page": "login"
                 }
 
-
             proyecto.aceptado = "Y"
             proyecto.aceptado_code = None
             proyecto.estado_general = "confeccionando"
-            
             db.commit()
 
             evento = RuaEvento(
-                login = login_2,
-                evento_detalle = "El usuario aceptó la invitación al proyecto.",
-                evento_fecha = datetime.now()
+                login=login_2,
+                evento_detalle="El usuario aceptó la invitación al proyecto.",
+                evento_fecha=datetime.now()
             )
             db.add(evento)
             db.commit()
 
-            return {
-                "tipo_mensaje": "verde",
-                "mensaje": "<p>Has aceptado la invitación. Ya pueden continuar el proceso en el sistema RUA.</p>",
-                "tiempo_mensaje": 6,
-                "next_page": "login"
-            }
+        # Enviar correo a login_1
+        try:
+            user1 = db.query(User).filter(User.login == proyecto.login_1).first()
+            protocolo = get_setting_value(db, "protocolo")
+            host = get_setting_value(db, "donde_esta_alojado")
+            puerto = get_setting_value(db, "puerto_tcp")
 
-    except SQLAlchemyError as e:
-        db.rollback()
+            puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
+            host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
+            link = f"{protocolo}://{host_con_puerto}/menu_adoptantes/proyecto"
+
+            if user1 and user1.mail:
+                estado_respuesta = "aceptado" if respuesta == "Y" else "rechazado"
+                color = "#28a745" if respuesta == "Y" else "#dc3545"
+                texto_botón = "Ir al Proyecto" if respuesta == "Y" else "Ir al sistema"
+                
+                if respuesta == "Y":
+                    mensaje_personalizado = (
+                        "<p>Luego de esta aceptación, se procederá a solicitar a la Supervisión del RUA la revisión del proyecto adoptivo.</p>"
+                        "<p>Si lo deseás, podés volver a ingresar al sistema para continuar el proceso.</p>"
+                    )
+                else:
+                    mensaje_personalizado = (
+                        "<p>Con esta decisión, el proyecto adoptivo ha sido cancelado.</p>"
+                        "<p>Te invitamos a ingresar al sistema si deseás presentar un nuevo proyecto adoptivo.</p>"
+                    )
+
+                cuerpo = f"""
+                <html>
+                <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                    <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                    <tr>
+                        <td align="center">
+                        <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                            <tr>
+                            <td style="font-size: 22px; color: #007bff;">
+                                <strong>Respuesta a la invitación</strong>
+                            </td>
+                            </tr>
+                            <tr>
+                            <td style="padding-top: 20px; font-size: 16px;">
+                                <p>{user2.nombre} {user2.apellido} (DNI: {login_2}) ha <strong>{estado_respuesta}</strong> la invitación al proyecto adoptivo.</p>
+                                {mensaje_personalizado}
+                            </td>
+                            </tr>
+                            <tr>
+                            <td align="center" style="padding: 20px 0;">
+                                <a href="{link}"
+                                    style="display: inline-block; padding: 12px 25px; font-size: 16px; color: #ffffff; background-color: {color}; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                                    {texto_botón}
+                                </a>
+                            </td>
+                            </tr>
+                            <tr>
+                            <td align="center" style="font-size: 16px;">
+                                <p><strong>Muchas gracias</strong></p>
+                            </td>
+                            </tr>
+                            <tr>
+                            <td style="padding-top: 30px;">
+                                <hr style="border: none; border-top: 1px solid #dee2e6;">
+                                <p style="font-size: 14px; color: #6c757d; margin-top: 20px;">
+                                <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                </p>
+                            </td>
+                            </tr>
+                        </table>
+                        </td>
+                    </tr>
+                    </table>
+                </body>
+                </html>
+                """
+
+                enviar_mail(destinatario=user1.mail, asunto="Respuesta a la invitación - RUA", cuerpo=cuerpo)
+
+
+        except Exception as e:
+            print("⚠️ Error al enviar notificación a login_1:", str(e))
+            
+
+        # Respuesta final para quien aceptó o rechazó
         return {
-            "tipo_mensaje": "amarillo",
-            "mensaje": (
-                "<p>Ocurrió un error al procesar tu respuesta.</p>"
-                "<p>Por favor, intentá nuevamente más tarde.</p>"
-            ),
+            "tipo_mensaje": "verde" if respuesta == "Y" else "amarillo",
+            "mensaje": "<p>Has aceptado la invitación. Ya pueden continuar el proceso en el sistema RUA.</p>" if respuesta == "Y" else "<p>Has rechazado la invitación al proyecto adoptivo.</p>",
             "tiempo_mensaje": 6,
             "next_page": "login"
         }
+
+    except SQLAlchemyError:
+        db.rollback()
+        return {
+            "tipo_mensaje": "amarillo",
+            "mensaje": "<p>Ocurrió un error al procesar tu respuesta.</p><p>Por favor, intentá nuevamente más tarde.</p>",
+            "tiempo_mensaje": 6,
+            "next_page": "login"
+        }
+
+
 
 
 

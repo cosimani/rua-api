@@ -510,6 +510,57 @@ def get_proyecto_por_id(
                 Proyecto.estado_general.label("estado_general"),
 
                 Proyecto.ingreso_por.label("ingreso_por"),
+
+                # Flexibilidad edad
+                Proyecto.flex_edad_1.label("flex_edad_1"),
+                Proyecto.flex_edad_2.label("flex_edad_2"),
+                Proyecto.flex_edad_3.label("flex_edad_3"),
+                Proyecto.flex_edad_4.label("flex_edad_4"),
+                Proyecto.flex_edad_todos.label("flex_edad_todos"),
+
+                # Discapacidad
+                Proyecto.discapacidad_1.label("discapacidad_1"),
+                Proyecto.discapacidad_2.label("discapacidad_2"),
+                Proyecto.edad_discapacidad_0.label("edad_discapacidad_0"),
+                Proyecto.edad_discapacidad_1.label("edad_discapacidad_1"),
+                Proyecto.edad_discapacidad_2.label("edad_discapacidad_2"),
+                Proyecto.edad_discapacidad_3.label("edad_discapacidad_3"),
+                Proyecto.edad_discapacidad_4.label("edad_discapacidad_4"),
+
+                # Enfermedades
+                Proyecto.enfermedad_1.label("enfermedad_1"),
+                Proyecto.enfermedad_2.label("enfermedad_2"),
+                Proyecto.enfermedad_3.label("enfermedad_3"),
+                Proyecto.edad_enfermedad_0.label("edad_enfermedad_0"),
+                Proyecto.edad_enfermedad_1.label("edad_enfermedad_1"),
+                Proyecto.edad_enfermedad_2.label("edad_enfermedad_2"),
+                Proyecto.edad_enfermedad_3.label("edad_enfermedad_3"),
+                Proyecto.edad_enfermedad_4.label("edad_enfermedad_4"),
+
+                # Flexibilidad salud
+                Proyecto.flex_condiciones_salud.label("flex_condiciones_salud"),
+                Proyecto.flex_salud_edad_0.label("flex_salud_edad_0"),
+                Proyecto.flex_salud_edad_1.label("flex_salud_edad_1"),
+                Proyecto.flex_salud_edad_2.label("flex_salud_edad_2"),
+                Proyecto.flex_salud_edad_3.label("flex_salud_edad_3"),
+                Proyecto.flex_salud_edad_4.label("flex_salud_edad_4"),
+
+                # Grupo de hermanos
+                Proyecto.hermanos_comp_1.label("hermanos_comp_1"),
+                Proyecto.hermanos_comp_2.label("hermanos_comp_2"),
+                Proyecto.hermanos_comp_3.label("hermanos_comp_3"),
+                Proyecto.hermanos_edad_0.label("hermanos_edad_0"),
+                Proyecto.hermanos_edad_1.label("hermanos_edad_1"),
+                Proyecto.hermanos_edad_2.label("hermanos_edad_2"),
+                Proyecto.hermanos_edad_3.label("hermanos_edad_3"),
+                Proyecto.flex_hermanos_comp_1.label("flex_hermanos_comp_1"),
+                Proyecto.flex_hermanos_comp_2.label("flex_hermanos_comp_2"),
+                Proyecto.flex_hermanos_comp_3.label("flex_hermanos_comp_3"),
+                Proyecto.flex_hermanos_edad_0.label("flex_hermanos_edad_0"),
+                Proyecto.flex_hermanos_edad_1.label("flex_hermanos_edad_1"),
+                Proyecto.flex_hermanos_edad_2.label("flex_hermanos_edad_2"),
+                Proyecto.flex_hermanos_edad_3.label("flex_hermanos_edad_3"),
+
                 
             )
             .filter(Proyecto.proyecto_id == proyecto_id)
@@ -614,6 +665,59 @@ def get_proyecto_por_id(
             "estado_general": proyecto.estado_general,
 
             "ingreso_por": texto_ingreso_por,
+
+            "subregistro_1": proyecto.subregistro_1,
+            "subregistro_2": proyecto.subregistro_2,
+            "subregistro_3": proyecto.subregistro_3,
+            "subregistro_4": proyecto.subregistro_4,
+
+            "flex_edad_1": proyecto.flex_edad_1,
+            "flex_edad_2": proyecto.flex_edad_2,
+            "flex_edad_3": proyecto.flex_edad_3,
+            "flex_edad_4": proyecto.flex_edad_4,
+            "flex_edad_todos": proyecto.flex_edad_todos,
+
+            "discapacidad_1": proyecto.discapacidad_1,
+            "discapacidad_2": proyecto.discapacidad_2,
+            "edad_discapacidad_0": proyecto.edad_discapacidad_0,
+            "edad_discapacidad_1": proyecto.edad_discapacidad_1,
+            "edad_discapacidad_2": proyecto.edad_discapacidad_2,
+            "edad_discapacidad_3": proyecto.edad_discapacidad_3,
+            "edad_discapacidad_4": proyecto.edad_discapacidad_4,
+
+            "enfermedad_1": proyecto.enfermedad_1,
+            "enfermedad_2": proyecto.enfermedad_2,
+            "enfermedad_3": proyecto.enfermedad_3,
+            "edad_enfermedad_0": proyecto.edad_enfermedad_0,
+            "edad_enfermedad_1": proyecto.edad_enfermedad_1,
+            "edad_enfermedad_2": proyecto.edad_enfermedad_2,
+            "edad_enfermedad_3": proyecto.edad_enfermedad_3,
+            "edad_enfermedad_4": proyecto.edad_enfermedad_4,
+
+            "flex_condiciones_salud": proyecto.flex_condiciones_salud,
+            "flex_salud_edad_0": proyecto.flex_salud_edad_0,
+            "flex_salud_edad_1": proyecto.flex_salud_edad_1,
+            "flex_salud_edad_2": proyecto.flex_salud_edad_2,
+            "flex_salud_edad_3": proyecto.flex_salud_edad_3,
+            "flex_salud_edad_4": proyecto.flex_salud_edad_4,
+
+            "hermanos_comp_1": proyecto.hermanos_comp_1,
+            "hermanos_comp_2": proyecto.hermanos_comp_2,
+            "hermanos_comp_3": proyecto.hermanos_comp_3,
+            "hermanos_edad_0": proyecto.hermanos_edad_0,
+            "hermanos_edad_1": proyecto.hermanos_edad_1,
+            "hermanos_edad_2": proyecto.hermanos_edad_2,
+            "hermanos_edad_3": proyecto.hermanos_edad_3,
+            "flex_hermanos_comp_1": proyecto.flex_hermanos_comp_1,
+            "flex_hermanos_comp_2": proyecto.flex_hermanos_comp_2,
+            "flex_hermanos_comp_3": proyecto.flex_hermanos_comp_3,
+            "flex_hermanos_edad_0": proyecto.flex_hermanos_edad_0,
+            "flex_hermanos_edad_1": proyecto.flex_hermanos_edad_1,
+            "flex_hermanos_edad_2": proyecto.flex_hermanos_edad_2,
+            "flex_hermanos_edad_3": proyecto.flex_hermanos_edad_3,
+
+
+            
         }
 
         return proyecto_dict
@@ -3458,7 +3562,7 @@ def crear_proyecto_completo(
         aceptado_code = None
         login_2_user = None
         doc_adoptante_curso_aprobado = True
-        estado = "confeccionando"
+        estado = "en_revision"
 
         if tipo != "Monoparental":
             if not login_2:
@@ -3627,10 +3731,67 @@ def crear_proyecto_completo(
                 link_rechazar = f"{protocolo}://{host_con_puerto}{endpoint}?invitacion={aceptado_code}&respuesta=N"
 
                 cuerpo = f"""
-                <html><body><p>Has sido invitado/a por <strong>{nombre_1} {apellido_1}</strong> (DNI: {login_1})</p>
-                {"<p style='color:red;'><strong>⚠️ Debés tener aprobado el Curso Obligatorio.</strong></p>" if not doc_adoptante_curso_aprobado else ""}
-                <p><a href='{link_aceptar}'>✅ Aceptar</a> | <a href='{link_rechazar}'>❌ Rechazar</a></p>
-                <p>Gracias.<br>Equipo del Sistema RUA</p></body></html>"""
+                    <html>
+                    <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                        <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                        <tr>
+                            <td align="center">
+                            <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                <tr>
+                                <td style="font-size: 24px; color: #007bff;">
+                                    <strong>Invitación a Proyecto Adoptivo</strong>
+                                </td>
+                                </tr>
+                                <tr>
+                                <td style="padding-top: 20px; font-size: 17px;">
+                                    <p>Has sido invitado/a a conformar un proyecto adoptivo junto a <strong>{nombre_1} {apellido_1}</strong> (DNI: {login_1}).</p>
+                                    {"<p style='color: red;'><strong>⚠️ Para aceptar la invitación, debés tener aprobado el Curso Obligatorio.</strong></p>" if not doc_adoptante_curso_aprobado else ""}
+                                    <p>Por favor, confirmá tu participación haciendo clic en uno de los siguientes botones:</p>
+                                </td>
+                                </tr>
+                                <tr>
+                                <td align="center" style="padding: 30px 0;">
+                                    <table cellpadding="0" cellspacing="0" style="text-align: center;">
+                                    <tr>
+                                        <td style="padding-bottom: 10px;">
+                                        <a href="{link_aceptar}"
+                                            style="display: inline-block; padding: 12px 20px; background-color: #28a745; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+                                            ✅ Acepto la invitación
+                                        </a>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                        <a href="{link_rechazar}"
+                                            style="display: inline-block; padding: 12px 20px; background-color: #dc3545; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+                                            ❌ Rechazo la invitación
+                                        </a>
+                                        </td>
+                                    </tr>
+                                    </table>
+                                </td>
+                                </tr>
+                                <tr>
+                                <td align="center" style="font-size: 17px;">
+                                    <p><strong>Muchas gracias</strong></p>
+                                </td>
+                                </tr>
+                                <tr>
+                                <td style="padding-top: 30px;">
+                                    <hr style="border: none; border-top: 1px solid #dee2e6;">
+                                    <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
+                                    <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                    </p>
+                                </td>
+                                </tr>
+                            </table>
+                            </td>
+                        </tr>
+                        </table>
+                    </body>
+                    </html>
+                    """
+
 
                 enviar_mail(destinatario=login_2_user.mail, asunto="Invitación a proyecto adoptivo - RUA", cuerpo=cuerpo)
 
@@ -3649,6 +3810,37 @@ def crear_proyecto_completo(
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
+
+        # Registrar RuaEvento si es monoparental
+        if tipo == "Monoparental":
+            evento = RuaEvento(
+                login=login_1,
+                evento_detalle="Se creó proyecto adoptivo monoparental.",
+                evento_fecha=datetime.now()
+            )
+            db.add(evento)
+
+            # 🔔 Notificar a todas las supervisoras
+            crear_notificacion_masiva_por_rol(
+                db=db,
+                rol="supervisora",
+                mensaje=f"El usuario {login_1} solicitó revisión del proyecto.",
+                link="/menu_supervisoras/detalleProyecto",
+                data_json={"proyecto_id": nuevo.proyecto_id},
+                tipo_mensaje="azul"
+            )
+
+
+        # Registrar historial de estado
+        historial = ProyectoHistorialEstado(
+            proyecto_id=nuevo.proyecto_id,
+            estado_anterior=None,
+            estado_nuevo=estado,
+            fecha_hora=datetime.now()
+        )
+        db.add(historial)
+
+        db.commit()
 
 
         return {
