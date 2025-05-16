@@ -156,6 +156,8 @@ def get_proyectos(
         None, description="Filtrar por rua, oficio o convocatoria"
     ),
 
+    subregistros: Optional[List[str]] = Query(None, alias="subregistro_portada")
+
 ):
     """
     📋 Devuelve un listado paginado de proyectos adoptivos, permitiendo aplicar múltiples filtros combinados.
@@ -189,6 +191,40 @@ def get_proyectos(
     - supervisora
     - profesional
     """
+
+    print("📥 Parámetros recibidos en /proyectos:")
+    print({
+        "page": page,
+        "limit": limit,
+        "search": search,
+        "proyecto_tipo": proyecto_tipo,
+        "nro_orden_rua": nro_orden_rua,
+        "fecha_nro_orden_inicio": fecha_nro_orden_inicio,
+        "fecha_nro_orden_fin": fecha_nro_orden_fin,
+        "fecha_cambio_estado_inicio": fecha_cambio_estado_inicio,
+        "fecha_cambio_estado_fin": fecha_cambio_estado_fin,
+        "subregistro_1": subregistro_1,
+        "subregistro_2": subregistro_2,
+        "subregistro_3": subregistro_3,
+        "subregistro_4": subregistro_4,
+        "subregistro_5_a": subregistro_5_a,
+        "subregistro_5_b": subregistro_5_b,
+        "subregistro_5_c": subregistro_5_c,
+        "subregistro_6_a": subregistro_6_a,
+        "subregistro_6_b": subregistro_6_b,
+        "subregistro_6_c": subregistro_6_c,
+        "subregistro_6_d": subregistro_6_d,
+        "subregistro_6_2": subregistro_6_2,
+        "subregistro_6_3": subregistro_6_3,
+        "subregistro_6_mas_de_3": subregistro_6_mas_de_3,
+        "subregistro_flexible": subregistro_flexible,
+        "subregistro_otra_provincia": subregistro_otra_provincia,
+        "proyecto_estado_general": proyecto_estado_general,
+        "login_profesional": login_profesional,
+        "ingreso_por": ingreso_por,
+        "subregistros": subregistros
+    })
+
 
     try:
 
@@ -324,6 +360,53 @@ def get_proyectos(
             ).subquery()
 
             query = query.filter(Proyecto.proyecto_id.in_(subq_proyectos))
+
+        subregistro_field_map = {
+            "1": Proyecto.subregistro_1,
+            "2": Proyecto.subregistro_2,
+            "3": Proyecto.subregistro_3,
+            "4": Proyecto.subregistro_4,
+            "FE1": Proyecto.flex_edad_1,
+            "FE2": Proyecto.flex_edad_2,
+            "FE3": Proyecto.flex_edad_3,
+            "FE4": Proyecto.flex_edad_4,
+            "FET": Proyecto.flex_edad_todos,
+            "5A1": Proyecto.discapacidad_1,
+            "5A2": Proyecto.discapacidad_2,
+            "5A1E1": Proyecto.edad_discapacidad_0,
+            "5A1E2": Proyecto.edad_discapacidad_1,
+            "5A1E3": Proyecto.edad_discapacidad_2,
+            "5A1E4": Proyecto.edad_discapacidad_3,
+            "5A1ET": Proyecto.edad_discapacidad_4,
+            "F5S": Proyecto.flex_condiciones_salud,
+            "F5E1": Proyecto.flex_salud_edad_0,
+            "F5E2": Proyecto.flex_salud_edad_1,
+            "F5E3": Proyecto.flex_salud_edad_2,
+            "F5E4": Proyecto.flex_salud_edad_3,
+            "F5ET": Proyecto.flex_salud_edad_4,
+            "61": Proyecto.hermanos_comp_1,
+            "62": Proyecto.hermanos_comp_2,
+            "63": Proyecto.hermanos_comp_3,
+            "61E1": Proyecto.hermanos_edad_0,
+            "61E2": Proyecto.hermanos_edad_1,
+            "61E3": Proyecto.hermanos_edad_2,
+            "61ET": Proyecto.hermanos_edad_3,
+            "FQ1": Proyecto.flex_hermanos_comp_1,
+            "FQ2": Proyecto.flex_hermanos_comp_2,
+            "FQ3": Proyecto.flex_hermanos_comp_3,
+            "F6E1": Proyecto.flex_hermanos_edad_0,
+            "F6E2": Proyecto.flex_hermanos_edad_1,
+            "F6E3": Proyecto.flex_hermanos_edad_2,
+            "F6E4": Proyecto.flex_hermanos_edad_3,
+            "F6ET": Proyecto.flex_hermanos_edad_3,  # O el que corresponda
+        }
+
+        if subregistros:
+            for sr in subregistros:
+                field = subregistro_field_map.get(sr)
+                if field is not None:
+                    query = query.filter(field == "Y")
+
 
 
         if search:
