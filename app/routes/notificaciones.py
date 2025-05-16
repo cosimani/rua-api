@@ -169,7 +169,7 @@ def crear_notificacion_para_rol(
 
 @notificaciones_router.put("/notificaciones/{notificacion_id}/vista", response_model = dict, 
                   dependencies = [Depends(verify_api_key),
-                                 Depends(require_roles(["supervisora", "profesional", "adoptante"]))])
+                                 Depends(require_roles(["supervisora", "profesional", "adoptante", "coordinadora"]))])
 def marcar_notificacion_como_vista(
     notificacion_id: int,
     db: Session = Depends(get_db),
@@ -211,7 +211,7 @@ def marcar_notificacion_como_vista(
 
 @notificaciones_router.get("/notificaciones/listado", response_model = dict, 
                   dependencies = [Depends(verify_api_key),
-                                  Depends(require_roles(["supervisora", "profesional", "adoptante"]))])
+                                  Depends(require_roles(["supervisora", "profesional", "adoptante", "coordinadora"]))])
 def listar_notificaciones(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),

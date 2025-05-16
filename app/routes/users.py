@@ -84,7 +84,8 @@ users_router = APIRouter()
 
 
 @users_router.get("/", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                  dependencies=[Depends( verify_api_key ), 
+                                Depends(require_roles(["administrador", "supervisora", "profesional", "coordinadora"]))])
 def get_users(
     request: Request,
     db: Session = Depends(get_db),
@@ -543,7 +544,7 @@ def get_user_by_login(
     roles = [r.description for r in roles]
 
     # Permitir siempre si es Admin, supervisora o profesional
-    if any(r in ["administrador", "supervisora", "profesional"] for r in roles):
+    if any(r in ["administrador", "supervisora", "profesional", "coordinadora"] for r in roles):
         pass  # acceso completo
 
     # Si es adoptante, permitir solo si consulta su propio login
@@ -1979,7 +1980,7 @@ def notificacion_a_pretenso(
 
 @users_router.get("/observacion/{login}/listado", response_model=dict,
                   dependencies=[Depends(verify_api_key),
-                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
+                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante", "coordinadora"]))])
 def listar_observaciones_de_pretenso(
     login: str,
     db: Session = Depends(get_db),
@@ -2076,7 +2077,7 @@ def listar_observaciones_de_pretenso(
 
 @users_router.get("/eventos/{login}", response_model=dict,
                   dependencies=[Depends(verify_api_key),
-                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
+                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante", "coordinadora"]))])
 def listar_eventos_login(
     login: str,
     db: Session = Depends(get_db),
@@ -2141,7 +2142,7 @@ def listar_eventos_login(
 
 @users_router.get("/observaciones/{login}", response_model=dict,
                   dependencies=[Depends(verify_api_key),
-                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
+                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante", "coordinadora"]))])
 def listar_observaciones_login(
     login: str,
     db: Session = Depends(get_db),
@@ -2541,7 +2542,7 @@ def cambiar_clave_usuario(
 
 
 @users_router.get("/timeline/{login}", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional", "coordinadora"]))])
 def obtener_timeline_usuario(
     login: str,
     nivel: Literal["hitos", "notificaciones", "observaciones", "eventos"] = Query("hitos"),

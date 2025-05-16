@@ -144,6 +144,16 @@ def login(
             "next_page": "actual",
         }
 
+    # 🚨 Si la clave está vacía, considerarla vencida
+    if not user.clave or user.clave.strip() == "":
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "Tu contraseña ha vencido. Debes recuperarla para asignar una nueva.",
+            "tiempo_mensaje": 8,
+            "next_page": "actual",  # o la ruta que uses
+        }
+
         
     # 🔑 Verificar contraseña
     if not detect_hash_and_verify(password, user.clave):

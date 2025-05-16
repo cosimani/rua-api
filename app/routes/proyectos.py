@@ -111,7 +111,8 @@ def eliminar_proyecto(
 
 
 @proyectos_router.get("/", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                  dependencies=[Depends( verify_api_key ), 
+                                Depends(require_roles(["administrador", "supervisora", "profesional", "coordinadora"]))])
 def get_proyectos(
     request: Request,
     db: Session = Depends(get_db),
@@ -458,7 +459,7 @@ def get_proyectos(
 
 @proyectos_router.get("/{proyecto_id}", response_model=dict, 
                   dependencies=[Depends( verify_api_key ), 
-                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
+                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante", "coordinadora"]))])
 def get_proyecto_por_id(
     request: Request,
     proyecto_id: int,
@@ -2061,115 +2062,6 @@ def get_historial_estado_proyecto(
 
 
 
-# @proyectos_router.post("/entrevista/agendar", response_model = dict,
-#     dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
-# def agendar_entrevista(
-#     data: dict = Body(..., example = {
-#         "proyecto_id": 123,
-#         "fecha_hora": "2025-04-22T15:00:00",
-#         "comentarios": "Se realizará en la sede regional con ambos pretensos presentes."
-#     }),
-#     db: Session = Depends(get_db),
-#     current_user: dict = Depends(get_current_user)
-# ):
-#     """
-#     📌 Agendar una entrevista para un proyecto adoptivo.
-
-#     Este endpoint permite registrar múltiples entrevistas para un proyecto.
-#     Si el estado de entrevistas está en `calendarizando`, se actualiza automáticamente a `entrevistando`.
-
-#     ✔️ Requisitos:
-#     - El usuario debe tener rol **administrador** o estar asignado al proyecto como **profesional**.
-
-#     ✉️ Cuerpo del request esperado:
-#     ```json
-#     {
-#       "proyecto_id": 123,
-#       "fecha_hora": "2025-04-22T15:00:00",
-#       "comentarios": "Se realizará en la sede regional con ambos pretensos presentes."
-#     }
-#     ```
-#     """
-#     try:
-#         login_actual = current_user["user"]["login"]
-
-#         # Roles del usuario actual
-#         roles_actuales = db.query(Group.description).join(UserGroup, Group.group_id == UserGroup.group_id)\
-#             .filter(UserGroup.login == login_actual).all()
-#         rol_actual = [r[0] for r in roles_actuales]
-
-#         proyecto_id = data.get("proyecto_id")
-#         fecha_hora = data.get("fecha_hora")
-#         comentarios = data.get("comentarios")
-
-#         proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
-#         if not proyecto:
-#             raise HTTPException(status_code = 404, detail = "Proyecto no encontrado.")
-
-#         if "administrador" not in rol_actual:
-#             asignado = db.query(DetalleEquipoEnProyecto).filter(
-#                 DetalleEquipoEnProyecto.proyecto_id == proyecto_id,
-#                 DetalleEquipoEnProyecto.login == login_actual
-#             ).first()
-#             if not asignado:
-#                 return {
-#                     "success": False,
-#                     "tipo_mensaje": "rojo",
-#                     "mensaje": "No estás asignado a este proyecto. No podés agendar entrevistas.",
-#                     "tiempo_mensaje": 5,
-#                     "next_page": "actual"
-#                 }
-
-#         estado_actual = "calendarizando"
-
-#         # Solo se cambia a 'entrevistando' si está en 'calendarizando'
-#         if estado_actual == "calendarizando":
-
-#             evento_cambio_estado = RuaEvento(
-#                 login = login_actual,
-#                 evento_detalle = f"Se inició etapa de entrevistas en proyecto #{proyecto_id}",
-#                 evento_fecha = datetime.now()
-#             )
-#             db.add(evento_cambio_estado)
-
-#         # Registrar la nueva entrevista
-#         nueva_agenda = AgendaEntrevistas(
-#             proyecto_id = proyecto_id,
-#             login_que_agenda = login_actual,
-#             fecha_hora = fecha_hora,
-#             comentarios = comentarios
-#         )
-#         db.add(nueva_agenda)
-
-#         evento = RuaEvento(
-#             login = login_actual,
-#             evento_detalle = f"Se agendó una entrevista para el proyecto #{proyecto_id}",
-#             evento_fecha = datetime.now()
-#         )
-#         db.add(evento)
-
-#         db.commit()
-
-#         return {
-#             "success": True,
-#             "tipo_mensaje": "verde",
-#             "mensaje": "📅 Entrevista agendada correctamente.",
-#             "tiempo_mensaje": 5,
-#             "next_page": "actual"
-#         }
-
-#     except SQLAlchemyError as e:
-#         db.rollback()
-#         return {
-#             "success": False,
-#             "tipo_mensaje": "rojo",
-#             "mensaje": f"Ocurrió un error al registrar la entrevista: {str(e)}",
-#             "tiempo_mensaje": 5,
-#             "next_page": "actual"
-#         }
-
-
-
 @proyectos_router.post("/entrevista/agendar", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
 def agendar_entrevista(
@@ -2269,144 +2161,6 @@ def agendar_entrevista(
             "tiempo_mensaje": 5,
             "next_page": "actual"
         }
-
-
-
-
-# @proyectos_router.get("/entrevista/listado/{proyecto_id}", response_model = dict,
-#     dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
-# def obtener_entrevistas_de_proyecto(
-#     proyecto_id: int,
-#     db: Session = Depends(get_db)
-# ):
-#     """
-#     📋 Obtener entrevistas agendadas para un proyecto adoptivo.
-
-#     Este endpoint devuelve un listado cronológico de eventos y entrevistas asociados al proyecto identificado por `proyecto_id`.
-
-#     🧠 Comportamiento:
-#     - Si el proyecto tuvo cambio de estado a `"calendarizando"` (cuando la supervisión solicitó valoración), se incluye como primer registro
-#       con el título `"Solicitud de valoración por supervisión"`.
-#     - Si hay entrevistas registradas, se listan cronológicamente con títulos `"1era. entrevista"`, `"2da. entrevista"`, etc.
-#     - Si el proyecto pasó de `"entrevistando"` a `"para_valorar"`, se incluye un evento final con el título `"Entrega de informe"`.
-#     - Si no hay registros pero el estado general es `"calendarizando"`, se devuelve un único evento titulado `"Calendarizando"`.
-
-#     📤 Ejemplo de respuesta:
-#     ```json
-#     {
-#       "success": true,
-#       "entrevistas": [
-#         {
-#           "titulo": "Solicitud de valoración por supervisión",
-#           "fecha_hora": "2025-04-15T10:00:00",
-#           "comentarios": null,
-#           "login_que_agenda": null,
-#           "creada_en": null
-#         },
-#         {
-#           "titulo": "1era. entrevista",
-#           "fecha_hora": "2025-04-18T14:00:00",
-#           "comentarios": "Primera entrevista presencial",
-#           "login_que_agenda": "12345678",
-#           "creada_en": "2025-04-17T09:45:00"
-#         },
-#         {
-#           "titulo": "Entrega de informe",
-#           "fecha_hora": "2025-04-20T12:30:00",
-#           "comentarios": null,
-#           "login_que_agenda": null,
-#           "creada_en": null
-#         }
-#       ]
-#     }
-#     ```
-#     """
-        
-#     try:
-#         proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
-#         if not proyecto:
-#             raise HTTPException(status_code = 404, detail = "Proyecto no encontrado.")
-
-#         entrevistas = db.query(AgendaEntrevistas).filter(
-#             AgendaEntrevistas.proyecto_id == proyecto_id
-#         ).order_by(AgendaEntrevistas.fecha_hora.asc()).all()
-
-#         resultados = []
-
-#         # 🗓️ Insertar como primer registro la fecha en que se pasó a 'calendarizando'
-#         historial_valoracion = db.query(ProyectoHistorialEstado).filter(
-#             ProyectoHistorialEstado.proyecto_id == proyecto_id,
-#             ProyectoHistorialEstado.estado_nuevo == "calendarizando"
-#         ).order_by(ProyectoHistorialEstado.fecha_hora.desc()).first()
-
-#         if historial_valoracion:
-#             resultados.append({
-#                 "titulo": "Solicitud de valoración por supervisión",
-#                 "fecha_hora": historial_valoracion.fecha_hora,
-#                 "comentarios": None,
-#                 "login_que_agenda": None,
-#                 "creada_en": None
-#             })
-
-#         if entrevistas:
-#             sufijos = ["era", "da", "era", "ta", "ta"]  # Para 1era., 2da., etc.
-
-#             for idx, e in enumerate(entrevistas):
-#                 sufijo = sufijos[idx] if idx < len(sufijos) else "ta"
-#                 titulo = f"{idx+1}{sufijo}. entrevista"
-#                 resultados.append({
-#                     "titulo": titulo,
-#                     "fecha_hora": e.fecha_hora,
-#                     "comentarios": e.comentarios,
-#                     "login_que_agenda": e.login_que_agenda,
-#                     "creada_en": e.creada_en
-#                 })
-
-#         # 🔎 Verificar si hubo cambio de estado a 'para_valorar'
-#         historial_entrega = db.query(ProyectoHistorialEstado).filter(
-#             ProyectoHistorialEstado.proyecto_id == proyecto_id,
-#             ProyectoHistorialEstado.estado_anterior == "entrevistando",
-#             ProyectoHistorialEstado.estado_nuevo == "para_valorar"
-#         ).order_by(ProyectoHistorialEstado.fecha_hora.desc()).first()
-
-#         if historial_entrega:
-#             resultados.append({
-#                 "titulo": "Entrega de informe",
-#                 "fecha_hora": historial_entrega.fecha_hora,
-#                 "comentarios": None,
-#                 "login_que_agenda": None,
-#                 "creada_en": None
-#             })
-
-#         # 📍 Si no hay entrevistas ni entrega y el estado general es 'en_valoracion', mostrar calendarizando
-#         if not resultados and proyecto.estado_general == "calendarizando":
-#             evento_valoracion = db.query(ProyectoHistorialEstado).filter(
-#                 ProyectoHistorialEstado.proyecto_id == proyecto_id,
-#                 ProyectoHistorialEstado.estado_nuevo == "calendarizando"
-#             ).order_by(ProyectoHistorialEstado.fecha_hora.desc()).first()
-
-#             return {
-#                 "success": True,
-#                 "entrevistas": [{
-#                     "titulo": "Calendarizando",
-#                     "fecha_hora": evento_valoracion.fecha_hora if evento_valoracion else None,
-#                     "comentarios": None,
-#                     "login_que_agenda": None,
-#                     "creada_en": None
-#                 }]
-#             }
-        
-
-#         return { "success": True, "entrevistas": resultados }
-
-#     except SQLAlchemyError as e:
-#         return {
-#             "success": False,
-#             "tipo_mensaje": "rojo",
-#             "mensaje": f"Error al obtener entrevistas: {str(e)}",
-#             "tiempo_mensaje": 6,
-#             "entrevistas": []
-#         }
 
 
 
