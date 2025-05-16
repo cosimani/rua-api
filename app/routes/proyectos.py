@@ -2453,18 +2453,21 @@ def obtener_entrevistas_de_proyecto(
 
         # 🔹 Entrevistas agendadas
         sufijos = ["era", "da", "era", "ta", "ta"]
+
         for idx, e in enumerate(entrevistas):
             sufijo = sufijos[idx] if idx < len(sufijos) else "ta"
             titulo = f"{idx+1}{sufijo}. entrevista"
             resultados.append({
+                "id": e.id,  # ✅ AÑADIR ID
                 "titulo": titulo,
                 "fecha_hora": e.fecha_hora,
                 "comentarios": e.comentarios,
                 "login_que_agenda": e.login_que_agenda,
                 "creada_en": e.creada_en,
-                "evaluaciones": getattr(e, "evaluaciones", []),  # ⬅️ List[str]
-                "evaluacion_comentarios": getattr(e, "evaluacion_comentarios", None),  # ⬅️ Text
+                "evaluaciones": e.evaluaciones,
+                "evaluacion_comentarios": e.evaluacion_comentarios
             })
+
 
         # 🔹 Entrega de informe
         historial_entrega = db.query(ProyectoHistorialEstado).filter(
@@ -4351,3 +4354,128 @@ def listar_observaciones_de_proyecto(
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener las observaciones del proyecto: {str(e)}")
+
+
+@proyectos_router.delete("/entrevista/{entrevista_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
+def eliminar_entrevista_agendada(
+    entrevista_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    ❌ Eliminar una entrevista agendada.
+
+    Permite a un profesional o administrador eliminar una entrevista agendada.
+
+    Requiere:
+    - Token válido
+    - Rol 'administrador' o 'profesional'
+    """
+    try:
+        entrevista = db.query(AgendaEntrevistas).filter(AgendaEntrevistas.id == entrevista_id).first()
+        if not entrevista:
+            raise HTTPException(status_code=404, detail="Entrevista no encontrada.")
+
+        login_actual = current_user["user"]["login"]
+
+        # Validar asignación si no es administrador
+        roles_actuales = db.query(Group.description).join(UserGroup, Group.group_id == UserGroup.group_id)\
+            .filter(UserGroup.login == login_actual).all()
+        roles = [r[0] for r in roles_actuales]
+
+        if "administrador" not in roles:
+            asignado = db.query(DetalleEquipoEnProyecto).filter(
+                DetalleEquipoEnProyecto.proyecto_id == entrevista.proyecto_id,
+                DetalleEquipoEnProyecto.login == login_actual
+            ).first()
+            if not asignado:
+                raise HTTPException(status_code=403, detail="No tenés permisos para eliminar esta entrevista.")
+
+        db.delete(entrevista)
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "🗑️ Entrevista eliminada correctamente.",
+            "tiempo_mensaje": 4,
+            "next_page": "actual"
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al eliminar la entrevista: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+
+@proyectos_router.post("/entrevista/comentario-extra/{entrevista_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
+def agregar_comentario_extra(
+    entrevista_id: int,
+    data: dict = Body(..., example={"comentario_extra": "Comentario posterior a la entrevista"}),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    ✏️ Agregar un comentario adicional a una entrevista ya registrada.
+
+    Permite a profesionales o administradores registrar observaciones posteriores a la fecha de la entrevista.
+
+    - Solo si el usuario tiene rol permitido.
+    - El comentario se guarda en el campo `comentario_extra` de la entrevista.
+
+    📤 Cuerpo esperado:
+    ```json
+    {
+      "comentario_extra": "Observación realizada luego de la entrevista..."
+    }
+    """
+    try:
+        entrevista = db.query(AgendaEntrevistas).filter(AgendaEntrevistas.id == entrevista_id).first()
+
+        if not entrevista:
+            return {
+                "success": True,
+                "tipo_mensaje": "verde",
+                "mensaje": "Entrevista no encontrada.",
+                "tiempo_mensaje": 4,
+                "next_page": "actual"
+            }
+
+        comentario_extra = data.get("comentario_extra", "").strip()
+        if not comentario_extra:
+            return {
+                "success": True,
+                "tipo_mensaje": "verde",
+                "mensaje": "El comentario adicional es requerido.",
+                "tiempo_mensaje": 4,
+                "next_page": "actual"
+            }
+       
+
+        entrevista.comentario_extra = comentario_extra
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "📝 Comentario adicional guardado correctamente.",
+            "tiempo_mensaje": 4,
+            "next_page": "actual"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Ocurrió un error al guardar el comentario: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }

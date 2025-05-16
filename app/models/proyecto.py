@@ -184,8 +184,9 @@ class AgendaEntrevistas(Base):
     login_que_agenda = Column(String(190), ForeignKey("sec_users.login"), nullable=False)
     fecha_hora = Column(DateTime, nullable=False)
     comentarios = Column(Text, nullable=True)
-    evaluaciones = Column(Text, nullable=True)  # 🆕 Almacena evaluaciones como JSON string
-    creada_en = Column(DateTime, default=datetime.now)
+    evaluaciones = Column(Text, nullable=True)  # ✅ JSON string
+    evaluacion_comentarios = Column(Text, nullable=True)  # ✅ NUEVO campo
+    creada_en = Column(DateTime, default=datetime.now)    
 
     # Relaciones (opcional si necesitás acceso desde otras entidades)
     # proyecto = relationship("Proyecto", back_populates="agenda_entrevistas")
