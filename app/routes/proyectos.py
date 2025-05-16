@@ -3,13 +3,16 @@ from typing import List, Optional, Literal
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import func, case, and_, or_, Integer
+import json
+
 
 from datetime import datetime, date
 from models.proyecto import Proyecto, ProyectoHistorialEstado, DetalleEquipoEnProyecto, AgendaEntrevistas, FechaRevision
 from models.carpeta import Carpeta, DetalleProyectosEnCarpeta
-from models.notif_y_observaciones import ObservacionesProyectos
+from models.notif_y_observaciones import ObservacionesProyectos, ObservacionesPretensos, NotificacionesRUA
 from models.convocatorias import DetalleProyectoPostulacion
 from models.ddjj import DDJJ
+
 
 # from models.carpeta import DetalleProyectosEnCarpeta
 from models.users import User, Group, UserGroup 
@@ -1342,63 +1345,6 @@ def crear_proyecto(
 
 
 
-@proyectos_router.post("/observacion/{proyecto_id}", response_model = dict,
-                       dependencies = [Depends(verify_api_key), 
-                                       Depends(require_roles(["administrador", "supervisora", "profesional"]))])
-def crear_observacion_proyecto(
-    proyecto_id: int,
-    data: dict = Body(...),
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Registra una observación sobre un proyecto adoptivo (sin notificacion ni mails).
-
-    Ejemplo JSON:
-    {
-        "observacion": "Los pretensos desean cancelar las entrevistas por un tiempo."
-    }
-    """
-    observacion = data.get("observacion")
-    login_que_observo = current_user["user"]["login"]
-
-    if not observacion:
-        raise HTTPException(status_code = 400, detail = "Debe proporcionar el campo 'observacion'.")
-
-    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
-    if not proyecto:
-        raise HTTPException(status_code = 404, detail = "Proyecto no encontrado.")
-
-    try:
-        # ✅ Guardar la observación
-        nueva_obs = ObservacionesProyectos(
-            observacion_fecha = datetime.now(),
-            observacion = observacion,
-            login_que_observo = login_que_observo,
-            observacion_a_cual_proyecto = proyecto_id
-        )
-        db.add(nueva_obs)
-
-        resumen = (observacion[:100] + "...") if len(observacion) > 100 else observacion
-        evento = RuaEvento(
-            login = proyecto.login_1,
-            evento_detalle = (
-                f"Observación registrada sobre proyecto #{proyecto_id} por {login_que_observo}: {resumen}"
-            ),
-            evento_fecha = datetime.now()
-        )
-        db.add(evento)
-        db.commit()
-
-
-        return {"message": "Observación registrada correctamente."}
-
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code = 500, detail = f"Error al guardar observación: {str(e)}")
-
-
-
 
 @proyectos_router.post("/notificacion/{proyecto_id}", response_model = dict,
                        dependencies = [Depends(verify_api_key), 
@@ -1927,14 +1873,14 @@ def solicitar_valoracion(
             nuevo_nro_orden = str(max(numeros_validos) + 1) if numeros_validos else "1"
 
             proyecto.nro_orden_rua = nuevo_nro_orden
-            proyecto.fecha_asignacion_nro_orden = datetime.now().strftime("%d/%m/%Y")
+            proyecto.fecha_asignacion_nro_orden = date.today()
         else:
             nuevo_nro_orden = proyecto.nro_orden_rua
 
 
         # Cambiar estado
         proyecto.estado_general = "calendarizando"
-        proyecto.ultimo_cambio_de_estado = datetime.now().strftime("%d/%m/%Y")
+        proyecto.ultimo_cambio_de_estado = date.today()
 
         # Registrar en historial
         historial = ProyectoHistorialEstado(
@@ -2115,39 +2061,130 @@ def get_historial_estado_proyecto(
 
 
 
-@proyectos_router.post("/entrevista/agendar", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
+# @proyectos_router.post("/entrevista/agendar", response_model = dict,
+#     dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
+# def agendar_entrevista(
+#     data: dict = Body(..., example = {
+#         "proyecto_id": 123,
+#         "fecha_hora": "2025-04-22T15:00:00",
+#         "comentarios": "Se realizará en la sede regional con ambos pretensos presentes."
+#     }),
+#     db: Session = Depends(get_db),
+#     current_user: dict = Depends(get_current_user)
+# ):
+#     """
+#     📌 Agendar una entrevista para un proyecto adoptivo.
+
+#     Este endpoint permite registrar múltiples entrevistas para un proyecto.
+#     Si el estado de entrevistas está en `calendarizando`, se actualiza automáticamente a `entrevistando`.
+
+#     ✔️ Requisitos:
+#     - El usuario debe tener rol **administrador** o estar asignado al proyecto como **profesional**.
+
+#     ✉️ Cuerpo del request esperado:
+#     ```json
+#     {
+#       "proyecto_id": 123,
+#       "fecha_hora": "2025-04-22T15:00:00",
+#       "comentarios": "Se realizará en la sede regional con ambos pretensos presentes."
+#     }
+#     ```
+#     """
+#     try:
+#         login_actual = current_user["user"]["login"]
+
+#         # Roles del usuario actual
+#         roles_actuales = db.query(Group.description).join(UserGroup, Group.group_id == UserGroup.group_id)\
+#             .filter(UserGroup.login == login_actual).all()
+#         rol_actual = [r[0] for r in roles_actuales]
+
+#         proyecto_id = data.get("proyecto_id")
+#         fecha_hora = data.get("fecha_hora")
+#         comentarios = data.get("comentarios")
+
+#         proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+#         if not proyecto:
+#             raise HTTPException(status_code = 404, detail = "Proyecto no encontrado.")
+
+#         if "administrador" not in rol_actual:
+#             asignado = db.query(DetalleEquipoEnProyecto).filter(
+#                 DetalleEquipoEnProyecto.proyecto_id == proyecto_id,
+#                 DetalleEquipoEnProyecto.login == login_actual
+#             ).first()
+#             if not asignado:
+#                 return {
+#                     "success": False,
+#                     "tipo_mensaje": "rojo",
+#                     "mensaje": "No estás asignado a este proyecto. No podés agendar entrevistas.",
+#                     "tiempo_mensaje": 5,
+#                     "next_page": "actual"
+#                 }
+
+#         estado_actual = "calendarizando"
+
+#         # Solo se cambia a 'entrevistando' si está en 'calendarizando'
+#         if estado_actual == "calendarizando":
+
+#             evento_cambio_estado = RuaEvento(
+#                 login = login_actual,
+#                 evento_detalle = f"Se inició etapa de entrevistas en proyecto #{proyecto_id}",
+#                 evento_fecha = datetime.now()
+#             )
+#             db.add(evento_cambio_estado)
+
+#         # Registrar la nueva entrevista
+#         nueva_agenda = AgendaEntrevistas(
+#             proyecto_id = proyecto_id,
+#             login_que_agenda = login_actual,
+#             fecha_hora = fecha_hora,
+#             comentarios = comentarios
+#         )
+#         db.add(nueva_agenda)
+
+#         evento = RuaEvento(
+#             login = login_actual,
+#             evento_detalle = f"Se agendó una entrevista para el proyecto #{proyecto_id}",
+#             evento_fecha = datetime.now()
+#         )
+#         db.add(evento)
+
+#         db.commit()
+
+#         return {
+#             "success": True,
+#             "tipo_mensaje": "verde",
+#             "mensaje": "📅 Entrevista agendada correctamente.",
+#             "tiempo_mensaje": 5,
+#             "next_page": "actual"
+#         }
+
+#     except SQLAlchemyError as e:
+#         db.rollback()
+#         return {
+#             "success": False,
+#             "tipo_mensaje": "rojo",
+#             "mensaje": f"Ocurrió un error al registrar la entrevista: {str(e)}",
+#             "tiempo_mensaje": 5,
+#             "next_page": "actual"
+#         }
+
+
+
+@proyectos_router.post("/entrevista/agendar", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
 def agendar_entrevista(
-    data: dict = Body(..., example = {
+    data: dict = Body(..., example={
         "proyecto_id": 123,
         "fecha_hora": "2025-04-22T15:00:00",
-        "comentarios": "Se realizará en la sede regional con ambos pretensos presentes."
+        "comentarios": "Se realizará en la sede regional con ambos pretensos presentes.",
+        "evaluaciones": ["Deseo y motivación", "Técnicas psicológicas"]
     }),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """
-    📌 Agendar una entrevista para un proyecto adoptivo.
-
-    Este endpoint permite registrar múltiples entrevistas para un proyecto.
-    Si el estado de entrevistas está en `calendarizando`, se actualiza automáticamente a `entrevistando`.
-
-    ✔️ Requisitos:
-    - El usuario debe tener rol **administrador** o estar asignado al proyecto como **profesional**.
-
-    ✉️ Cuerpo del request esperado:
-    ```json
-    {
-      "proyecto_id": 123,
-      "fecha_hora": "2025-04-22T15:00:00",
-      "comentarios": "Se realizará en la sede regional con ambos pretensos presentes."
-    }
-    ```
-    """
     try:
         login_actual = current_user["user"]["login"]
 
-        # Roles del usuario actual
         roles_actuales = db.query(Group.description).join(UserGroup, Group.group_id == UserGroup.group_id)\
             .filter(UserGroup.login == login_actual).all()
         rol_actual = [r[0] for r in roles_actuales]
@@ -2155,10 +2192,26 @@ def agendar_entrevista(
         proyecto_id = data.get("proyecto_id")
         fecha_hora = data.get("fecha_hora")
         comentarios = data.get("comentarios")
+        evaluaciones = data.get("evaluaciones", [])  # ✅ puede venir vacío
+
+        if not proyecto_id or not fecha_hora:
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "Faltan campos obligatorios.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
 
         proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
         if not proyecto:
-            raise HTTPException(status_code = 404, detail = "Proyecto no encontrado.")
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "Proyecto no encontrado.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
 
         if "administrador" not in rol_actual:
             asignado = db.query(DetalleEquipoEnProyecto).filter(
@@ -2175,32 +2228,27 @@ def agendar_entrevista(
                 }
 
         estado_actual = "calendarizando"
-
-        # Solo se cambia a 'entrevistando' si está en 'calendarizando'
         if estado_actual == "calendarizando":
+            db.add(RuaEvento(
+                login=login_actual,
+                evento_detalle=f"Se inició etapa de entrevistas en proyecto #{proyecto_id}",
+                evento_fecha=datetime.now()
+            ))
 
-            evento_cambio_estado = RuaEvento(
-                login = login_actual,
-                evento_detalle = f"Se inició etapa de entrevistas en proyecto #{proyecto_id}",
-                evento_fecha = datetime.now()
-            )
-            db.add(evento_cambio_estado)
-
-        # Registrar la nueva entrevista
         nueva_agenda = AgendaEntrevistas(
-            proyecto_id = proyecto_id,
-            login_que_agenda = login_actual,
-            fecha_hora = fecha_hora,
-            comentarios = comentarios
+            proyecto_id=proyecto_id,
+            login_que_agenda=login_actual,
+            fecha_hora=fecha_hora,
+            comentarios=comentarios,
+            evaluaciones=json.dumps(evaluaciones) if evaluaciones else None  # ✅ guardar como string JSON
         )
         db.add(nueva_agenda)
 
-        evento = RuaEvento(
-            login = login_actual,
-            evento_detalle = f"Se agendó una entrevista para el proyecto #{proyecto_id}",
-            evento_fecha = datetime.now()
-        )
-        db.add(evento)
+        db.add(RuaEvento(
+            login=login_actual,
+            evento_detalle=f"Se agendó una entrevista para el proyecto #{proyecto_id}",
+            evento_fecha=datetime.now()
+        ))
 
         db.commit()
 
@@ -2225,60 +2273,160 @@ def agendar_entrevista(
 
 
 
+# @proyectos_router.get("/entrevista/listado/{proyecto_id}", response_model = dict,
+#     dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+# def obtener_entrevistas_de_proyecto(
+#     proyecto_id: int,
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     📋 Obtener entrevistas agendadas para un proyecto adoptivo.
 
-@proyectos_router.get("/entrevista/listado/{proyecto_id}", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+#     Este endpoint devuelve un listado cronológico de eventos y entrevistas asociados al proyecto identificado por `proyecto_id`.
+
+#     🧠 Comportamiento:
+#     - Si el proyecto tuvo cambio de estado a `"calendarizando"` (cuando la supervisión solicitó valoración), se incluye como primer registro
+#       con el título `"Solicitud de valoración por supervisión"`.
+#     - Si hay entrevistas registradas, se listan cronológicamente con títulos `"1era. entrevista"`, `"2da. entrevista"`, etc.
+#     - Si el proyecto pasó de `"entrevistando"` a `"para_valorar"`, se incluye un evento final con el título `"Entrega de informe"`.
+#     - Si no hay registros pero el estado general es `"calendarizando"`, se devuelve un único evento titulado `"Calendarizando"`.
+
+#     📤 Ejemplo de respuesta:
+#     ```json
+#     {
+#       "success": true,
+#       "entrevistas": [
+#         {
+#           "titulo": "Solicitud de valoración por supervisión",
+#           "fecha_hora": "2025-04-15T10:00:00",
+#           "comentarios": null,
+#           "login_que_agenda": null,
+#           "creada_en": null
+#         },
+#         {
+#           "titulo": "1era. entrevista",
+#           "fecha_hora": "2025-04-18T14:00:00",
+#           "comentarios": "Primera entrevista presencial",
+#           "login_que_agenda": "12345678",
+#           "creada_en": "2025-04-17T09:45:00"
+#         },
+#         {
+#           "titulo": "Entrega de informe",
+#           "fecha_hora": "2025-04-20T12:30:00",
+#           "comentarios": null,
+#           "login_que_agenda": null,
+#           "creada_en": null
+#         }
+#       ]
+#     }
+#     ```
+#     """
+        
+#     try:
+#         proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+#         if not proyecto:
+#             raise HTTPException(status_code = 404, detail = "Proyecto no encontrado.")
+
+#         entrevistas = db.query(AgendaEntrevistas).filter(
+#             AgendaEntrevistas.proyecto_id == proyecto_id
+#         ).order_by(AgendaEntrevistas.fecha_hora.asc()).all()
+
+#         resultados = []
+
+#         # 🗓️ Insertar como primer registro la fecha en que se pasó a 'calendarizando'
+#         historial_valoracion = db.query(ProyectoHistorialEstado).filter(
+#             ProyectoHistorialEstado.proyecto_id == proyecto_id,
+#             ProyectoHistorialEstado.estado_nuevo == "calendarizando"
+#         ).order_by(ProyectoHistorialEstado.fecha_hora.desc()).first()
+
+#         if historial_valoracion:
+#             resultados.append({
+#                 "titulo": "Solicitud de valoración por supervisión",
+#                 "fecha_hora": historial_valoracion.fecha_hora,
+#                 "comentarios": None,
+#                 "login_que_agenda": None,
+#                 "creada_en": None
+#             })
+
+#         if entrevistas:
+#             sufijos = ["era", "da", "era", "ta", "ta"]  # Para 1era., 2da., etc.
+
+#             for idx, e in enumerate(entrevistas):
+#                 sufijo = sufijos[idx] if idx < len(sufijos) else "ta"
+#                 titulo = f"{idx+1}{sufijo}. entrevista"
+#                 resultados.append({
+#                     "titulo": titulo,
+#                     "fecha_hora": e.fecha_hora,
+#                     "comentarios": e.comentarios,
+#                     "login_que_agenda": e.login_que_agenda,
+#                     "creada_en": e.creada_en
+#                 })
+
+#         # 🔎 Verificar si hubo cambio de estado a 'para_valorar'
+#         historial_entrega = db.query(ProyectoHistorialEstado).filter(
+#             ProyectoHistorialEstado.proyecto_id == proyecto_id,
+#             ProyectoHistorialEstado.estado_anterior == "entrevistando",
+#             ProyectoHistorialEstado.estado_nuevo == "para_valorar"
+#         ).order_by(ProyectoHistorialEstado.fecha_hora.desc()).first()
+
+#         if historial_entrega:
+#             resultados.append({
+#                 "titulo": "Entrega de informe",
+#                 "fecha_hora": historial_entrega.fecha_hora,
+#                 "comentarios": None,
+#                 "login_que_agenda": None,
+#                 "creada_en": None
+#             })
+
+#         # 📍 Si no hay entrevistas ni entrega y el estado general es 'en_valoracion', mostrar calendarizando
+#         if not resultados and proyecto.estado_general == "calendarizando":
+#             evento_valoracion = db.query(ProyectoHistorialEstado).filter(
+#                 ProyectoHistorialEstado.proyecto_id == proyecto_id,
+#                 ProyectoHistorialEstado.estado_nuevo == "calendarizando"
+#             ).order_by(ProyectoHistorialEstado.fecha_hora.desc()).first()
+
+#             return {
+#                 "success": True,
+#                 "entrevistas": [{
+#                     "titulo": "Calendarizando",
+#                     "fecha_hora": evento_valoracion.fecha_hora if evento_valoracion else None,
+#                     "comentarios": None,
+#                     "login_que_agenda": None,
+#                     "creada_en": None
+#                 }]
+#             }
+        
+
+#         return { "success": True, "entrevistas": resultados }
+
+#     except SQLAlchemyError as e:
+#         return {
+#             "success": False,
+#             "tipo_mensaje": "rojo",
+#             "mensaje": f"Error al obtener entrevistas: {str(e)}",
+#             "tiempo_mensaje": 6,
+#             "entrevistas": []
+#         }
+
+
+
+@proyectos_router.get("/entrevista/listado/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
 def obtener_entrevistas_de_proyecto(
     proyecto_id: int,
     db: Session = Depends(get_db)
 ):
     """
     📋 Obtener entrevistas agendadas para un proyecto adoptivo.
+    Incluye eventos clave como inicio de valoración, entrevistas agendadas y entrega de informe.
 
-    Este endpoint devuelve un listado cronológico de eventos y entrevistas asociados al proyecto identificado por `proyecto_id`.
-
-    🧠 Comportamiento:
-    - Si el proyecto tuvo cambio de estado a `"calendarizando"` (cuando la supervisión solicitó valoración), se incluye como primer registro
-      con el título `"Solicitud de valoración por supervisión"`.
-    - Si hay entrevistas registradas, se listan cronológicamente con títulos `"1era. entrevista"`, `"2da. entrevista"`, etc.
-    - Si el proyecto pasó de `"entrevistando"` a `"para_valorar"`, se incluye un evento final con el título `"Entrega de informe"`.
-    - Si no hay registros pero el estado general es `"calendarizando"`, se devuelve un único evento titulado `"Calendarizando"`.
-
-    📤 Ejemplo de respuesta:
-    ```json
-    {
-      "success": true,
-      "entrevistas": [
-        {
-          "titulo": "Solicitud de valoración por supervisión",
-          "fecha_hora": "2025-04-15T10:00:00",
-          "comentarios": null,
-          "login_que_agenda": null,
-          "creada_en": null
-        },
-        {
-          "titulo": "1era. entrevista",
-          "fecha_hora": "2025-04-18T14:00:00",
-          "comentarios": "Primera entrevista presencial",
-          "login_que_agenda": "12345678",
-          "creada_en": "2025-04-17T09:45:00"
-        },
-        {
-          "titulo": "Entrega de informe",
-          "fecha_hora": "2025-04-20T12:30:00",
-          "comentarios": null,
-          "login_que_agenda": null,
-          "creada_en": null
-        }
-      ]
-    }
-    ```
+    Retorna una lista cronológica de eventos, incluyendo evaluaciones asignadas y comentarios adicionales si existen.
     """
-        
+
     try:
         proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
         if not proyecto:
-            raise HTTPException(status_code = 404, detail = "Proyecto no encontrado.")
+            raise HTTPException(status_code=404, detail="Proyecto no encontrado.")
 
         entrevistas = db.query(AgendaEntrevistas).filter(
             AgendaEntrevistas.proyecto_id == proyecto_id
@@ -2286,7 +2434,7 @@ def obtener_entrevistas_de_proyecto(
 
         resultados = []
 
-        # 🗓️ Insertar como primer registro la fecha en que se pasó a 'calendarizando'
+        # 🔹 Solicitud de valoración
         historial_valoracion = db.query(ProyectoHistorialEstado).filter(
             ProyectoHistorialEstado.proyecto_id == proyecto_id,
             ProyectoHistorialEstado.estado_nuevo == "calendarizando"
@@ -2298,24 +2446,27 @@ def obtener_entrevistas_de_proyecto(
                 "fecha_hora": historial_valoracion.fecha_hora,
                 "comentarios": None,
                 "login_que_agenda": None,
-                "creada_en": None
+                "creada_en": None,
+                "evaluaciones": [],
+                "evaluacion_comentarios": None,
             })
 
-        if entrevistas:
-            sufijos = ["era", "da", "era", "ta", "ta"]  # Para 1era., 2da., etc.
+        # 🔹 Entrevistas agendadas
+        sufijos = ["era", "da", "era", "ta", "ta"]
+        for idx, e in enumerate(entrevistas):
+            sufijo = sufijos[idx] if idx < len(sufijos) else "ta"
+            titulo = f"{idx+1}{sufijo}. entrevista"
+            resultados.append({
+                "titulo": titulo,
+                "fecha_hora": e.fecha_hora,
+                "comentarios": e.comentarios,
+                "login_que_agenda": e.login_que_agenda,
+                "creada_en": e.creada_en,
+                "evaluaciones": getattr(e, "evaluaciones", []),  # ⬅️ List[str]
+                "evaluacion_comentarios": getattr(e, "evaluacion_comentarios", None),  # ⬅️ Text
+            })
 
-            for idx, e in enumerate(entrevistas):
-                sufijo = sufijos[idx] if idx < len(sufijos) else "ta"
-                titulo = f"{idx+1}{sufijo}. entrevista"
-                resultados.append({
-                    "titulo": titulo,
-                    "fecha_hora": e.fecha_hora,
-                    "comentarios": e.comentarios,
-                    "login_que_agenda": e.login_que_agenda,
-                    "creada_en": e.creada_en
-                })
-
-        # 🔎 Verificar si hubo cambio de estado a 'para_valorar'
+        # 🔹 Entrega de informe
         historial_entrega = db.query(ProyectoHistorialEstado).filter(
             ProyectoHistorialEstado.proyecto_id == proyecto_id,
             ProyectoHistorialEstado.estado_anterior == "entrevistando",
@@ -2328,10 +2479,12 @@ def obtener_entrevistas_de_proyecto(
                 "fecha_hora": historial_entrega.fecha_hora,
                 "comentarios": None,
                 "login_que_agenda": None,
-                "creada_en": None
+                "creada_en": None,
+                "evaluaciones": [],
+                "evaluacion_comentarios": None,
             })
 
-        # 📍 Si no hay entrevistas ni entrega y el estado general es 'en_valoracion', mostrar calendarizando
+        # 🔹 Solo calendarizando (sin entrevistas)
         if not resultados and proyecto.estado_general == "calendarizando":
             evento_valoracion = db.query(ProyectoHistorialEstado).filter(
                 ProyectoHistorialEstado.proyecto_id == proyecto_id,
@@ -2345,10 +2498,11 @@ def obtener_entrevistas_de_proyecto(
                     "fecha_hora": evento_valoracion.fecha_hora if evento_valoracion else None,
                     "comentarios": None,
                     "login_que_agenda": None,
-                    "creada_en": None
+                    "creada_en": None,
+                    "evaluaciones": [],
+                    "evaluacion_comentarios": None,
                 }]
             }
-        
 
         return { "success": True, "entrevistas": resultados }
 
@@ -2360,6 +2514,7 @@ def obtener_entrevistas_de_proyecto(
             "tiempo_mensaje": 6,
             "entrevistas": []
         }
+
 
 
 
@@ -3861,3 +4016,338 @@ def crear_proyecto_completo(
             "next_page": "actual"
         }
 
+
+
+@proyectos_router.post("/notificacion/proyecto/mensaje", response_model=dict,
+                      dependencies=[Depends(verify_api_key),
+                                    Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def notificar_proyecto_mensaje(
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    📢 Envía una notificación completa a los pretensos vinculados a un proyecto:
+    - Crea notificaciones individuales
+    - Registra observaciones internas
+    - Cambia estado de proyecto si corresponde
+    - Envía correos electrónicos a los pretensos
+
+    ### Ejemplo del JSON esperado:
+    ```json
+    {
+        "proyecto_id": 123,
+        "mensaje": "Recordá subir el certificado de salud.",
+        "link": "/menu_adoptantes/documentacion",
+        "data_json": { "accion": "solicitar_actualizacion_doc" },
+        "tipo_mensaje": "naranja"
+    }
+    """
+    proyecto_id = data.get("proyecto_id")
+    mensaje = data.get("mensaje")
+    link = data.get("link")
+    data_json = data.get("data_json") or {}
+    tipo_mensaje = data.get("tipo_mensaje", "naranja")
+    login_que_observa = current_user["user"]["login"]
+    accion = data_json.get("accion")  # puede ser None, "solicitar_actualizacion_doc", "aprobar_documentacion"
+
+    if not all([proyecto_id, mensaje, link]):
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Faltan campos requeridos: proyecto_id, mensaje o link.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    try:
+        proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+        if not proyecto:
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "El proyecto no existe.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+        logins_destinatarios = [proyecto.login_1]
+        if proyecto.login_2:
+            logins_destinatarios.append(proyecto.login_2)
+
+        nuevo_estado = None
+        if accion == "solicitar_actualizacion_doc":
+            nuevo_estado = "actualizando"
+        elif accion == "aprobar_documentacion":
+            nuevo_estado = "aprobado"
+
+        for login in logins_destinatarios:
+            user = db.query(User).filter(User.login == login).first()
+            if not user:
+                continue
+
+            # Crear notificación individual
+            resultado = crear_notificacion_individual(
+                db=db,
+                login_destinatario=login,
+                mensaje=mensaje,
+                link=link,
+                data_json=data_json,
+                tipo_mensaje=tipo_mensaje,
+                enviar_por_whatsapp=False,
+                login_que_notifico=login_que_observa,
+            )
+            if not resultado["success"]:
+                raise Exception(resultado["mensaje"])
+
+            # Registrar evento
+            evento_detalle = f"Notificación a {login} desde proyecto {proyecto_id}: {mensaje[:150]}"
+            if nuevo_estado:
+                evento_detalle += f" | Estado actualizado: '{nuevo_estado}'"
+
+            db.add(RuaEvento(
+                login=login,
+                evento_detalle=evento_detalle,
+                evento_fecha=datetime.now()
+            ))
+
+            # Enviar correo si tiene mail
+            if user.mail:
+                try:
+                    cuerpo_mensaje_html = f"""
+                        <p>Recibiste una notificación del <strong>RUA</strong>:</p>
+                        <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
+                            <em>{mensaje}</em>
+                        </div>
+                    """
+                    cuerpo = f"""
+                    <html>
+                    <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                        <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                        <tr>
+                            <td align="center">
+                            <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                <tr>
+                                <td style="font-size: 24px; color: #007bff;">
+                                    <strong>Hola {user.nombre},</strong>
+                                </td>
+                                </tr>
+                                <tr>
+                                <td style="padding-top: 20px; font-size: 17px;">
+                                    {cuerpo_mensaje_html}
+                                </td>
+                                </tr>
+                                <tr>
+                                <td align="center" style="font-size: 17px; padding-top: 30px;">
+                                    <p><strong>Muchas gracias.</strong></p>
+                                </td>
+                                </tr>
+                                <tr>
+                                <td style="padding-top: 30px;">
+                                    <hr style="border: none; border-top: 1px solid #dee2e6;">
+                                    <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
+                                    <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                    </p>
+                                </td>
+                                </tr>
+                            </table>
+                            </td>
+                        </tr>
+                        </table>
+                    </body>
+                    </html>
+                    """
+
+                    enviar_mail(
+                        destinatario=user.mail,
+                        asunto="Notificación del Sistema RUA",
+                        cuerpo=cuerpo
+                    )
+                except Exception as e:
+                    db.rollback()
+                    return {
+                        "success": False,
+                        "tipo_mensaje": "naranja",
+                        "mensaje": f"⚠️ Error al enviar correo a {user.nombre}: {str(e)}",
+                        "tiempo_mensaje": 5,
+                        "next_page": "actual"
+                    }
+
+        # Aplicar cambio de estado si corresponde
+        if nuevo_estado:
+            proyecto.doc_proyecto_estado = nuevo_estado
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "✅ Notificación enviada correctamente a los pretensos.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"❌ Error al procesar la notificación: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+
+
+
+    
+@proyectos_router.post("/proyectos/{proyecto_id}/observacion", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def registrar_observacion_proyecto(
+    proyecto_id: int,
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Registra una observación interna para un proyecto, sin enviar mail ni modificar estados.
+    """
+    observacion = data.get("observacion")
+    login_que_observo = current_user["user"]["login"]
+
+    if not observacion or not observacion.strip():
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Debe proporcionar el campo 'observacion'.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+
+    proyecto = db.query(Proyecto).filter_by(proyecto_id=proyecto_id).first()
+    if not proyecto:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "El proyecto indicado no fue encontrado.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    try:
+        # Registrar observación
+        nueva_obs = ObservacionesProyectos(
+            observacion_fecha=datetime.now(),
+            observacion=observacion.strip(),
+            login_que_observo=login_que_observo,
+            observacion_a_cual_proyecto=proyecto_id
+        )
+        db.add(nueva_obs)
+
+        # Registrar evento
+        resumen = observacion.strip()
+        resumen = resumen[:100] + "..." if len(resumen) > 100 else resumen
+
+        nuevo_evento = RuaEvento(
+            login=login_que_observo,
+            evento_detalle=f"Observación registrada al proyecto #{proyecto_id}: {resumen}",
+            evento_fecha=datetime.now()
+        )
+        db.add(nuevo_evento)
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "Observación del proyecto registrada correctamente.",
+            "tiempo_mensaje": 4,
+            "next_page": "actual"
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Ocurrió un error al registrar la observación: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+
+
+
+@proyectos_router.get("/observacion/{proyecto_id}/listado", response_model=dict,
+                      dependencies=[Depends(verify_api_key),
+                                    Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def listar_observaciones_de_proyecto(
+    proyecto_id: int,
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Devuelve un listado paginado de observaciones asociadas a un proyecto identificado por su `proyecto_id`.
+
+    - Solo roles 'administrador', 'supervisora' o 'profesional' pueden acceder a esta información.
+    """
+    try:
+        # Verificar existencia del proyecto
+        existe_proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+        if not existe_proyecto:
+            raise HTTPException(status_code=404, detail="El proyecto indicado no existe.")
+
+        # Contar total de observaciones
+        total_observaciones = (
+            db.query(func.count(ObservacionesProyectos.observacion_id))
+            .filter(ObservacionesProyectos.observacion_a_cual_proyecto == proyecto_id)
+            .scalar()
+        )
+
+        # Paginación
+        offset = (page - 1) * limit
+        observaciones = (
+            db.query(ObservacionesProyectos)
+            .filter(ObservacionesProyectos.observacion_a_cual_proyecto == proyecto_id)
+            .order_by(ObservacionesProyectos.observacion_fecha.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+        # Obtener todos los logins de quienes observaron
+        logins_observadores = [o.login_que_observo for o in observaciones]
+
+        # Obtener nombres y apellidos de esos logins
+        usuarios_observadores = (
+            db.query(User.login, User.nombre, User.apellido)
+            .filter(User.login.in_(logins_observadores))
+            .all()
+        )
+        mapa_observadores = {u.login: {"nombre": u.nombre, "apellido": u.apellido} for u in usuarios_observadores}
+
+        # Armar respuesta
+        resultado = []
+        for o in observaciones:
+            datos_observador = mapa_observadores.get(o.login_que_observo, {"nombre": "", "apellido": ""})
+            nombre_completo = f"{datos_observador['nombre']} {datos_observador['apellido']}".strip()
+            resultado.append({
+                "observacion": o.observacion,
+                "fecha": o.observacion_fecha.strftime("%Y-%m-%d %H:%M") if o.observacion_fecha else None,
+                "login_que_observo": o.login_que_observo,
+                "nombre_completo_que_observo": nombre_completo
+            })
+
+        return {
+            "page": page,
+            "limit": limit,
+            "total": total_observaciones,
+            "observaciones": resultado
+        }
+
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener las observaciones del proyecto: {str(e)}")

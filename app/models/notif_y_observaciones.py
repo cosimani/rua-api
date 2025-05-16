@@ -3,6 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.dialects.mysql import JSON
 from models.users import User
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 
 from models.base import Base
 
@@ -55,3 +56,9 @@ class NotificacionesRUA(Base):
 
     # Opcional: tipo de notificación para que el frontend muestre íconos o colores distintos
     tipo_mensaje = Column(String(50), nullable=True)  # ejemplo: 'verde', 'amarillo', 'naranja', 'rojo', 'azul'
+
+    # 🆕 Nuevo campo: usuario que generó la notificación
+    login_que_notifico = Column(String(190), ForeignKey("sec_users.login", ondelete="SET NULL"), nullable=True)
+
+    # 🔗 Relación hacia el modelo User
+    login_que_notifico_rel = relationship("User", foreign_keys=[login_que_notifico])

@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Body
 from typing import Literal
 
 from models.users import User, Group, UserGroup 
+from models.proyecto import Proyecto
 
 from models.notif_y_observaciones import NotificacionesRUA
 
@@ -278,4 +279,82 @@ def listar_notificaciones_de_usuario(
     return resultado
 
 
-    
+
+@notificaciones_router.get("/notificaciones/proyecto/{proyecto_id}/listado", response_model=dict,
+    dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def listar_notificaciones_comunes_del_proyecto(
+    proyecto_id: int,
+    filtro: Literal["vistas", "no_vistas", "todas"] = Query(..., description="Filtrar por estado de vista"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(5, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """
+    📄 Devuelve notificaciones que fueron enviadas a *ambos usuarios* del proyecto
+    y que tienen el mismo contenido (mensaje, link, tipo_mensaje, etc).
+
+    🔐 Solo accesible para supervisora, profesional y administradora.
+    """
+
+    # ✅ Obtener proyecto por ORM
+    proyecto = db.query(Proyecto).filter_by(proyecto_id=proyecto_id).first()
+    if not proyecto:
+        raise HTTPException(404, "Proyecto no encontrado.")
+
+    login_1 = proyecto.login_1
+    login_2 = proyecto.login_2
+
+
+    if not login_1 or not login_2:
+        raise HTTPException(400, "El proyecto no tiene ambos usuarios definidos.")
+
+    # Buscar notificaciones comunes con campos idénticos
+    subquery_1 = db.query(NotificacionesRUA).filter(NotificacionesRUA.login_destinatario == login_1)
+    subquery_2 = db.query(NotificacionesRUA).filter(NotificacionesRUA.login_destinatario == login_2)
+
+    # Comparar por mensaje, link, tipo_mensaje y data_json
+    notis_1 = subquery_1.subquery()
+    notis_2 = subquery_2.subquery()
+
+    query = db.query(NotificacionesRUA).join(
+        notis_2,
+        (NotificacionesRUA.mensaje == notis_2.c.mensaje) &
+        (NotificacionesRUA.link == notis_2.c.link) &
+        (NotificacionesRUA.tipo_mensaje == notis_2.c.tipo_mensaje) &
+        (NotificacionesRUA.data_json == notis_2.c.data_json)
+    ).filter(
+        NotificacionesRUA.login_destinatario == login_1
+    )
+
+    # Aplicar filtro por vistas
+    if filtro == "vistas":
+        query = query.filter(NotificacionesRUA.vista == True, notis_2.c.vista == True)
+    elif filtro == "no_vistas":
+        query = query.filter(NotificacionesRUA.vista == False, notis_2.c.vista == False)
+
+    total = query.count()
+    resultados = query.order_by(NotificacionesRUA.fecha_creacion.desc()).offset((page - 1) * limit).limit(limit).all()
+
+    from models.users import User  # asegurarse que está importado
+
+    notificaciones = []
+    for n in resultados:
+        user = db.query(User).filter_by(login=n.login_que_notifico).first()
+        notificaciones.append({
+            "notificacion_id": n.notificacion_id,
+            "fecha": n.fecha_creacion.strftime("%Y-%m-%d %H:%M"),
+            "mensaje": n.mensaje,
+            "link": n.link,
+            "data_json": n.data_json,
+            "tipo_mensaje": n.tipo_mensaje,
+            "vista": n.vista,
+            "login_que_notifico": n.login_que_notifico,
+            "nombre_completo_que_notifico": f"{user.nombre} {user.apellido}" if user else "Sistema"
+        })
+
+    return {
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "notificaciones": notificaciones
+    }

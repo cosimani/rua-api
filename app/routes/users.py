@@ -3103,7 +3103,8 @@ def notificar_pretenso_mensaje(
             link=link,
             data_json=data_json,
             tipo_mensaje=tipo_mensaje,
-            enviar_por_whatsapp=False
+            enviar_por_whatsapp=False,
+            login_que_notifico=login_que_observa
         )
         if not resultado["success"]:
             raise Exception(resultado["mensaje"])
@@ -3117,15 +3118,6 @@ def notificar_pretenso_mensaje(
 
         if nuevo_estado:
             user_destino.doc_adoptante_estado = nuevo_estado
-
-        # Registrar observación interna
-        nueva_obs = ObservacionesPretensos(
-            observacion_fecha=datetime.now(),
-            observacion=mensaje,
-            login_que_observo=login_que_observa,
-            observacion_a_cual_login=login_destinatario
-        )
-        db.add(nueva_obs)
 
         # Registrar único evento con detalle completo
         evento_detalle = f"Notificación enviada por {login_que_observa}: {mensaje[:150]}"
@@ -3161,7 +3153,7 @@ def notificar_pretenso_mensaje(
                     """
                 else:
                     cuerpo_mensaje_html = f"""
-                    <p>Recibiste una notificación del equipo del <strong>RUA</strong>:</p>
+                    <p>Recibiste una notificación del <strong>RUA</strong>:</p>
                     <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
                         <em>{mensaje}</em>
                     </div>
