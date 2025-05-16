@@ -17,7 +17,7 @@ from models.ddjj import DDJJ
 # from models.carpeta import DetalleProyectosEnCarpeta
 from models.users import User, Group, UserGroup 
 from database.config import get_db
-from helpers.utils import get_user_name_by_login, build_subregistro_string, parse_date, generar_codigo_para_link, \
+from helpers.utils import get_user_name_by_login, construir_subregistro_string, parse_date, generar_codigo_para_link, \
     enviar_mail, get_setting_value
 from models.eventos_y_configs import RuaEvento
 
@@ -131,22 +131,22 @@ def get_proyectos(
                     description="Filtrar por fecha de último cambio de estado de proyecto, inicio (AAAA-MM-DD)"),
     fecha_cambio_estado_fin: Optional[str] = Query(None, 
                     description="Filtrar por fecha de último cambio de estado de proyecto, fin (AAAA-MM-DD)"),
-    subregistro_1: Optional[bool] = Query(None, description="Filtrar por subregistro_1"),
-    subregistro_2: Optional[bool] = Query(None, description="Filtrar por subregistro_2"),
-    subregistro_3: Optional[bool] = Query(None, description="Filtrar por subregistro_3"),
-    subregistro_4: Optional[bool] = Query(None, description="Filtrar por subregistro_4"),
-    subregistro_5_a: Optional[bool] = Query(None, description="Filtrar por subregistro_5_a"),
-    subregistro_5_b: Optional[bool] = Query(None, description="Filtrar por subregistro_5_b"),
-    subregistro_5_c: Optional[bool] = Query(None, description="Filtrar por subregistro_5_c"),
-    subregistro_6_a: Optional[bool] = Query(None, description="Filtrar por subregistro_6_a"),
-    subregistro_6_b: Optional[bool] = Query(None, description="Filtrar por subregistro_6_b"),
-    subregistro_6_c: Optional[bool] = Query(None, description="Filtrar por subregistro_6_c"),
-    subregistro_6_d: Optional[bool] = Query(None, description="Filtrar por subregistro_6_d"),
-    subregistro_6_2: Optional[bool] = Query(None, description="Filtrar por subregistro_6_2"),
-    subregistro_6_3: Optional[bool] = Query(None, description="Filtrar por subregistro_6_3"),
-    subregistro_6_mas_de_3: Optional[bool] = Query(None, description="Filtrar por subregistro_6_mas_de_3"),
-    subregistro_flexible: Optional[bool] = Query(None, description="Filtrar por subregistro_flexible"),
-    subregistro_otra_provincia: Optional[bool] = Query(None, description="Filtrar por subregistro_otra_provincia"),
+    # subregistro_1: Optional[bool] = Query(None, description="Filtrar por subregistro_1"),
+    # subregistro_2: Optional[bool] = Query(None, description="Filtrar por subregistro_2"),
+    # subregistro_3: Optional[bool] = Query(None, description="Filtrar por subregistro_3"),
+    # subregistro_4: Optional[bool] = Query(None, description="Filtrar por subregistro_4"),
+    # subregistro_5_a: Optional[bool] = Query(None, description="Filtrar por subregistro_5_a"),
+    # subregistro_5_b: Optional[bool] = Query(None, description="Filtrar por subregistro_5_b"),
+    # subregistro_5_c: Optional[bool] = Query(None, description="Filtrar por subregistro_5_c"),
+    # subregistro_6_a: Optional[bool] = Query(None, description="Filtrar por subregistro_6_a"),
+    # subregistro_6_b: Optional[bool] = Query(None, description="Filtrar por subregistro_6_b"),
+    # subregistro_6_c: Optional[bool] = Query(None, description="Filtrar por subregistro_6_c"),
+    # subregistro_6_d: Optional[bool] = Query(None, description="Filtrar por subregistro_6_d"),
+    # subregistro_6_2: Optional[bool] = Query(None, description="Filtrar por subregistro_6_2"),
+    # subregistro_6_3: Optional[bool] = Query(None, description="Filtrar por subregistro_6_3"),
+    # subregistro_6_mas_de_3: Optional[bool] = Query(None, description="Filtrar por subregistro_6_mas_de_3"),
+    # subregistro_flexible: Optional[bool] = Query(None, description="Filtrar por subregistro_flexible"),
+    # subregistro_otra_provincia: Optional[bool] = Query(None, description="Filtrar por subregistro_otra_provincia"),
 
     proyecto_estado_general: Optional[str] = Query(None, description="Filtrar por estado general del proyecto"),
 
@@ -162,121 +162,17 @@ def get_proyectos(
     """
     📋 Devuelve un listado paginado de proyectos adoptivos, permitiendo aplicar múltiples filtros combinados.
 
-    🔽 Parámetros:
-    - page (int): Número de página a visualizar (por defecto: 1).
-    - limit (int): Cantidad de resultados por página (máximo 100, por defecto: 10).
-    - search (str): Texto libre para búsqueda (mínimo 3 caracteres). Filtra por nombre y apellido de pretensos, DNI, localidad, calle, número de orden, etc.
-    - proyecto_tipo (str): Filtra por tipo de proyecto. Valores posibles: "Monoparental", "Matrimonio", "Unión convivencial".
-    - nro_orden_rua (int): Filtra por coincidencia parcial del número de orden RUA.
-    - fecha_nro_orden_inicio (str): Fecha de inicio del rango de filtrado para la asignación del número de orden (formato: YYYY-MM-DD).
-    - fecha_nro_orden_fin (str): Fecha de fin del rango de filtrado para la asignación del número de orden (formato: YYYY-MM-DD).
-    - fecha_cambio_estado_inicio (str): Fecha de inicio del rango de filtrado para el último cambio de estado del proyecto (formato: YYYY-MM-DD).
-    - fecha_cambio_estado_fin (str): Fecha de fin del rango de filtrado para el último cambio de estado del proyecto (formato: YYYY-MM-DD).
-    - subregistro_1 a subregistro_6_d (bool): Filtran por la presencia o ausencia de cada subregistro específico (True → "Y", False → "N").
-    - subregistro_6_2, subregistro_6_3, subregistro_6_mas_de_3 (bool): Filtros adicionales de subregistro 6.
-    - subregistro_flexible (bool): Filtra por subregistro flexible.
-    - subregistro_otra_provincia (bool): Filtra por subregistro correspondiente a otra provincia.
-    - proyecto_estado_general (str): Filtra por uno o más estados generales del proyecto. Se pueden enviar múltiples separados por coma, y se aplica un OR lógico entre ellos.
-    - login_profesional (str): Filtra los proyectos donde el profesional con este login está asignado.
-
-    📤 Respuesta:
-    - page: número de página actual.
-    - limit: cantidad de resultados por página.
-    - total_pages: cantidad total de páginas disponibles.
-    - total_records: cantidad total de registros que cumplen los filtros.
-    - proyectos: listado de proyectos con campos clave para visualización, incluyendo datos del domicilio, usuarios, subregistros y estado.
-
-    ✔️ Acceso permitido para roles:
-    - administrador
-    - supervisora
-    - profesional
     """
-
-    print("📥 Parámetros recibidos en /proyectos:")
-    print({
-        "page": page,
-        "limit": limit,
-        "search": search,
-        "proyecto_tipo": proyecto_tipo,
-        "nro_orden_rua": nro_orden_rua,
-        "fecha_nro_orden_inicio": fecha_nro_orden_inicio,
-        "fecha_nro_orden_fin": fecha_nro_orden_fin,
-        "fecha_cambio_estado_inicio": fecha_cambio_estado_inicio,
-        "fecha_cambio_estado_fin": fecha_cambio_estado_fin,
-        "subregistro_1": subregistro_1,
-        "subregistro_2": subregistro_2,
-        "subregistro_3": subregistro_3,
-        "subregistro_4": subregistro_4,
-        "subregistro_5_a": subregistro_5_a,
-        "subregistro_5_b": subregistro_5_b,
-        "subregistro_5_c": subregistro_5_c,
-        "subregistro_6_a": subregistro_6_a,
-        "subregistro_6_b": subregistro_6_b,
-        "subregistro_6_c": subregistro_6_c,
-        "subregistro_6_d": subregistro_6_d,
-        "subregistro_6_2": subregistro_6_2,
-        "subregistro_6_3": subregistro_6_3,
-        "subregistro_6_mas_de_3": subregistro_6_mas_de_3,
-        "subregistro_flexible": subregistro_flexible,
-        "subregistro_otra_provincia": subregistro_otra_provincia,
-        "proyecto_estado_general": proyecto_estado_general,
-        "login_profesional": login_profesional,
-        "ingreso_por": ingreso_por,
-        "subregistros": subregistros
-    })
 
 
     try:
-
-        # DetalleProyectosAlias = aliased(DetalleProyectosEnCarpeta)  # Creación del alias
 
         User1 = aliased(User)
         User2 = aliased(User)
 
 
         query = (
-            db.query(
-                Proyecto.proyecto_id.label("proyecto_id"),
-                Proyecto.proyecto_tipo.label("proyecto_tipo"),
-                Proyecto.nro_orden_rua.label("nro_orden_rua"),
-
-                Proyecto.operativo.label("proyecto_operativo"),
-                Proyecto.login_1.label("login_1"),
-                Proyecto.login_2.label("login_2"),
-                
-                Proyecto.doc_proyecto_convivencia_o_estado_civil.label("doc_proyecto_convivencia_o_estado_civil"),
-
-                Proyecto.subregistro_1.label("subregistro_1"),
-                Proyecto.subregistro_2.label("subregistro_2"),
-                Proyecto.subregistro_3.label("subregistro_3"),
-                Proyecto.subregistro_4.label("subregistro_4"),
-                Proyecto.subregistro_5_a.label("subregistro_5_a"),
-                Proyecto.subregistro_5_b.label("subregistro_5_b"),
-                Proyecto.subregistro_5_c.label("subregistro_5_c"),
-                Proyecto.subregistro_6_a.label("subregistro_6_a"),
-                Proyecto.subregistro_6_b.label("subregistro_6_b"),
-                Proyecto.subregistro_6_c.label("subregistro_6_c"),
-                Proyecto.subregistro_6_d.label("subregistro_6_d"),
-                Proyecto.subregistro_6_2.label("subregistro_6_2"),
-                Proyecto.subregistro_6_3.label("subregistro_6_3"),
-                Proyecto.subregistro_6_mas_de_3.label("subregistro_6_mas_de_3"),
-                Proyecto.subregistro_flexible.label("subregistro_flexible"),
-                Proyecto.subregistro_otra_provincia.label("subregistro_otra_provincia"),
-
-                Proyecto.proyecto_calle_y_nro.label("proyecto_calle_y_nro"),
-                Proyecto.proyecto_depto_etc.label("proyecto_depto_etc"),                
-                Proyecto.proyecto_barrio.label("proyecto_barrio"),
-                Proyecto.proyecto_localidad.label("proyecto_localidad"),
-                Proyecto.proyecto_provincia.label("proyecto_provincia"),
-
-                Proyecto.fecha_asignacion_nro_orden.label("fecha_asignacion_nro_orden"),
-                Proyecto.ultimo_cambio_de_estado.label("ultimo_cambio_de_estado"),
-
-                Proyecto.estado_general.label("estado_general"),
-
-                Proyecto.ingreso_por.label("ingreso_por"),
-
-            )
+            db.query(Proyecto)
             .outerjoin(User1, Proyecto.login_1 == User1.login)
             .outerjoin(User2, Proyecto.login_2 == User2.login)
         )
@@ -319,39 +215,39 @@ def get_proyectos(
             search_pattern = f"%{nro_orden_rua}%"  # Busca cualquier nro_orden_rua que contenga estos números
             query = query.filter(Proyecto.nro_orden_rua.ilike(search_pattern))
 
-        # Filtro por subregistros
-        if subregistro_1 is not None:  # Verificamos que no sea None, porque False es un valor válido
-            query = query.filter(Proyecto.subregistro_1 == ("Y" if subregistro_1 else "N"))
-        if subregistro_2 is not None: 
-            query = query.filter(Proyecto.subregistro_2 == ("Y" if subregistro_2 else "N"))
-        if subregistro_3 is not None: 
-            query = query.filter(Proyecto.subregistro_3 == ("Y" if subregistro_3 else "N"))
-        if subregistro_4 is not None: 
-            query = query.filter(Proyecto.subregistro_4 == ("Y" if subregistro_4 else "N"))
-        if subregistro_5_a is not None: 
-            query = query.filter(Proyecto.subregistro_5_a == ("Y" if subregistro_5_a else "N"))
-        if subregistro_5_b is not None: 
-            query = query.filter(Proyecto.subregistro_5_b == ("Y" if subregistro_5_b else "N"))
-        if subregistro_5_c is not None: 
-            query = query.filter(Proyecto.subregistro_5_c == ("Y" if subregistro_5_c else "N"))
-        if subregistro_6_a is not None: 
-            query = query.filter(Proyecto.subregistro_6_a == ("Y" if subregistro_6_a else "N"))
-        if subregistro_6_b is not None: 
-            query = query.filter(Proyecto.subregistro_6_b == ("Y" if subregistro_6_b else "N"))
-        if subregistro_6_c is not None: 
-            query = query.filter(Proyecto.subregistro_6_c == ("Y" if subregistro_6_c else "N"))
-        if subregistro_6_d is not None: 
-            query = query.filter(Proyecto.subregistro_6_d == ("Y" if subregistro_6_d else "N"))
-        if subregistro_6_2 is not None: 
-            query = query.filter(Proyecto.subregistro_6_2 == ("Y" if subregistro_6_2 else "N"))
-        if subregistro_6_3 is not None: 
-            query = query.filter(Proyecto.subregistro_6_3 == ("Y" if subregistro_6_3 else "N"))
-        if subregistro_6_mas_de_3 is not None: 
-            query = query.filter(Proyecto.subregistro_6_mas_de_3 == ("Y" if subregistro_6_mas_de_3 else "N"))
-        if subregistro_flexible is not None: 
-            query = query.filter(Proyecto.subregistro_flexible == ("Y" if subregistro_flexible else "N"))
-        if subregistro_otra_provincia is not None: 
-            query = query.filter(Proyecto.subregistro_otra_provincia == ("Y" if subregistro_otra_provincia else "N"))
+        # # Filtro por subregistros
+        # if subregistro_1 is not None:  # Verificamos que no sea None, porque False es un valor válido
+        #     query = query.filter(Proyecto.subregistro_1 == ("Y" if subregistro_1 else "N"))
+        # if subregistro_2 is not None: 
+        #     query = query.filter(Proyecto.subregistro_2 == ("Y" if subregistro_2 else "N"))
+        # if subregistro_3 is not None: 
+        #     query = query.filter(Proyecto.subregistro_3 == ("Y" if subregistro_3 else "N"))
+        # if subregistro_4 is not None: 
+        #     query = query.filter(Proyecto.subregistro_4 == ("Y" if subregistro_4 else "N"))
+        # if subregistro_5_a is not None: 
+        #     query = query.filter(Proyecto.subregistro_5_a == ("Y" if subregistro_5_a else "N"))
+        # if subregistro_5_b is not None: 
+        #     query = query.filter(Proyecto.subregistro_5_b == ("Y" if subregistro_5_b else "N"))
+        # if subregistro_5_c is not None: 
+        #     query = query.filter(Proyecto.subregistro_5_c == ("Y" if subregistro_5_c else "N"))
+        # if subregistro_6_a is not None: 
+        #     query = query.filter(Proyecto.subregistro_6_a == ("Y" if subregistro_6_a else "N"))
+        # if subregistro_6_b is not None: 
+        #     query = query.filter(Proyecto.subregistro_6_b == ("Y" if subregistro_6_b else "N"))
+        # if subregistro_6_c is not None: 
+        #     query = query.filter(Proyecto.subregistro_6_c == ("Y" if subregistro_6_c else "N"))
+        # if subregistro_6_d is not None: 
+        #     query = query.filter(Proyecto.subregistro_6_d == ("Y" if subregistro_6_d else "N"))
+        # if subregistro_6_2 is not None: 
+        #     query = query.filter(Proyecto.subregistro_6_2 == ("Y" if subregistro_6_2 else "N"))
+        # if subregistro_6_3 is not None: 
+        #     query = query.filter(Proyecto.subregistro_6_3 == ("Y" if subregistro_6_3 else "N"))
+        # if subregistro_6_mas_de_3 is not None: 
+        #     query = query.filter(Proyecto.subregistro_6_mas_de_3 == ("Y" if subregistro_6_mas_de_3 else "N"))
+        # if subregistro_flexible is not None: 
+        #     query = query.filter(Proyecto.subregistro_flexible == ("Y" if subregistro_flexible else "N"))
+        # if subregistro_otra_provincia is not None: 
+        #     query = query.filter(Proyecto.subregistro_otra_provincia == ("Y" if subregistro_otra_provincia else "N"))
 
 
         if login_profesional:
@@ -408,6 +304,7 @@ def get_proyectos(
                     query = query.filter(field == "Y")
 
 
+        
 
         if search:
             palabras = search.lower().split()  # divide en palabras
@@ -454,13 +351,12 @@ def get_proyectos(
             # ]
 
 
-
             proyecto_dict = {
                 "proyecto_id": proyecto.proyecto_id,
                 "proyecto_tipo": proyecto.proyecto_tipo,
                 "nro_orden_rua": proyecto.nro_orden_rua,
 
-                "subregistro_string": build_subregistro_string(proyecto),  # Aquí se construye el string concatenado
+                "subregistro_string": construir_subregistro_string(proyecto),  # Aquí se construye el string concatenado
 
                 "proyecto_calle_y_nro": proyecto.proyecto_calle_y_nro,
                 "proyecto_depto_etc": proyecto.proyecto_depto_etc,
@@ -478,7 +374,7 @@ def get_proyectos(
 
                 "doc_proyecto_convivencia_o_estado_civil": proyecto.doc_proyecto_convivencia_o_estado_civil,
 
-                "proyecto_estado_general": proyecto.estado_general,
+                "estado_general": proyecto.estado_general,
 
                 "ingreso_por": proyecto.ingreso_por,
 
@@ -709,7 +605,7 @@ def get_proyecto_por_id(
             "proyecto_id": proyecto.proyecto_id,
             "proyecto_tipo": proyecto.proyecto_tipo,
             "nro_orden_rua": proyecto.nro_orden_rua,
-            "subregistro_string": build_subregistro_string(proyecto),  # Concatenación de subregistros
+            "subregistro_string": construir_subregistro_string(proyecto),  # Concatenación de subregistros
 
             "proyecto_calle_y_nro": proyecto.proyecto_calle_y_nro,
             "proyecto_depto_etc": proyecto.proyecto_depto_etc,
@@ -3631,24 +3527,13 @@ def crear_proyecto_completo(
             proyecto_barrio=data.get("proyecto_barrio"),
             proyecto_localidad=data.get("proyecto_localidad"),
             proyecto_provincia=provincia,
+            ingreso_por="rua",
 
             subregistro_1=subreg("subregistro_1"),
             subregistro_2=subreg("subregistro_2"),
             subregistro_3=subreg("subregistro_3"),
             subregistro_4=subreg("subregistro_4"),
-            subregistro_5_a=subreg("subregistro_5_a"),
-            subregistro_5_b=subreg("subregistro_5_b"),
-            subregistro_5_c=subreg("subregistro_5_c"),
-            subregistro_6_a=subreg("subregistro_6_a"),
-            subregistro_6_b=subreg("subregistro_6_b"),
-            subregistro_6_c=subreg("subregistro_6_c"),
-            subregistro_6_d=subreg("subregistro_6_d"),
-            subregistro_6_2=subreg("subregistro_6_2"),
-            subregistro_6_3=subreg("subregistro_6_3"),
-            subregistro_6_mas_de_3=subreg("subregistro_6_mas_de_3"),
-            subregistro_flexible=subreg("subregistro_flexible"),
-            subregistro_otra_provincia=subreg("subregistro_otra_provincia"),
-
+            
             # Flexibilidad edad
             flex_edad_1=subreg("flex_edad_1"),
             flex_edad_2=subreg("flex_edad_2"),
