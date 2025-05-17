@@ -4201,3 +4201,114 @@ def agregar_comentario_extra(
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
+
+
+
+@proyectos_router.post("/aprobar-proyecto", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["supervisora"]))])
+def aprobar_proyecto(
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    ✅ Aprueba formalmente un proyecto y asigna número de orden si no lo tiene.
+
+    ### JSON esperado:
+    {
+      "proyecto_id": 123
+    }
+    """
+    try:
+        proyecto_id = data.get("proyecto_id")
+
+        if not proyecto_id:
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "Debe especificarse el 'proyecto_id'",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+        if not proyecto:
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "Proyecto no encontrado",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # Asignar número de orden si no tiene
+        if not proyecto.nro_orden_rua:
+            ultimos_nros = db.query(Proyecto.nro_orden_rua)\
+                .filter(Proyecto.nro_orden_rua != None)\
+                .all()
+
+            numeros_validos = [
+                int(p.nro_orden_rua) for p in ultimos_nros
+                if p.nro_orden_rua.isdigit() and len(p.nro_orden_rua) < 5
+            ]
+
+            nuevo_nro_orden = str(max(numeros_validos) + 1) if numeros_validos else "1"
+            proyecto.nro_orden_rua = nuevo_nro_orden
+            proyecto.fecha_asignacion_nro_orden = date.today()
+        else:
+            nuevo_nro_orden = proyecto.nro_orden_rua
+
+        # Guardar estado anterior
+        estado_anterior = proyecto.estado_general
+
+        # Cambiar estado a aprobado
+        proyecto.estado_general = "aprobado"
+        proyecto.ultimo_cambio_de_estado = date.today()
+
+        # Registrar en historial
+        historial = ProyectoHistorialEstado(
+            proyecto_id=proyecto.proyecto_id,
+            estado_anterior=estado_anterior,
+            estado_nuevo="aprobado",
+            fecha_hora=datetime.now()
+        )
+        db.add(historial)
+
+
+        # Registrar evento
+        login_supervisora = current_user["user"]["login"]
+        supervisora = db.query(User).filter(User.login == login_supervisora).first()
+        nombre_supervisora = f"{supervisora.nombre} {supervisora.apellido}"
+
+        evento = RuaEvento(
+            login=login_supervisora,
+            evento_detalle=(
+                f"Se aprobó el proyecto adoptivo y se asignó el N° de orden {nuevo_nro_orden} "
+                f"por parte de {nombre_supervisora}."
+            ),
+            evento_fecha=datetime.now()
+        )
+        db.add(evento)
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": (
+                f"<b>Proyecto aprobado exitosamente.</b><br>"
+                f"Número de orden asignado: <b>{nuevo_nro_orden}</b>."
+            ),
+            "tiempo_mensaje": 5,
+            "next_page": "menu_supervisoras/detalleProyecto"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al aprobar el proyecto: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
