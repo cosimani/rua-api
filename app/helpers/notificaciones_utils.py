@@ -31,7 +31,8 @@ def crear_notificacion_individual(
             link=link,
             data_json=data_json,
             tipo_mensaje=tipo_mensaje,
-            login_que_notifico=login_que_notifico  # 👈 se guarda si existe
+            login_que_notifico=login_que_notifico,  # 👈 se guarda si existe
+            fecha_creacion=datetime.now()
         ))
 
         if enviar_por_whatsapp:
@@ -75,7 +76,8 @@ def crear_notificacion_masiva_por_rol(
                 link=link,
                 data_json=data_json,
                 tipo_mensaje=tipo_mensaje,
-                login_que_notifico=login_que_notifico  # 👈 lo agregamos acá también
+                login_que_notifico=login_que_notifico,  # 👈 lo agregamos acá también
+                fecha_creacion=datetime.now()
             ))
 
         db.commit()

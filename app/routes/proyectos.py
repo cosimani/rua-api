@@ -1766,13 +1766,16 @@ def solicitar_valoracion(
 
     ### JSON esperado:
     {
-      "proyecto_id": 123,
-      "profesionales": ["11222333", "22333444"]
+    "proyecto_id": 123,
+    "profesionales": ["11222333", "22333444"],
+    "observacion_interna": "Observación interna opcional sobre el proyecto"
     }
     """
     try:
         proyecto_id = data.get("proyecto_id")
         profesionales = data.get("profesionales", [])
+        observacion_interna = data.get("observacion_interna")  # Puede ser None o string
+
 
         if not isinstance(profesionales, list):
             return {
@@ -1923,17 +1926,24 @@ def solicitar_valoracion(
                 }
 
 
+        # Registrar observación si fue provista
+        if observacion_interna:
+            db.add(ObservacionesProyectos(
+                observacion_a_cual_proyecto=proyecto.proyecto_id,
+                observacion=observacion_interna,
+                login_que_observo=login_supervisora,
+                observacion_fecha=datetime.now()
+            ))
+
+
         db.commit()
 
         return {
             "success": True,
             "tipo_mensaje": "verde",
-            "mensaje": "Solicitud de valoración registrada correctamente",
+            "mensaje": "Solicitud de valoración a profesionales registrada correctamente",
             "tiempo_mensaje": 3,
-            "next_page": "menu_supervisoras/detalleProyecto",
-            "proyecto_id": proyecto_id,
-            "profesionales_asignados": profesionales,
-            "nro_orden_asignado": nuevo_nro_orden
+            "next_page": "actual",
         }
 
     except SQLAlchemyError as e:
@@ -4204,6 +4214,7 @@ def agregar_comentario_extra(
 
 
 
+
 @proyectos_router.post("/aprobar-proyecto", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["supervisora"]))])
 def aprobar_proyecto(
@@ -4213,6 +4224,7 @@ def aprobar_proyecto(
 ):
     """
     ✅ Aprueba formalmente un proyecto y asigna número de orden si no lo tiene.
+    También envía una notificación al/los pretensos informando la aprobación.
 
     ### JSON esperado:
     {
@@ -4274,7 +4286,6 @@ def aprobar_proyecto(
         )
         db.add(historial)
 
-
         # Registrar evento
         login_supervisora = current_user["user"]["login"]
         supervisora = db.query(User).filter(User.login == login_supervisora).first()
@@ -4290,6 +4301,105 @@ def aprobar_proyecto(
         )
         db.add(evento)
 
+        # 🟢 Enviar notificación al/los pretensos
+        logins_destinatarios = [proyecto.login_1]
+        if proyecto.login_2:
+            logins_destinatarios.append(proyecto.login_2)
+
+        mensaje_notificacion = (
+            "La presentación de tu proyecto adoptivo fue aceptado. Pronto se pondrán en contacto desde el RUA para coordinar las entrevistas."
+        )
+
+        for login_destinatario in logins_destinatarios:
+            user = db.query(User).filter(User.login == login_destinatario).first()
+            if not user:
+                continue
+
+            resultado = crear_notificacion_individual(
+                db=db,
+                login_destinatario=login_destinatario,
+                mensaje=mensaje_notificacion,
+                link="/menu_adoptantes/portada",
+                # data_json={"accion": "aprobar_documentacion"},
+                tipo_mensaje="verde",
+                enviar_por_whatsapp=False,
+                login_que_notifico=login_supervisora,
+            )
+            if not resultado["success"]:
+                raise Exception(resultado["mensaje"])
+
+            # Evento individual
+            db.add(RuaEvento(
+                login=login_destinatario,
+                evento_detalle=f"Proyecto aprobado. Notificación enviada a {login_destinatario}.",
+                evento_fecha=datetime.now()
+            ))
+
+
+            if user.mail:
+                try:
+                    cuerpo_mensaje_html = f"""
+                        <p>Recibiste una notificación del <strong>RUA</strong>:</p>
+                        <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
+                            <em>La presentación de tu proyecto adoptivo fue aceptado. Pronto se pondrán en contacto con vos para iniciar las entrevistas correspondientes.</em>
+                        </div>
+                    """
+
+                    cuerpo = f"""
+                    <html>
+                    <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                        <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                        <tr>
+                            <td align="center">
+                            <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                <tr>
+                                <td style="font-size: 24px; color: #007bff;">
+                                    <strong>Hola {user.nombre},</strong>
+                                </td>
+                                </tr>
+                                <tr>
+                                <td style="padding-top: 20px; font-size: 17px;">
+                                    {cuerpo_mensaje_html}
+                                </td>
+                                </tr>
+                                <tr>
+                                <td align="center" style="font-size: 17px; padding-top: 30px;">
+                                    <p><strong>Muchas gracias.</strong></p>
+                                </td>
+                                </tr>
+                                <tr>
+                                <td style="padding-top: 30px;">
+                                    <hr style="border: none; border-top: 1px solid #dee2e6;">
+                                    <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
+                                    <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                    </p>
+                                </td>
+                                </tr>
+                            </table>
+                            </td>
+                        </tr>
+                        </table>
+                    </body>
+                    </html>
+                    """
+
+                    enviar_mail(
+                        destinatario=user.mail,
+                        asunto="Notificación del Sistema RUA",
+                        cuerpo=cuerpo
+                    )
+
+                except Exception as e:
+                    db.rollback()
+                    return {
+                        "success": False,
+                        "tipo_mensaje": "naranja",
+                        "mensaje": f"⚠️ Proyecto aprobado, pero hubo un error al enviar mail a {user.nombre}: {str(e)}",
+                        "tiempo_mensaje": 6,
+                        "next_page": "actual"
+                    }
+
+
         db.commit()
 
         return {
@@ -4297,7 +4407,8 @@ def aprobar_proyecto(
             "tipo_mensaje": "verde",
             "mensaje": (
                 f"<b>Proyecto aprobado exitosamente.</b><br>"
-                f"Número de orden asignado: <b>{nuevo_nro_orden}</b>."
+                f"Número de orden asignado: <b>{nuevo_nro_orden}</b>.<br>"
+                f"Se notificó al/los pretensos."
             ),
             "tiempo_mensaje": 5,
             "next_page": "menu_supervisoras/detalleProyecto"
