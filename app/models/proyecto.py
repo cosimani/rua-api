@@ -194,28 +194,6 @@ class AgendaEntrevistas(Base):
 
 
 
-# class AgendaEntrevistas(Base):
-#     __tablename__ = "agenda_entrevistas"
-
-#     id = Column(Integer, primary_key=True, autoincrement=True)
-
-#     # 🔗 ID del proyecto al que pertenece la entrevista
-#     proyecto_id = Column(Integer, ForeignKey("proyecto.proyecto_id"), nullable=False)
-
-#     # 🙋‍♀️ Login del usuario que agenda la entrevista (puede ser profesional o administrador)
-#     login_que_agenda = Column(String(190), ForeignKey("sec_users.login"), nullable=False)
-
-#     # 🕒 Fecha y hora programada para la entrevista
-#     fecha_hora = Column(DateTime, nullable=False)
-
-#     # 💬 Comentarios adicionales (opcional)
-#     comentarios = Column(Text, nullable=True)
-
-#     # 📅 Fecha de creación del registro en la base
-#     creada_en = Column(DateTime, default=datetime.now)
-
-
-
 
 class FechaRevision(Base):
     __tablename__ = "fecha_revision"
