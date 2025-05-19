@@ -133,8 +133,12 @@ class Proyecto(Base):
 
 
     # Relaciones con sec_users
-    usuario_1 = relationship(User, foreign_keys=[login_1], backref="proyectos_login_1")
-    usuario_2 = relationship(User, foreign_keys=[login_2], backref="proyectos_login_2")
+    # usuario_1 = relationship(User, foreign_keys=[login_1], backref="proyectos_login_1")
+    # usuario_2 = relationship(User, foreign_keys=[login_2], backref="proyectos_login_2")
+
+    usuario_1 = relationship("User", foreign_keys=[login_1], backref="proyectos_login_1")
+    usuario_2 = relationship("User", foreign_keys=[login_2], backref="proyectos_login_2")
+
 
     detalle_proyectos = relationship("DetalleProyectosEnCarpeta", back_populates="proyecto")
     detalle_equipo_proyecto = relationship("DetalleEquipoEnProyecto", back_populates="proyecto")

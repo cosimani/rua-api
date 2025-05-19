@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Request, status, Body, UploadFile, File, Form
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Tuple
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import func, case, and_, or_, Integer
@@ -26,6 +26,11 @@ import os, shutil
 from dotenv import load_dotenv
 from fastapi.responses import FileResponse
 
+import fitz  # PyMuPDF
+from PIL import Image
+import subprocess
+
+
 from helpers.notificaciones_utils import crear_notificacion_masiva_por_rol, crear_notificacion_individual
 
 
@@ -42,6 +47,16 @@ if not UPLOAD_DIR_DOC_PROYECTOS:
 
 # Crear la carpeta si no existe
 os.makedirs(UPLOAD_DIR_DOC_PROYECTOS, exist_ok=True)
+
+
+# Obtener y validar la variable
+DIR_PDF_GENERADOS = os.getenv("DIR_PDF_GENERADOS")
+
+if not DIR_PDF_GENERADOS:
+    raise RuntimeError("La variable de entorno DIR_PDF_GENERADOS no está definida. Verificá tu archivo .env")
+
+# Crear la carpeta si no existe
+os.makedirs(DIR_PDF_GENERADOS, exist_ok=True)
 
 
 
@@ -4507,3 +4522,144 @@ def aprobar_proyecto(
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
+
+
+
+
+@proyectos_router.get("/proyectos/{proyecto_id}/descargar-pdf", response_class=FileResponse,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def descargar_pdf_proyecto(
+    proyecto_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    📄 Descarga un PDF unificado con información del proyecto adoptivo y sus documentos adjuntos.
+    """
+
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    output_path = os.path.join(DIR_PDF_GENERADOS, f"proyecto_{proyecto_id}.pdf")
+    pdf_paths: List[Tuple[str, str]] = []
+
+    documentos_a_incluir = {
+        "Informe del equipo técnico": proyecto.informe_profesionales,
+        "Dictamen profesional": proyecto.doc_dictamen,
+        "Sentencia de guarda": proyecto.doc_sentencia_guarda,
+        "Sentencia de adopción": proyecto.doc_sentencia_adopcion,
+    }
+
+    def convertir_a_pdf_y_agregar(nombre, ruta_original):
+        if not ruta_original or not os.path.exists(ruta_original):
+            return
+
+        ext = os.path.splitext(ruta_original)[1].lower()
+        nombre_archivo = f"{nombre}_{os.path.basename(ruta_original)}.pdf"
+        out_pdf = os.path.join(DIR_PDF_GENERADOS, nombre_archivo)
+
+        if ext == ".pdf":
+            shutil.copy(ruta_original, out_pdf)
+        elif ext in [".jpg", ".jpeg", ".png"]:
+            Image.open(ruta_original).convert("RGB").save(out_pdf)
+        elif ext in [".doc", ".docx"]:
+            subprocess.run([
+                "libreoffice", "--headless", "--convert-to", "pdf", "--outdir", DIR_PDF_GENERADOS, ruta_original
+            ], check=True)
+            out_pdf = os.path.join(DIR_PDF_GENERADOS, os.path.splitext(os.path.basename(ruta_original))[0] + ".pdf")
+        else:
+            return
+
+        if os.path.exists(out_pdf):
+            pdf_paths.append((nombre, out_pdf))
+
+    for nombre, ruta in documentos_a_incluir.items():
+        convertir_a_pdf_y_agregar(nombre, ruta)
+
+    # Crear PDF combinado
+    merged = fitz.open()
+
+    portada = merged.new_page(width=595, height=842)
+    portada.insert_textbox(
+        fitz.Rect(0, 50, portada.rect.width, 100),
+        "Proyecto Adoptivo - Detalles Generales",
+        fontsize=22,
+        fontname="helv",
+        align=1
+    )
+
+    pretenso_1 = proyecto.usuario_1  # ← accede al User relacionado
+    pretenso_2 = proyecto.usuario_2 if proyecto.login_2 else None
+
+
+    # Domicilio completo
+    domicilio = proyecto.proyecto_calle_y_nro or ""
+    if proyecto.proyecto_depto_etc:
+        domicilio += f", {proyecto.proyecto_depto_etc}"
+    if proyecto.proyecto_barrio:
+        domicilio += f", {proyecto.proyecto_barrio}"
+    if proyecto.proyecto_localidad:
+        domicilio += f", {proyecto.proyecto_localidad}"
+
+    # Lista de líneas a insertar
+    datos = []
+
+    if proyecto.nro_orden_rua:
+        datos.append(f"N° de orden RUA: {proyecto.nro_orden_rua}")
+
+    if proyecto.proyecto_tipo:
+        datos.append(f"Tipo de proyecto: {proyecto.proyecto_tipo}")
+
+    if pretenso_1:
+        datos.append(f"Pretenso 1: {pretenso_1.nombre} {pretenso_1.apellido} - DNI: {pretenso_1.login}")
+
+    if pretenso_2:
+        datos.append(f"Pretenso 2: {pretenso_2.nombre} {pretenso_2.apellido} - DNI: {pretenso_2.login}")
+
+    if domicilio.strip():
+        datos.append(f"Domicilio: {domicilio}")
+
+    if proyecto.proyecto_provincia:
+        datos.append(f"Provincia: {proyecto.proyecto_provincia}")
+
+
+    if proyecto.estado_general:
+        datos.append(f"Estado actual: {proyecto.estado_general}")
+
+
+    y = 130
+    for linea in datos:
+        portada.insert_textbox(fitz.Rect(60, y, 530, y + 25), linea, fontsize=14, fontname="helv", align=0)
+        y += 30
+
+    portada.draw_line(p1=(60, y), p2=(portada.rect.width - 60, y), color=(0.5, 0.5, 0.5), width=0.8)
+
+    # Agregar documentos adjuntos
+    for titulo, path in pdf_paths:
+        titulo_page = merged.new_page(width=595, height=842)
+        titulo_page.insert_textbox(
+            fitz.Rect(0, 280, 595, 320),
+            titulo,
+            fontsize=20,
+            fontname="helv",
+            align=1
+        )
+
+        if os.path.exists("/app/recursos/imagenes/flecha_hacia_abajo.png"):
+            titulo_page.insert_image(fitz.Rect(250, 340, 345, 440), filename="/app/recursos/imagenes/flecha_hacia_abajo.png")
+
+        with fitz.open(path) as doc:
+            merged.insert_pdf(doc)
+
+    merged.save(output_path)
+
+    nombre_archivo = f"{pretenso_1.nombre}_{pretenso_1.apellido}".replace(" ", "_")
+    if pretenso_2:
+        nombre_archivo += f"_{pretenso_2.nombre}_{pretenso_2.apellido}".replace(" ", "_")
+
+
+    return FileResponse(
+        path=output_path,
+        filename=f"proyecto_{nombre_archivo}.pdf",
+        media_type="application/pdf"
+    )
