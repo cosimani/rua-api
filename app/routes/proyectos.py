@@ -2612,6 +2612,7 @@ def solicitar_valoracion_final(
         }
 
 
+        
 @proyectos_router.post("/valoracion/final", response_model = dict,
     dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
 def valorar_proyecto_final(
@@ -2657,7 +2658,7 @@ def valorar_proyecto_final(
                 "next_page": "actual"
             }
 
-        if not texto_observacion:
+        if not texto_observacion or not texto_observacion.strip():
             return {
                 "success": False,
                 "tipo_mensaje": "naranja",
@@ -2667,7 +2668,7 @@ def valorar_proyecto_final(
             }
 
 
-        proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+        proyecto = db.query(Proyecto).filter_by(proyecto_id=proyecto_id).first()
         if not proyecto:
             return {
                 "success": False,
@@ -2680,23 +2681,56 @@ def valorar_proyecto_final(
         estado_anterior = proyecto.estado_general
 
         subregistros_map = {
-            "1": "subregistro_1", "2": "subregistro_2", "3": "subregistro_3", "4": "subregistro_4",
-            "5a": "subregistro_5_a", "5b": "subregistro_5_b", "5c": "subregistro_5_c",
-            "6a": "subregistro_6_a", "6b": "subregistro_6_b", "6c": "subregistro_6_c", "6d": "subregistro_6_d",
-            "62": "subregistro_6_2", "63": "subregistro_6_3", "63+": "subregistro_6_mas_de_3",
-            "f": "subregistro_flexible", "o": "subregistro_otra_provincia"
+            "1": "subregistro_1",
+            "2": "subregistro_2",
+            "3": "subregistro_3",
+            "4": "subregistro_4",
+            "FE1": "flex_edad_1",
+            "FE2": "flex_edad_2",
+            "FE3": "flex_edad_3",
+            "FE4": "flex_edad_4",
+            "FET": "flex_edad_todos",
+            "5A1": "discapacidad_1",
+            "5A2": "discapacidad_2",
+            "5A1E1": "edad_discapacidad_0",
+            "5A1E2": "edad_discapacidad_1",
+            "5A1E3": "edad_discapacidad_2",
+            "5A1E4": "edad_discapacidad_3",
+            "5A1ET": "edad_discapacidad_4",
+            "F5S": "flex_condiciones_salud",
+            "F5E1": "flex_salud_edad_0",
+            "F5E2": "flex_salud_edad_1",
+            "F5E3": "flex_salud_edad_2",
+            "F5E4": "flex_salud_edad_3",
+            "F5ET": "flex_salud_edad_4",
+            "61": "hermanos_comp_1",
+            "62": "hermanos_comp_2",
+            "63": "hermanos_comp_3",
+            "61E1": "hermanos_edad_0",
+            "61E2": "hermanos_edad_1",
+            "61E3": "hermanos_edad_2",
+            "61ET": "hermanos_edad_3",
+            "FQ1": "flex_hermanos_comp_1",
+            "FQ2": "flex_hermanos_comp_2",
+            "FQ3": "flex_hermanos_comp_3",
+            "F6E1": "flex_hermanos_edad_0",
+            "F6E2": "flex_hermanos_edad_1",
+            "F6E3": "flex_hermanos_edad_2",
+            "F6E4": "flex_hermanos_edad_3",
+            "F6ET": "flex_hermanos_edad_3"
         }
 
         if estado_final == "viable_disponible":
-            campos_subregistro = list(subregistros_map.values())
-
-            for campo in campos_subregistro:
+            # Primero limpiamos todo
+            for campo in set(subregistros_map.values()):
                 setattr(proyecto, campo, "N")
 
+            # Luego activamos los seleccionados
             for codigo in subregistros_raw:
                 campo = subregistros_map.get(codigo)
                 if campo:
                     setattr(proyecto, campo, "Y")
+
 
         elif estado_final == "en_suspenso":
             if not fecha_revision:
