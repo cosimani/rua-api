@@ -1909,7 +1909,7 @@ def solicitar_valoracion(
                 mensaje = (
                     f"Nuevo proyecto para valoración. asignado por {nombre_supervisora}."
                 ),
-                link = "/menu_profesionales/detalleProyecto",
+                link = "/menu_profesionales/detalleEntrevista",
                 data_json = { "proyecto_id": proyecto.proyecto_id },
                 tipo_mensaje = "naranja"
             )
@@ -2063,65 +2063,142 @@ def agendar_entrevista(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
+    
+    EVALUACIONES_VALIDAS = [
+        "Deseo y motivación",
+        "Historia vital",
+        "Técnicas psicológicas",
+        "Entrevista domiciliaria",
+        "Entrevista de devolución"
+    ]
+    
+
     try:
         login_actual = current_user["user"]["login"]
-
-        roles_actuales = db.query(Group.description).join(UserGroup, Group.group_id == UserGroup.group_id)\
-            .filter(UserGroup.login == login_actual).all()
-        rol_actual = [r[0] for r in roles_actuales]
 
         proyecto_id = data.get("proyecto_id")
         fecha_hora = data.get("fecha_hora")
         comentarios = data.get("comentarios")
         evaluaciones = data.get("evaluaciones", [])  # ✅ puede venir vacío
 
-        if not proyecto_id or not fecha_hora:
+        print( evaluaciones)
+
+        if not proyecto_id :
             return {
-                "success": False,
-                "tipo_mensaje": "rojo",
-                "mensaje": "Faltan campos obligatorios.",
-                "tiempo_mensaje": 5,
+                "success": False, 
+                "tipo_mensaje": "naranja", 
+                "mensaje": "No se pudo identificar el proyecto.", 
+                "tiempo_mensaje": 5, 
                 "next_page": "actual"
             }
 
-        proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+        if not fecha_hora:
+            return {
+                "success": False, 
+                "tipo_mensaje": "naranja", 
+                "mensaje": "Faltan indicar la fecha y hora.", 
+                "tiempo_mensaje": 5, 
+                "next_page": "actual"
+            }
+
+        proyecto = db.query(Proyecto).filter_by(proyecto_id=proyecto_id).first()
         if not proyecto:
             return {
-                "success": False,
-                "tipo_mensaje": "rojo",
-                "mensaje": "Proyecto no encontrado.",
-                "tiempo_mensaje": 5,
+                "success": False, 
+                "tipo_mensaje": "rojo", "mensaje": 
+                "Proyecto no encontrado.", 
+                "tiempo_mensaje": 5, 
                 "next_page": "actual"
             }
 
+        roles_actuales = db.query(Group.description).join(UserGroup, Group.group_id == UserGroup.group_id)\
+            .filter(UserGroup.login == login_actual).all()
+        rol_actual = [r[0] for r in roles_actuales]
+
         if "administrador" not in rol_actual:
-            asignado = db.query(DetalleEquipoEnProyecto).filter(
-                DetalleEquipoEnProyecto.proyecto_id == proyecto_id,
-                DetalleEquipoEnProyecto.login == login_actual
-            ).first()
+            asignado = db.query(DetalleEquipoEnProyecto).filter_by(proyecto_id=proyecto_id, login=login_actual).first()
             if not asignado:
                 return {
+                    "success": False, 
+                    "tipo_mensaje": "rojo", 
+                    "mensaje": "No estás asignado a este proyecto.", 
+                    "tiempo_mensaje": 5, 
+                    "next_page": "actual"}
+
+        # Validación de fecha
+        fecha_obj = datetime.fromisoformat(fecha_hora)
+        if fecha_obj.date() < date.today():
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "No se puede agendar entrevistas en fechas pasadas. "
+                           "Las entrevistas deben agendarse en orden y a partir del día actual.",
+                "tiempo_mensaje": 7,
+                "next_page": "actual"
+            }
+
+        # Validar orden de fechas: no debe haber días intermedios sin entrevistas
+        entrevistas_previas = db.query(AgendaEntrevistas).filter_by(proyecto_id=proyecto_id).order_by(AgendaEntrevistas.fecha_hora).all()
+        if entrevistas_previas:
+            ultima_fecha = entrevistas_previas[-1].fecha_hora.date()
+            if fecha_obj.date() <= ultima_fecha:
+                return {
                     "success": False,
-                    "tipo_mensaje": "rojo",
-                    "mensaje": "No estás asignado a este proyecto. No podés agendar entrevistas.",
-                    "tiempo_mensaje": 5,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": f"Ya existe una entrevista posterior a esa fecha. Las entrevistas "
+                                "deben agendarse en orden cronológico.",
+                    "tiempo_mensaje": 7,
                     "next_page": "actual"
                 }
 
-        estado_actual = "calendarizando"
-        if estado_actual == "calendarizando":
-            db.add(RuaEvento(
-                login=login_actual,
-                evento_detalle=f"Se inició etapa de entrevistas en proyecto #{proyecto_id}",
-                evento_fecha=datetime.now()
-            ))
+        # Validación de evaluaciones
+        evaluaciones_previas = []
+        for ent in entrevistas_previas:
+            if ent.evaluaciones:
+                evaluaciones_previas.extend(json.loads(ent.evaluaciones))
 
+        # Convertir a índices
+        indices_previos = [EVALUACIONES_VALIDAS.index(e) for e in evaluaciones_previas if e in EVALUACIONES_VALIDAS]
+        max_evaluacion_completada = max(indices_previos) if indices_previos else -1
+
+        indices_actuales = [EVALUACIONES_VALIDAS.index(e) for e in evaluaciones if e in EVALUACIONES_VALIDAS]
+
+        # Validar que no se salten evaluaciones
+        if not all(e in EVALUACIONES_VALIDAS for e in evaluaciones):
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "Una o más evaluaciones no son válidas.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+        if not indices_actuales or min(indices_actuales) > max_evaluacion_completada + 1:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Las evaluaciones deben realizarse en orden. No se pueden saltear "
+                           "evaluaciones. Deben completarse en secuencia.",
+                "tiempo_mensaje": 7,
+                "next_page": "actual"
+            }
+
+        if sorted(indices_actuales) != list(range(min(indices_actuales), max(indices_actuales)+1)):
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Las evaluaciones seleccionadas deben ser consecutivas y estar en orden.",
+                "tiempo_mensaje": 7,
+                "next_page": "actual"
+            }
+
+        # Registrar entrevista
         nueva_agenda = AgendaEntrevistas(
             proyecto_id=proyecto_id,
             login_que_agenda=login_actual,
-            fecha_hora=fecha_hora,
+            fecha_hora=fecha_obj,
             comentarios=comentarios,
-            evaluaciones=json.dumps(evaluaciones) if evaluaciones else None  # ✅ guardar como string JSON
+            evaluaciones=json.dumps(evaluaciones) if evaluaciones else None
         )
         db.add(nueva_agenda)
 
@@ -2132,6 +2209,7 @@ def agendar_entrevista(
         ))
 
         db.commit()
+
 
         return {
             "success": True,
@@ -4107,7 +4185,13 @@ def eliminar_entrevista_agendada(
     try:
         entrevista = db.query(AgendaEntrevistas).filter(AgendaEntrevistas.id == entrevista_id).first()
         if not entrevista:
-            raise HTTPException(status_code=404, detail="Entrevista no encontrada.")
+            return {
+                "success": False, 
+                "tipo_mensaje": "naranja", 
+                "mensaje": "Entrevista no encontrada.", 
+                "tiempo_mensaje": 5, 
+                "next_page": "actual"
+            }
 
         login_actual = current_user["user"]["login"]
 
@@ -4173,8 +4257,8 @@ def agregar_comentario_extra(
 
         if not entrevista:
             return {
-                "success": True,
-                "tipo_mensaje": "verde",
+                "success": False,
+                "tipo_mensaje": "rojo",
                 "mensaje": "Entrevista no encontrada.",
                 "tiempo_mensaje": 4,
                 "next_page": "actual"
@@ -4183,15 +4267,15 @@ def agregar_comentario_extra(
         comentario_extra = data.get("comentario_extra", "").strip()
         if not comentario_extra:
             return {
-                "success": True,
-                "tipo_mensaje": "verde",
+                "success": False,
+                "tipo_mensaje": "naranja",
                 "mensaje": "El comentario adicional es requerido.",
                 "tiempo_mensaje": 4,
                 "next_page": "actual"
             }
        
 
-        entrevista.comentario_extra = comentario_extra
+        entrevista.evaluacion_comentarios = comentario_extra
         db.commit()
 
         return {
