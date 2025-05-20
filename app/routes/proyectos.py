@@ -2681,8 +2681,10 @@ def valorar_proyecto_final(
         fecha_revision = data.get("fecha_revision")
         texto_observacion = data.get("observacion")
         login_supervisora = current_user["user"]["login"]
+        enviar_notificacion = data.get("enviar_notificacion", False)
 
-        if estado_final not in ["viable", "en_suspenso", "no_viable", "baja_anulacion"]:
+
+        if estado_final not in ["viable", "en_suspenso", "no_viable"]:
             return {
                 "success": False,
                 "tipo_mensaje": "rojo",
@@ -2700,6 +2702,15 @@ def valorar_proyecto_final(
                 "next_page": "actual"
             }
 
+        if estado_final == "en_suspenso" and not fecha_revision:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Debe indicar una fecha de revisión para el estado En suspenso.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
 
         proyecto = db.query(Proyecto).filter_by(proyecto_id=proyecto_id).first()
         if not proyecto:
@@ -2710,6 +2721,81 @@ def valorar_proyecto_final(
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
             }
+
+        # Observación y/o notificación según lógica
+        observacion = None
+
+        # 🔹 Siempre registrar observación si no se envía notificación
+        if not enviar_notificacion:
+            observacion = ObservacionesProyectos(
+                observacion_fecha=datetime.now(),
+                observacion=texto_observacion + " Valoración final: " + estado_final,
+                login_que_observo=login_supervisora,
+                observacion_a_cual_proyecto=proyecto_id
+            )
+            db.add(observacion)
+            db.flush()
+
+        # 🔹 Si se envía notificación y no es en_suspenso: solo notificación
+        elif enviar_notificacion and estado_final in ["viable", "no_viable"]:
+            if proyecto.login_1:
+                crear_notificacion_individual(
+                    db=db,
+                    login_destinatario=proyecto.login_1,
+                    mensaje=texto_observacion,
+                    link="/menu_adoptantes/portada",
+                    data_json={},
+                    tipo_mensaje="naranja",
+                    enviar_por_whatsapp=False,
+                    login_que_notifico=login_supervisora
+                )
+            if proyecto.login_2:
+                crear_notificacion_individual(
+                    db=db,
+                    login_destinatario=proyecto.login_2,
+                    mensaje=texto_observacion,
+                    link="/menu_adoptantes/portada",
+                    data_json={},
+                    tipo_mensaje="naranja",
+                    enviar_por_whatsapp=False,
+                    login_que_notifico=login_supervisora
+                )
+        
+        # 🔹 Si es en_suspenso y enviar_notificacion, registrar observación + notificar
+        elif enviar_notificacion and estado_final == "en_suspenso":
+            observacion = ObservacionesProyectos(
+                observacion_fecha=datetime.now(),
+                observacion=texto_observacion + " Valoración final: " + estado_final,
+                login_que_observo=login_supervisora,
+                observacion_a_cual_proyecto=proyecto_id
+            )
+            db.add(observacion)
+            db.flush()
+
+            for login_destinatario in [proyecto.login_1, proyecto.login_2]:
+                if login_destinatario:
+                    crear_notificacion_individual(
+                        db=db,
+                        login_destinatario=login_destinatario,
+                        mensaje=texto_observacion,
+                        link="/menu_adoptantes/portada",
+                        data_json={},
+                        tipo_mensaje="naranja",
+                        enviar_por_whatsapp=False,
+                        login_que_notifico=login_supervisora
+                    )
+
+        # 🔹 Si es en_suspenso, registrar fecha_revision (requiere observación_id)
+        if estado_final == "en_suspenso":
+            fecha_revision_registro = FechaRevision(
+                fecha_atencion=fecha_revision,
+                observacion_id=observacion.observacion_id if observacion else None,
+                login_que_registro=login_supervisora,
+                proyecto_id=proyecto_id,
+                cantidad_notificaciones=0
+            )
+            db.add(fecha_revision_registro)
+
 
         estado_anterior = proyecto.estado_general
 
@@ -2778,6 +2864,7 @@ def valorar_proyecto_final(
         proyecto.estado_general = estado_final
         db.add(proyecto)
 
+
         historial = ProyectoHistorialEstado(
             proyecto_id = proyecto_id,
             estado_anterior = estado_anterior,
@@ -2793,24 +2880,6 @@ def valorar_proyecto_final(
         )
         db.add(evento)
 
-        observacion = ObservacionesProyectos(
-            observacion_fecha = datetime.now(),
-            observacion = texto_observacion + " Valoración final: " + estado_final,
-            login_que_observo = login_supervisora,
-            observacion_a_cual_proyecto = proyecto_id
-        )
-        db.add(observacion)
-        db.flush()
-
-        if estado_final == "en_suspenso":
-            fecha_revision_registro = FechaRevision(
-                fecha_atencion = fecha_revision,
-                observacion_id = observacion.observacion_id,
-                login_que_registro = login_supervisora,
-                proyecto_id = proyecto_id,
-                cantidad_notificaciones = 0
-            )
-            db.add(fecha_revision_registro)
 
         db.commit()
 
