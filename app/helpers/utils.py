@@ -375,7 +375,7 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             db.query(Proyecto)
             .filter(
                 Proyecto.proyecto_tipo == 'Monoparental',
-                Proyecto.estado_general == 'viable_disponible'
+                Proyecto.estado_general == 'viable'
             )
             .count() 
         )
@@ -384,7 +384,7 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             db.query(Proyecto)
             .filter(
                 Proyecto.proyecto_tipo != 'Monoparental',
-                Proyecto.estado_general == 'viable_disponible'
+                Proyecto.estado_general == 'viable'
             )
             .count() 
         )

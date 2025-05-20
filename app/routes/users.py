@@ -404,7 +404,7 @@ def get_users(
                 "calendarizando": "Agendando entrev.",
                 "entrevistando": "Entrev. en curso",
                 "para_valorar": "En valoración.",
-                "viable_disponible": "Viable disponible",
+                "viable": "Viable",
                 "viable_no_disponible": "Viable no disp.",
                 "en_suspenso": "En suspenso",
                 "no_viable": "No viable",
@@ -732,7 +732,7 @@ def get_user_by_login(
                 "calendarizando": "CALENDARIZANDO",
                 "entrevistando": "ENTREVISTANDO",
                 "para_valorar": "PENDIENTE DE VALORACIÓN",
-                "viable_disponible": "VIABLE / DISPONIBLE",
+                "viable": "VIABLE",
                 "viable_no_disponible": "VIABLE / NO DISPONIBLE",
                 "en_suspenso": "EN SUSPENSO",
                 "no_viable": "NO VIABLE",
@@ -2805,7 +2805,7 @@ def get_estado_usuario(
                     "Su proyecto se encuentra en etapa de evaluación.",
                     ""
                 ),
-                "viable_disponible": (
+                "viable": (
                     "Valoración favorable",
                     "Está disponible para búsqueda de NNA.",
                     ""
@@ -2847,7 +2847,7 @@ def get_estado_usuario(
                 ),
             }
 
-            if estado == "viable_disponible" and proyecto.ultimo_cambio_de_estado:
+            if estado == "viable" and proyecto.ultimo_cambio_de_estado:
                 fecha_cambio = proyecto.ultimo_cambio_de_estado
 
                 # Convertir solo si es string (precaución extra)

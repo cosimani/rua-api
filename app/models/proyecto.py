@@ -61,7 +61,7 @@ class Proyecto(Base):
     
     estado_general = Column(Enum( 'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando', 'aprobado', 
                                   'calendarizando', 'entrevistando', 'para_valorar',
-                                  'viable_disponible', 'viable_no_disponible', 'en_suspenso', 'no_viable', 'en_carpeta', 
+                                  'viable', 'viable_no_disponible', 'en_suspenso', 'no_viable', 'en_carpeta', 
                                   'vinculacion', 'guarda', 'adopcion_definitiva', 'baja_anulacion', 'baja_caducidad', 
                                   'baja_por_convocatoria', 'baja_rechazo_invitacion' ), nullable=True)             
 

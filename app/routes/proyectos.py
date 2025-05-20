@@ -593,7 +593,7 @@ def get_proyecto_por_id(
             "calendarizando": "CALENDARIZANDO",
             "entrevistando": "ENTREVISTAS",
             "para_valorar": "PARA VALORAR",
-            "viable_disponible": "VIABLE DISP.",
+            "viable": "VIABLE",
             "viable_no_disponible": "VIABLE NO DISP.",
             "en_suspenso": "EN SUSPENSO",
             "no_viable": "NO VIABLE",
@@ -654,7 +654,7 @@ def get_proyecto_por_id(
             "boton_para_valoracion_final_proyecto": proyecto.estado_general == "para_valorar",
             "boton_para_sentencia_guarda": proyecto.estado_general == "vinculacion",
             "boton_para_sentencia_adopcion": proyecto.estado_general == "guarda",
-            "boton_agregar_a_carpeta": proyecto.estado_general == "viable_disponible",
+            "boton_agregar_a_carpeta": proyecto.estado_general == "viable",
 
             # "carpeta_ids": carpeta_ids,  # Lista de carpetas asociadas al proyecto
 
@@ -909,7 +909,7 @@ def crear_proyecto_preliminar(
                 Proyecto.login_2 == login_2,
                 Proyecto.estado_general.in_(["creado", "confeccionando", "en_revision", "actualizando", "aprobado", 
                                              "calendarizando", "entrevistando", "para_valorar",
-                                             "viable_disponible", "en_suspenso", "en_carpeta", "vinculacion", "guarda"])
+                                             "viable", "en_suspenso", "en_carpeta", "vinculacion", "guarda"])
             ).first()
 
             if proyecto_activo:
@@ -1246,7 +1246,7 @@ def crear_proyecto(
             .filter(
                 Proyecto.login_1 == login_1,
                 Proyecto.estado_general.in_(["creado", "confeccionando", "en_revision", "actualizando", "aprobado", 
-                                             "en_valoracion", "viable_disponible", "en_suspenso", "en_carpeta", 
+                                             "en_valoracion", "viable", "en_suspenso", "en_carpeta", 
                                              "vinculacion", "guarda"])
             )
             .first()
@@ -1265,7 +1265,7 @@ def crear_proyecto(
                 .filter(
                     Proyecto.login_2 == login_2,
                     Proyecto.estado_general.in_(["creado", "confeccionando", "en_revision", "actualizando", "aprobado", 
-                                                "en_valoracion", "viable_disponible", "en_suspenso", "en_carpeta", 
+                                                "en_valoracion", "viable", "en_suspenso", "en_carpeta", 
                                                 "vinculacion", "guarda"])
                 )
                 .first()
@@ -2623,7 +2623,7 @@ def valorar_proyecto_final(
     """
     📌 Endpoint para que una supervisora registre la valoración final del proyecto.
 
-    - Si es "viable_disponible", se deben definir los subregistros activos con códigos simples.
+    - Si es "viable", se deben definir los subregistros activos con códigos simples.
     - Si es "en_suspenso", debe indicarse una fecha de revisión.
     - Si es "no_viable" o "baja_anulacion", no requiere datos adicionales.
     - La observación debe ser enviada desde frontend como string.
@@ -2632,7 +2632,7 @@ def valorar_proyecto_final(
     ```json
     {
       "proyecto_id": 123,
-      "estado_final": "viable_disponible",
+      "estado_final": "viable",
       "subregistros": ["1", "5a", "6b", "63+"],
       "fecha_revision": "2025-05-10",
       "observacion": "Se valora como disponible por cumplimiento de criterios técnicos y entrevistas satisfactorias."
@@ -2649,7 +2649,7 @@ def valorar_proyecto_final(
         texto_observacion = data.get("observacion")
         login_supervisora = current_user["user"]["login"]
 
-        if estado_final not in ["viable_disponible", "en_suspenso", "no_viable", "baja_anulacion"]:
+        if estado_final not in ["viable", "en_suspenso", "no_viable", "baja_anulacion"]:
             return {
                 "success": False,
                 "tipo_mensaje": "rojo",
@@ -2720,7 +2720,7 @@ def valorar_proyecto_final(
             "F6ET": "flex_hermanos_edad_3"
         }
 
-        if estado_final == "viable_disponible":
+        if estado_final == "viable":
             # Primero limpiamos todo
             for campo in set(subregistros_map.values()):
                 setattr(proyecto, campo, "N")
@@ -2762,7 +2762,7 @@ def valorar_proyecto_final(
 
         observacion = ObservacionesProyectos(
             observacion_fecha = datetime.now(),
-            observacion = texto_observacion,
+            observacion = texto_observacion + " Valoración final: " + estado_final,
             login_que_observo = login_supervisora,
             observacion_a_cual_proyecto = proyecto_id
         )
@@ -3638,7 +3638,7 @@ def crear_proyecto_completo(
             # Verificar que login_2 no tenga proyecto activo
             if db.query(Proyecto).filter(Proyecto.login_2 == login_2,
                 Proyecto.estado_general.in_(["creado", "confeccionando", "en_revision", "actualizando", "aprobado", 
-                                             "calendarizando", "entrevistando", "para_valorar", "viable_disponible", 
+                                             "calendarizando", "entrevistando", "para_valorar", "viable", 
                                              "en_suspenso", "en_carpeta", "vinculacion", "guarda"])).first():
                 return {
                     "success": False,
