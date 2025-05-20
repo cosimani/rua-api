@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, status, Request, Query, Body
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import case
+
 from typing import List, Optional, Literal
 from datetime import datetime, date
 
@@ -54,7 +56,17 @@ def listar_carpetas(
     limit: int = Query(10, ge = 1, le = 100),
 ):
     try:
-        query = db.query(Carpeta).order_by(Carpeta.fecha_creacion.desc())
+
+        orden_estado = case(
+            (Carpeta.estado_carpeta == "vacia", 1),
+            (Carpeta.estado_carpeta == "preparando_carpeta", 2),
+            (Carpeta.estado_carpeta == "enviada_a_juzgado", 3),
+            (Carpeta.estado_carpeta == "proyecto_seleccionado", 4),
+            else_=5
+        )
+
+        query = db.query(Carpeta).order_by(orden_estado, Carpeta.fecha_creacion.asc())
+        
 
         total = query.count()
         carpetas = query.offset((page - 1) * limit).limit(limit).all()
@@ -364,6 +376,65 @@ def actualizar_carpeta(
             "next_page": "actual"
         }
 
+
+@carpetas_router.delete("/{carpeta_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
+def eliminar_carpeta(
+    carpeta_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    🗑️ Elimina una carpeta solo si su estado es 'vacia'.
+
+    🔒 Requiere rol de administradora o supervisora.
+    """
+    try:
+        carpeta = db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).first()
+        if not carpeta:
+            raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+
+        if carpeta.estado_carpeta != "vacia":
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Solo se pueden eliminar carpetas vacías.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # Eliminar relaciones si existieran (precaución defensiva)
+        db.query(DetalleProyectosEnCarpeta).filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta_id).delete()
+        db.query(DetalleNNAEnCarpeta).filter(DetalleNNAEnCarpeta.carpeta_id == carpeta_id).delete()
+        db.delete(carpeta)
+
+        # Registrar evento
+        evento = RuaEvento(
+            login=current_user["user"]["login"],
+            evento_detalle=f"Se eliminó la carpeta ID {carpeta_id}",
+            evento_fecha=datetime.now()
+        )
+        db.add(evento)
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "Carpeta eliminada correctamente.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al eliminar carpeta: {str(e)}",
+            "tiempo_mensaje": 8,
+            "next_page": "actual"
+        }
 
 
 
