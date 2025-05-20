@@ -14,14 +14,18 @@ from models.proyecto import Proyecto
 from models.users import User
 from models.eventos_y_configs import RuaEvento
 from fastapi.responses import FileResponse, JSONResponse
-import os
 import tempfile, shutil
 
-from dotenv import load_dotenv
-import fitz  # PyMuPDF
+from zipfile import ZipFile
+import os, shutil, fitz, subprocess
 from PIL import Image
-import subprocess
+from io import BytesIO
+
+from dotenv import load_dotenv
+from PIL import Image
 from pathlib import Path
+from models.proyecto import ProyectoHistorialEstado
+
 
 
 
@@ -468,13 +472,52 @@ def enviar_a_juzgado(carpeta_id: int, db: Session = Depends(get_db)):
             "next_page": "actual"
         }
 
+    # Cambiar estado de carpeta
     carpeta.estado_carpeta = "enviada_a_juzgado"
+
+    # Armar nombres de NNAs
+    nombres_nnas = [
+        f"{dnna.nna.nna_nombre} {dnna.nna.nna_apellido}"
+        for dnna in carpeta.detalle_nna
+        if dnna.nna
+    ]
+    nombres_str = ", ".join(nombres_nnas)
+
+    # Armar historial para cada proyecto
+    proyectos = [dp.proyecto for dp in carpeta.detalle_proyectos if dp.proyecto]
+    total_proyectos = len(proyectos)
+
+    for proyecto in proyectos:
+        otros = total_proyectos - 1
+        if otros == 0:
+            texto_proyectos = "sin otros proyectos en la carpeta"
+        elif otros == 1:
+            texto_proyectos = "junto a otro proyecto"
+        else:
+            texto_proyectos = f"junto a otros {otros} proyectos"
+
+        historial = ProyectoHistorialEstado(
+            proyecto_id=proyecto.proyecto_id,
+            estado_anterior=proyecto.estado_general,
+            estado_nuevo="enviada_a_juzgado",
+            fecha_hora=datetime.now(),
+            comentarios=(
+                f"📤 Proyecto incluido en carpeta enviada al juzgado {texto_proyectos}. "
+                f"Carpeta formada con NNAs: {nombres_str}."
+            )
+        )
+        db.add(historial)
+
     db.commit()
+
 
     return {
         "success": True,
         "tipo_mensaje": "verde",
-        "mensaje": "Carpeta enviada correctamente al juzgado",
+        "mensaje": (
+            "📤 La carpeta fue preparada para el envío al juzgado. "
+            "📄 Por favor, descargue el PDF generado y continúe el procedimiento a través del SAC 🏛️."
+        ),
         "tiempo_mensaje": 5,
         "next_page": "actual"
     }
@@ -496,120 +539,120 @@ def marcar_con_dictamen(carpeta_id: int, db: Session = Depends(get_db)):
 
 
 
-@carpetas_router.get("/{carpeta_id}/descargar-pdf", response_class=FileResponse,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
-def descargar_pdf_carpeta_completa(
-    carpeta_id: int,
-    db: Session = Depends(get_db)
-):
-    carpeta = db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).first()
-    if not carpeta:
-        return JSONResponse(
-            status_code=404,
-            content={
-                "success": False,
-                "tipo_mensaje": "rojo",
-                "mensaje": "La carpeta solicitada no fue encontrada.",
-                "tiempo_mensaje": 6,
-                "next_page": "actual"
-            }
-        )
+# @carpetas_router.get("/{carpeta_id}/descargar-pdf", response_class=FileResponse,
+#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
+# def descargar_pdf_carpeta_completa(
+#     carpeta_id: int,
+#     db: Session = Depends(get_db)
+# ):
+#     carpeta = db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).first()
+#     if not carpeta:
+#         return JSONResponse(
+#             status_code=404,
+#             content={
+#                 "success": False,
+#                 "tipo_mensaje": "rojo",
+#                 "mensaje": "La carpeta solicitada no fue encontrada.",
+#                 "tiempo_mensaje": 6,
+#                 "next_page": "actual"
+#             }
+#         )
         
 
-    try:
-        # Ruta de salida final
-        output_path = os.path.join(DIR_PDF_GENERADOS, f"carpeta_{carpeta_id}_documentos_combinados.pdf")
-        pdf_paths = []
+#     try:
+#         # Ruta de salida final
+#         output_path = os.path.join(DIR_PDF_GENERADOS, f"carpeta_{carpeta_id}_documentos_combinados.pdf")
+#         pdf_paths = []
 
-        def agregar_documentos(modelo, campos: List[str]):
-            for campo in campos:
-                ruta = getattr(modelo, campo, None)
-                if ruta and os.path.exists(ruta):
-                    ext = os.path.splitext(ruta)[1].lower()
-                    nombre_base = f"{modelo.__class__.__name__.lower()}_{campo}_{os.path.basename(ruta)}"
-                    out_pdf = os.path.join(DIR_PDF_GENERADOS, nombre_base + ".pdf")
+#         def agregar_documentos(modelo, campos: List[str]):
+#             for campo in campos:
+#                 ruta = getattr(modelo, campo, None)
+#                 if ruta and os.path.exists(ruta):
+#                     ext = os.path.splitext(ruta)[1].lower()
+#                     nombre_base = f"{modelo.__class__.__name__.lower()}_{campo}_{os.path.basename(ruta)}"
+#                     out_pdf = os.path.join(DIR_PDF_GENERADOS, nombre_base + ".pdf")
 
-                    if ext == ".pdf":
-                        shutil.copy(ruta, out_pdf)
-                        pdf_paths.append(out_pdf)
-                    elif ext in [".jpg", ".jpeg", ".png"]:
-                        Image.open(ruta).convert("RGB").save(out_pdf)
-                        pdf_paths.append(out_pdf)
-                    elif ext in [".doc", ".docx"]:
-                        subprocess.run([
-                            "libreoffice", "--headless", "--convert-to", "pdf", "--outdir", DIR_PDF_GENERADOS, ruta
-                        ], check=True)
-                        converted = os.path.join(DIR_PDF_GENERADOS, os.path.splitext(os.path.basename(ruta))[0] + ".pdf")
-                        if os.path.exists(converted):
-                            pdf_paths.append(converted)
+#                     if ext == ".pdf":
+#                         shutil.copy(ruta, out_pdf)
+#                         pdf_paths.append(out_pdf)
+#                     elif ext in [".jpg", ".jpeg", ".png"]:
+#                         Image.open(ruta).convert("RGB").save(out_pdf)
+#                         pdf_paths.append(out_pdf)
+#                     elif ext in [".doc", ".docx"]:
+#                         subprocess.run([
+#                             "libreoffice", "--headless", "--convert-to", "pdf", "--outdir", DIR_PDF_GENERADOS, ruta
+#                         ], check=True)
+#                         converted = os.path.join(DIR_PDF_GENERADOS, os.path.splitext(os.path.basename(ruta))[0] + ".pdf")
+#                         if os.path.exists(converted):
+#                             pdf_paths.append(converted)
 
-        # Documentos de proyectos y adoptantes
-        for dp in carpeta.detalle_proyectos:
-            proyecto = dp.proyecto
-            if not proyecto:
-                continue
+#         # Documentos de proyectos y adoptantes
+#         for dp in carpeta.detalle_proyectos:
+#             proyecto = dp.proyecto
+#             if not proyecto:
+#                 continue
 
-            agregar_documentos(proyecto, [
-                "doc_proyecto_convivencia_o_estado_civil",
-                "informe_profesionales"
-            ])
+#             agregar_documentos(proyecto, [
+#                 "doc_proyecto_convivencia_o_estado_civil",
+#                 "informe_profesionales"
+#             ])
 
-            for login in [proyecto.login_1, proyecto.login_2]:
-                if login:
-                    user = db.query(User).filter(User.login == login).first()
-                    if user:
-                        agregar_documentos(user, [
-                            "doc_adoptante_domicilio", "doc_adoptante_dni_frente", "doc_adoptante_dni_dorso",
-                            "doc_adoptante_deudores_alimentarios", "doc_adoptante_antecedentes",
-                            "doc_adoptante_migraciones", "doc_adoptante_salud"
-                        ])
+#             for login in [proyecto.login_1, proyecto.login_2]:
+#                 if login:
+#                     user = db.query(User).filter(User.login == login).first()
+#                     if user:
+#                         agregar_documentos(user, [
+#                             "doc_adoptante_domicilio", "doc_adoptante_dni_frente", "doc_adoptante_dni_dorso",
+#                             "doc_adoptante_deudores_alimentarios", "doc_adoptante_antecedentes",
+#                             "doc_adoptante_migraciones", "doc_adoptante_salud"
+#                         ])
 
-        # Documentos de NNAs
-        for dnna in carpeta.detalle_nna:
-            nna = dnna.nna
-            if nna:
-                agregar_documentos(nna, [
-                    "doc_dni_frente", "doc_dni_dorso", "doc_certificado_nacimiento", "doc_certificado_discapacidad"
-                ])
+#         # Documentos de NNAs
+#         for dnna in carpeta.detalle_nna:
+#             nna = dnna.nna
+#             if nna:
+#                 agregar_documentos(nna, [
+#                     "doc_dni_frente", "doc_dni_dorso", "doc_certificado_nacimiento", "doc_certificado_discapacidad"
+#                 ])
 
-        if not pdf_paths:
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "success": False,
-                    "tipo_mensaje": "naranja",
-                    "mensaje": "No se encontraron documentos disponibles para combinar en esta carpeta.",
-                    "tiempo_mensaje": 6,
-                    "next_page": "actual"
-                }
-            )
+#         if not pdf_paths:
+#             return JSONResponse(
+#                 status_code=404,
+#                 content={
+#                     "success": False,
+#                     "tipo_mensaje": "naranja",
+#                     "mensaje": "No se encontraron documentos disponibles para combinar en esta carpeta.",
+#                     "tiempo_mensaje": 6,
+#                     "next_page": "actual"
+#                 }
+#             )
 
 
  
-        # Fusionar todos los PDF
-        merged = fitz.open()
-        for path in pdf_paths:
-            with fitz.open(path) as doc:
-                merged.insert_pdf(doc)
-        merged.save(output_path)
+#         # Fusionar todos los PDF
+#         merged = fitz.open()
+#         for path in pdf_paths:
+#             with fitz.open(path) as doc:
+#                 merged.insert_pdf(doc)
+#         merged.save(output_path)
 
-        return FileResponse(
-            path=output_path,
-            filename=f"documentos_carpeta_{carpeta_id}.pdf",
-            media_type="application/pdf"
-        )
+#         return FileResponse(
+#             path=output_path,
+#             filename=f"documentos_carpeta_{carpeta_id}.pdf",
+#             media_type="application/pdf"
+#         )
 
-    except Exception as e:
-        return JSONResponse(
-            status_code=404,
-            content={
-                "success": False,
-                "tipo_mensaje": "rojo",
-                "mensaje": f"Ocurrió un error al generar el PDF combinado: {str(e)}",
-                "tiempo_mensaje": 6,
-                "next_page": "actual"
-            }
-        )
+#     except Exception as e:
+#         return JSONResponse(
+#             status_code=404,
+#             content={
+#                 "success": False,
+#                 "tipo_mensaje": "rojo",
+#                 "mensaje": f"Ocurrió un error al generar el PDF combinado: {str(e)}",
+#                 "tiempo_mensaje": 6,
+#                 "next_page": "actual"
+#             }
+#         )
 
 
 
@@ -686,3 +729,127 @@ def seleccionar_proyecto(
             "tiempo_mensaje": 8,
             "next_page": "actual"
         }
+
+
+
+
+@carpetas_router.get("/{carpeta_id}/descargar-pdf", response_class=FileResponse)
+def descargar_pdf_carpeta_completa(carpeta_id: int, db: Session = Depends(get_db)):
+    print(f"🔍 Buscando carpeta con ID {carpeta_id}...")
+    carpeta = db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).first()
+
+    if not carpeta:
+        print("❌ Carpeta no encontrada")
+        raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+
+    output_folder = os.path.join(DIR_PDF_GENERADOS, f"carpeta_{carpeta_id}")
+    os.makedirs(output_folder, exist_ok=True)
+    print(f"📁 Carpeta de salida creada: {output_folder}")
+
+    pdf_paths = []
+
+    for dp in carpeta.detalle_proyectos:
+        proyecto = dp.proyecto
+        if not proyecto:
+            print("⚠️ Proyecto no encontrado en detalle_proyectos")
+            continue
+
+        print(f"📄 Procesando proyecto ID {proyecto.proyecto_id}")
+        merged = fitz.open()
+
+        # Portada
+        portada = merged.new_page(width=595, height=842)
+        portada.insert_textbox(fitz.Rect(0, 50, 595, 100), "📄 Proyecto adoptivo", fontsize=22, align=1)
+
+        datos = [
+            f"N° RUA: {proyecto.nro_orden_rua or '-'}",
+            f"Tipo: {proyecto.proyecto_tipo or '-'}",
+            f"Provincia: {proyecto.proyecto_provincia or '-'}",
+        ]
+
+        if proyecto.usuario_1:
+            datos.append(f"Pretenso 1: {proyecto.usuario_1.nombre} {proyecto.usuario_1.apellido} - DNI: {proyecto.login_1}")
+        if proyecto.usuario_2:
+            datos.append(f"Pretenso 2: {proyecto.usuario_2.nombre} {proyecto.usuario_2.apellido} - DNI: {proyecto.login_2}")
+
+        y = 130
+        for linea in datos:
+            portada.insert_textbox(fitz.Rect(60, y, 530, y+25), linea, fontsize=14)
+            y += 30
+
+        def agregar_doc(ruta, nombre):
+            if not ruta:
+                print(f"⚠️ Documento '{nombre}' no definido.")
+                return
+            if not os.path.exists(ruta):
+                print(f"❌ Ruta inexistente: {ruta}")
+                return
+
+            ext = os.path.splitext(ruta)[1].lower()
+            nombre_base = f"{nombre}_{os.path.basename(ruta)}"
+            out_pdf = os.path.join(output_folder, nombre_base + ".pdf")
+            print(f"📎 Agregando documento '{nombre}' ({ext}) desde {ruta}")
+
+            try:
+                if ext == ".pdf":
+                    shutil.copy(ruta, out_pdf)
+                elif ext in [".jpg", ".jpeg", ".png"]:
+                    Image.open(ruta).convert("RGB").save(out_pdf)
+                elif ext in [".doc", ".docx"]:
+                    subprocess.run([
+                        "libreoffice", "--headless", "--convert-to", "pdf", "--outdir", output_folder, ruta
+                    ], check=True)
+                    out_pdf = os.path.join(output_folder, os.path.splitext(os.path.basename(ruta))[0] + ".pdf")
+
+                if os.path.exists(out_pdf):
+                    with fitz.open(out_pdf) as doc:
+                        merged.insert_pdf(doc)
+                    print(f"✅ Documento agregado: {out_pdf}")
+                else:
+                    print(f"⚠️ No se generó el PDF para: {ruta}")
+            except Exception as e:
+                print(f"❌ Error procesando documento '{ruta}': {e}")
+
+        agregar_doc(proyecto.informe_profesionales, "informe_profesionales")
+
+        if proyecto.proyecto_tipo != "Monoparental":
+            agregar_doc(proyecto.doc_proyecto_convivencia_o_estado_civil, "convivencia")
+
+        for login in [proyecto.login_1, proyecto.login_2]:
+            if login:
+                user = db.query(User).filter(User.login == login).first()
+                if user:
+                    print(f"👤 Documentos para usuario {login}")
+                    for campo in [
+                        "doc_adoptante_domicilio", "doc_adoptante_dni_frente", "doc_adoptante_dni_dorso",
+                        "doc_adoptante_deudores_alimentarios", "doc_adoptante_antecedentes",
+                        "doc_adoptante_migraciones", "doc_adoptante_salud"
+                    ]:
+                        agregar_doc(getattr(user, campo, None), campo)
+
+        for dnna in carpeta.detalle_nna:
+            if dnna.nna and dnna.nna.nna_ficha:
+                agregar_doc(dnna.nna.nna_ficha, f"ficha_nna_{dnna.nna.nna_id}")
+
+        pdf_name = f"proyecto_{proyecto.proyecto_id}.pdf"
+        final_pdf_path = os.path.join(output_folder, pdf_name)
+        merged.save(final_pdf_path)
+        pdf_paths.append(final_pdf_path)
+        print(f"📄 PDF generado: {final_pdf_path}")
+
+    if not pdf_paths:
+        print("❌ No se generó ningún PDF. Abortando ZIP.")
+        raise HTTPException(status_code=404, detail="No se pudieron generar documentos para esta carpeta.")
+
+    zip_path = os.path.join(DIR_PDF_GENERADOS, f"carpeta_{carpeta_id}_documentos.zip")
+    with ZipFile(zip_path, 'w') as zipf:
+        for pdf in pdf_paths:
+            zipf.write(pdf, os.path.basename(pdf))
+            print(f"📦 Agregado al ZIP: {os.path.basename(pdf)}")
+
+    print(f"✅ ZIP final generado: {zip_path}")
+    return FileResponse(
+        path=zip_path,
+        filename=os.path.basename(zip_path),
+        media_type="application/zip"
+    )

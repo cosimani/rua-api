@@ -158,6 +158,7 @@ class ProyectoHistorialEstado(Base):
     proyecto_id = Column(Integer, ForeignKey("proyecto.proyecto_id"), nullable=False)
     estado_anterior = Column(String(100), nullable=True)
     estado_nuevo = Column(String(100), nullable=False)
+    comentarios = Column(Text, nullable=True)
     fecha_hora = Column(DateTime, default=datetime.now)
 
     proyecto = relationship("Proyecto", back_populates="historial_cambios")

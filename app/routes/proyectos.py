@@ -2544,6 +2544,39 @@ def solicitar_valoracion_final(
                 "next_page": "actual"
             }
 
+
+        # Validar que todas las evaluaciones requeridas estén presentes en las entrevistas del proyecto
+        EVALUACIONES_REQUERIDAS = {
+            "Deseo y motivación",
+            "Historia vital",
+            "Técnicas psicológicas",
+            "Entrevista domiciliaria",
+            "Entrevista de devolución"
+        }
+
+        entrevistas = db.query(AgendaEntrevistas).filter(AgendaEntrevistas.proyecto_id == proyecto_id).all()
+
+        evaluaciones_realizadas = set()
+        for ent in entrevistas:
+            if ent.evaluaciones:
+                try:
+                    evaluaciones_json = json.loads(ent.evaluaciones)
+                    evaluaciones_realizadas.update(evaluaciones_json)
+                except Exception as e:
+                    print(f"⚠️ Error al leer evaluaciones de entrevista ID {ent.id}: {e}")
+
+        faltantes = EVALUACIONES_REQUERIDAS - evaluaciones_realizadas
+
+        if faltantes:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": f"Debe completar todas las instancias evaluativas antes de solicitar la valoración final. Faltan: {', '.join(faltantes)}.",
+                "tiempo_mensaje": 8,
+                "next_page": "actual"
+            }
+
+
         # Cambiar estado
         estado_anterior = proyecto.estado_general
         proyecto.estado_general = "para_valorar"
