@@ -70,8 +70,11 @@ class Proyecto(Base):
     informe_profesionales = Column(String(1024), nullable=True)
     
     doc_dictamen = Column(String(1024), nullable=True)
+    doc_informe_vinculacion = Column(String(1024), nullable=True)
+    doc_informe_seguimiento_guarda = Column(String(1024), nullable=True)
     doc_sentencia_guarda = Column(String(1024), nullable=True)
     doc_sentencia_adopcion = Column(String(1024), nullable=True)
+    
 
     # Campos nuevos ############
 
@@ -129,6 +132,8 @@ class Proyecto(Base):
     flex_hermanos_edad_1 = Column(String(1))
     flex_hermanos_edad_2 = Column(String(1))
     flex_hermanos_edad_3 = Column(String(1))
+
+    
 
 
 

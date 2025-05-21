@@ -476,6 +476,10 @@ def get_proyecto_por_id(
                 Proyecto.doc_proyecto_convivencia_o_estado_civil.label("doc_proyecto_convivencia_o_estado_civil"),
                 Proyecto.informe_profesionales.label("informe_profesionales"),
                 Proyecto.doc_dictamen.label("doc_dictamen"),
+
+                Proyecto.doc_informe_vinculacion.label("doc_informe_vinculacion"),
+                Proyecto.doc_informe_seguimiento_guarda.label("doc_informe_seguimiento_guarda"),
+
                 Proyecto.doc_sentencia_guarda.label("doc_sentencia_guarda"),
                 Proyecto.doc_sentencia_adopcion.label("doc_sentencia_adopcion"),
 
@@ -644,6 +648,10 @@ def get_proyecto_por_id(
             "doc_proyecto_convivencia_o_estado_civil": proyecto.doc_proyecto_convivencia_o_estado_civil,
             "informe_profesionales": proyecto.informe_profesionales,
             "doc_dictamen": proyecto.doc_dictamen,
+
+            "doc_informe_vinculacion": proyecto.doc_informe_vinculacion,
+            "doc_informe_seguimiento_guarda": proyecto.doc_informe_seguimiento_guarda,
+
             "doc_sentencia_guarda": proyecto.doc_sentencia_guarda,
             "doc_sentencia_adopcion": proyecto.doc_sentencia_adopcion,
 
