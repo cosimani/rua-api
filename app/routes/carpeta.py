@@ -77,31 +77,13 @@ def listar_carpetas(
 
         resultado = []
         for carpeta in carpetas:
-            proyectos = []
-            for dp in carpeta.detalle_proyectos:
-                p = dp.proyecto
-                if p:
-                    proyectos.append({
-                        "proyecto_id": p.proyecto_id,
-                        "nro_orden_rua": p.nro_orden_rua,
-                        "proyecto_tipo": p.proyecto_tipo,
-                        "estado_general": p.estado_general,
-                        "proyecto_localidad": p.proyecto_localidad,
-                        "proyecto_provincia": p.proyecto_provincia,
-                        "login_1": p.login_1,
-                        "login_1_name": f"{p.usuario_1.nombre} {p.usuario_1.apellido}" if p.usuario_1 else None,
-                        "login_2": p.login_2,
-                        "login_2_name": f"{p.usuario_2.nombre} {p.usuario_2.apellido}" if p.usuario_2 else None,
-                        "fecha_asignacion": dp.fecha_asignacion
-                    })
-
-            
 
             proyectos = []
             proyectos_resumen = []
 
             for dp in carpeta.detalle_proyectos:
                 p = dp.proyecto
+
                 if p:
                     proyectos.append({
                         "proyecto_id": p.proyecto_id,
@@ -109,20 +91,19 @@ def listar_carpetas(
                         "proyecto_tipo": p.proyecto_tipo,
                         "estado_general": p.estado_general,
                         "proyecto_localidad": p.proyecto_localidad,
-                        "proyecto_provincia": p.proyecto_provincia,
                         "login_1": p.login_1,
                         "login_1_name": f"{p.usuario_1.nombre} {p.usuario_1.apellido}" if p.usuario_1 else None,
                         "login_2": p.login_2,
                         "login_2_name": f"{p.usuario_2.nombre} {p.usuario_2.apellido}" if p.usuario_2 else None,
-                        "fecha_asignacion": dp.fecha_asignacion
+                        "fecha_asignacion": dp.fecha_asignacion,
+                        "doc_dictamen": p.doc_dictamen,
                     })
 
-                    # resumen de nombres
                     if p.proyecto_tipo in ["Matrimonio", "Unión convivencial"]:
                         nombre_1 = f"{p.usuario_1.nombre} {p.usuario_1.apellido}" if p.usuario_1 else "-"
                         nombre_2 = f"{p.usuario_2.nombre} {p.usuario_2.apellido}" if p.usuario_2 else "-"
                         proyectos_resumen.append(f"{nombre_1} y {nombre_2}")
-                    else:  # Monoparental
+                    else:
                         nombre_1 = f"{p.usuario_1.nombre} {p.usuario_1.apellido}" if p.usuario_1 else "-"
                         proyectos_resumen.append(nombre_1)
 
@@ -155,29 +136,6 @@ def listar_carpetas(
                         nnas_resumen.append(f"{nombre_completo} ({edad} años)")
                     else:
                         nnas_resumen.append(nombre_completo)
-
-
-            nnas = []
-            for dnna in carpeta.detalle_nna:
-                n = dnna.nna
-                if n:
-                    edad = None
-                    if n.nna_fecha_nacimiento:
-                        hoy = date.today()
-                        edad = hoy.year - n.nna_fecha_nacimiento.year - ((hoy.month, hoy.day) < (n.nna_fecha_nacimiento.month, n.nna_fecha_nacimiento.day))
-
-                    nnas.append({
-                        "nna_id": n.nna_id,
-                        "nna_nombre": n.nna_nombre,
-                        "nna_apellido": n.nna_apellido,
-                        "nna_dni": n.nna_dni,
-                        "nna_fecha_nacimiento": n.nna_fecha_nacimiento,
-                        "nna_edad": edad,
-                        "nna_localidad": n.nna_localidad,
-                        "nna_provincia": n.nna_provincia,
-                        "nna_en_convocatoria": n.nna_en_convocatoria,
-                        "nna_archivado": n.nna_archivado,
-                    })
 
       
             estado_carpeta_map = {
@@ -526,16 +484,74 @@ def enviar_a_juzgado(carpeta_id: int, db: Session = Depends(get_db)):
 
 
 
-@carpetas_router.put("/{carpeta_id}/marcar-con-dictamen")
-def marcar_con_dictamen(carpeta_id: int, db: Session = Depends(get_db)):
-    carpeta = db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).first()
-    if not carpeta:
-        raise HTTPException(status_code=404, detail="Carpeta no encontrada")
 
-    carpeta.estado_carpeta = "proyecto_seleccionado"
-    db.commit()
-    return {"success": True, "mensaje": "Carpeta marcada como con dictamen"}
+@carpetas_router.put("/{carpeta_id}/marcar-con-dictamen", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
+def marcar_con_dictamen(
+    carpeta_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    📌 Marca la carpeta como 'proyecto_seleccionado', indicando que tiene dictamen del juzgado.
 
+    🔁 Cambios:
+    - Actualiza `estado_carpeta` a 'proyecto_seleccionado'.
+    - Registra evento `RuaEvento`.
+    - Notifica al equipo técnico si es necesario.
+    """
+    try:
+        carpeta = db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).first()
+
+        if not carpeta:
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "Carpeta no encontrada.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+        if carpeta.estado_carpeta == "proyecto_seleccionado":
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "La carpeta ya está marcada como con dictamen.",
+                "tiempo_mensaje": 4,
+                "next_page": "actual"
+            }
+
+        estado_anterior = carpeta.estado_carpeta
+        carpeta.estado_carpeta = "proyecto_seleccionado"
+
+        # Evento
+        login_actual = current_user["user"]["login"]
+        evento = RuaEvento(
+            login=login_actual,
+            evento_detalle=f"Se marcó la carpeta #{carpeta_id} como con dictamen del juzgado.",
+            evento_fecha=datetime.now()
+        )
+        db.add(evento)
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "✅ La carpeta fue marcada correctamente como con dictamen.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Ocurrió un error al marcar la carpeta: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
 
 
 
