@@ -163,7 +163,8 @@ def get_proyectos(
     # subregistro_flexible: Optional[bool] = Query(None, description="Filtrar por subregistro_flexible"),
     # subregistro_otra_provincia: Optional[bool] = Query(None, description="Filtrar por subregistro_otra_provincia"),
 
-    proyecto_estado_general: Optional[str] = Query(None, description="Filtrar por estado general del proyecto"),
+    proyecto_estado_general: Optional[List[str]] = Query(None, description="Filtrar por uno o más estados generales del proyecto"),
+
 
     login_profesional: Optional[str] = Query(None, description="Filtrar proyectos asignados al profesional con este login"),
 
@@ -221,9 +222,7 @@ def get_proyectos(
             query = query.filter(Proyecto.ingreso_por == ingreso_por)            
 
         if proyecto_estado_general:
-            estados = [estado.strip() for estado in proyecto_estado_general.split(",") if estado.strip()]
-            if estados:
-                query = query.filter(Proyecto.estado_general.in_(estados))
+            query = query.filter(Proyecto.estado_general.in_(proyecto_estado_general))
 
         # Filtro por nro de orden
         if nro_orden_rua and len(str(nro_orden_rua)) >= 2:
