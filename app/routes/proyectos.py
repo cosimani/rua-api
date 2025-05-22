@@ -2918,7 +2918,7 @@ def valorar_proyecto_final(
     dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
 def descargar_informe_profesionales(
     proyecto_id: int,
-    campo: Literal["informe_profesionales"] = Query(...),
+    campo: Literal["informe_profesionales", "doc_informe_vinculacion", "doc_informe_seguimiento_guarda"] = Query(...),
     db: Session = Depends(get_db)
 ):
     """
@@ -4806,4 +4806,189 @@ def descargar_pdf_proyecto(
         path=output_path,
         filename=f"proyecto_{nombre_archivo}.pdf",
         media_type="application/pdf"
+    )
+
+
+
+@proyectos_router.put("/informe-vinculacion/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+def subir_informe_vinculacion(
+    proyecto_id: int,
+    file: UploadFile = File(...),
+    observacion: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    📄 Sube el informe de vinculación del proyecto, con una observación interna.
+    """
+    allowed_extensions = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"}
+    _, ext = os.path.splitext(file.filename.lower())
+    if ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail=f"Extensión no permitida: {ext}")
+
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    proyecto_dir = os.path.join(UPLOAD_DIR_DOC_PROYECTOS, str(proyecto_id))
+    os.makedirs(proyecto_dir, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    final_filename = f"informe_vinculacion_{timestamp}{ext}"
+    filepath = os.path.join(proyecto_dir, final_filename)
+
+    try:
+        with open(filepath, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+
+        proyecto.doc_informe_vinculacion = filepath
+
+        # Registrar observación
+        if observacion.strip():
+            db.add(ObservacionesProyectos(
+                observacion=observacion.strip(),
+                observacion_fecha=datetime.now(),
+                login_que_observo=current_user["user"]["login"],
+                observacion_a_cual_proyecto=proyecto_id
+            ))
+
+        # Evento
+        db.add(RuaEvento(
+            login=current_user["user"]["login"],
+            evento_detalle=f"Se subió informe de vinculación para el proyecto #{proyecto_id}",
+            evento_fecha=datetime.now()
+        ))
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": f"Informe de vinculación subido como '{final_filename}'.",
+            "tipo_mensaje": "verde",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al guardar: {str(e)}")
+
+
+
+
+@proyectos_router.get("/informe-vinculacion/{proyecto_id}/descargar", response_class=FileResponse,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+def descargar_informe_vinculacion(
+    proyecto_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    📄 Descarga el informe de vinculación asociado al proyecto.
+    """
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    filepath = proyecto.doc_informe_vinculacion
+
+    if not filepath or not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    return FileResponse(
+        path=filepath,
+        filename=os.path.basename(filepath),
+        media_type="application/octet-stream"
+    )
+
+
+@proyectos_router.put("/informe-seguimiento-guarda/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+def subir_informe_seguimiento_guarda(
+    proyecto_id: int,
+    file: UploadFile = File(...),
+    observacion: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    🛡️ Sube el informe de seguimiento de guarda del proyecto, con una observación interna.
+    """
+    allowed_extensions = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"}
+    _, ext = os.path.splitext(file.filename.lower())
+    if ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail=f"Extensión no permitida: {ext}")
+
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    proyecto_dir = os.path.join(UPLOAD_DIR_DOC_PROYECTOS, str(proyecto_id))
+    os.makedirs(proyecto_dir, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    final_filename = f"informe_seguimiento_guarda_{timestamp}{ext}"
+    filepath = os.path.join(proyecto_dir, final_filename)
+
+    try:
+        with open(filepath, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+
+        proyecto.doc_informe_seguimiento_guarda = filepath
+
+        # Registrar observación
+        if observacion.strip():
+            db.add(ObservacionesProyectos(
+                observacion=observacion.strip(),
+                observacion_fecha=datetime.now(),
+                login_que_observo=current_user["user"]["login"],
+                observacion_a_cual_proyecto=proyecto_id
+            ))
+
+        # Evento
+        db.add(RuaEvento(
+            login=current_user["user"]["login"],
+            evento_detalle=f"Se subió informe de seguimiento de guarda para el proyecto #{proyecto_id}",
+            evento_fecha=datetime.now()
+        ))
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": f"Informe de seguimiento de guarda subido como '{final_filename}'.",
+            "tipo_mensaje": "verde",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al guardar: {str(e)}")
+
+
+
+
+@proyectos_router.get("/informe-seguimiento-guarda/{proyecto_id}/descargar", response_class=FileResponse,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+def descargar_informe_seguimiento_guarda(
+    proyecto_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    🛡️ Descarga el informe de seguimiento de guarda asociado al proyecto.
+    """
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    filepath = proyecto.doc_informe_seguimiento_guarda
+
+    if not filepath or not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    return FileResponse(
+        path=filepath,
+        filename=os.path.basename(filepath),
+        media_type="application/octet-stream"
     )
