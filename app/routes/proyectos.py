@@ -4992,3 +4992,88 @@ def descargar_informe_seguimiento_guarda(
         filename=os.path.basename(filepath),
         media_type="application/octet-stream"
     )
+
+
+
+@proyectos_router.put(
+    "/modificar/{proyecto_id}/actualizar-nro-orden",
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervisora"]))
+    ]
+)
+def actualizar_nro_orden(
+    proyecto_id: int,
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+
+    nuevo_nro = data.get("nuevo_nro_orden", "").strip()
+
+    # Validar que no esté vacío
+    if not nuevo_nro:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "El nuevo nro. de orden está vacío.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    # Validar que sea solo números (sin espacios, letras, guiones, etc.)
+    if not nuevo_nro.isdigit():
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "El nuevo nro. de orden debe contener solo números (sin espacios ni letras).",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    # Verificar que no exista otro proyecto con ese número de orden
+    nro_duplicado = (
+        db.query(Proyecto)
+        .filter(Proyecto.nro_orden_rua == nuevo_nro, Proyecto.proyecto_id != proyecto_id)
+        .first()
+    )
+    if nro_duplicado:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Ya existe otro proyecto con ese número de orden",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    nro_anterior = proyecto.nro_orden_rua or "—"
+    proyecto.nro_orden_rua = nuevo_nro
+
+    # Registrar observación del cambio
+    observacion_texto = (
+        f"🔄 Se modificó el número de orden RUA.\n"
+        f"Anterior: {nro_anterior}\n"
+        f"Nuevo: {nuevo_nro}"
+    )
+
+    observacion = ObservacionesProyectos(
+        observacion=observacion_texto,
+        observacion_fecha=datetime.now(),
+        login_que_observo=current_user["user"]["login"],        
+        observacion_a_cual_proyecto=proyecto_id
+    )
+    db.add(observacion)
+
+    db.commit()
+
+    return {
+        "success": True,
+        "tipo_mensaje": "verde",
+        "mensaje": f"✅ Número de orden actualizado correctamente a '{nuevo_nro}'.",
+        "tiempo_mensaje": 5,
+        "next_page": "actual"
+    }
