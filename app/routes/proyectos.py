@@ -8,10 +8,11 @@ import json
 
 from datetime import datetime, date
 from models.proyecto import Proyecto, ProyectoHistorialEstado, DetalleEquipoEnProyecto, AgendaEntrevistas, FechaRevision
-from models.carpeta import Carpeta, DetalleProyectosEnCarpeta
+from models.carpeta import Carpeta, DetalleProyectosEnCarpeta, DetalleNNAEnCarpeta
 from models.notif_y_observaciones import ObservacionesProyectos, ObservacionesPretensos, NotificacionesRUA
 from models.convocatorias import DetalleProyectoPostulacion
 from models.ddjj import DDJJ
+from models.nna import Nna
 
 
 # from models.carpeta import DetalleProyectosEnCarpeta
@@ -146,25 +147,8 @@ def get_proyectos(
                     description="Filtrar por fecha de último cambio de estado de proyecto, inicio (AAAA-MM-DD)"),
     fecha_cambio_estado_fin: Optional[str] = Query(None, 
                     description="Filtrar por fecha de último cambio de estado de proyecto, fin (AAAA-MM-DD)"),
-    # subregistro_1: Optional[bool] = Query(None, description="Filtrar por subregistro_1"),
-    # subregistro_2: Optional[bool] = Query(None, description="Filtrar por subregistro_2"),
-    # subregistro_3: Optional[bool] = Query(None, description="Filtrar por subregistro_3"),
-    # subregistro_4: Optional[bool] = Query(None, description="Filtrar por subregistro_4"),
-    # subregistro_5_a: Optional[bool] = Query(None, description="Filtrar por subregistro_5_a"),
-    # subregistro_5_b: Optional[bool] = Query(None, description="Filtrar por subregistro_5_b"),
-    # subregistro_5_c: Optional[bool] = Query(None, description="Filtrar por subregistro_5_c"),
-    # subregistro_6_a: Optional[bool] = Query(None, description="Filtrar por subregistro_6_a"),
-    # subregistro_6_b: Optional[bool] = Query(None, description="Filtrar por subregistro_6_b"),
-    # subregistro_6_c: Optional[bool] = Query(None, description="Filtrar por subregistro_6_c"),
-    # subregistro_6_d: Optional[bool] = Query(None, description="Filtrar por subregistro_6_d"),
-    # subregistro_6_2: Optional[bool] = Query(None, description="Filtrar por subregistro_6_2"),
-    # subregistro_6_3: Optional[bool] = Query(None, description="Filtrar por subregistro_6_3"),
-    # subregistro_6_mas_de_3: Optional[bool] = Query(None, description="Filtrar por subregistro_6_mas_de_3"),
-    # subregistro_flexible: Optional[bool] = Query(None, description="Filtrar por subregistro_flexible"),
-    # subregistro_otra_provincia: Optional[bool] = Query(None, description="Filtrar por subregistro_otra_provincia"),
 
     proyecto_estado_general: Optional[List[str]] = Query(None, description="Filtrar por uno o más estados generales del proyecto"),
-
 
     login_profesional: Optional[str] = Query(None, description="Filtrar proyectos asignados al profesional con este login"),
 
@@ -179,7 +163,6 @@ def get_proyectos(
     📋 Devuelve un listado paginado de proyectos adoptivos, permitiendo aplicar múltiples filtros combinados.
 
     """
-
 
     try:
 
@@ -228,40 +211,6 @@ def get_proyectos(
         if nro_orden_rua and len(str(nro_orden_rua)) >= 2:
             search_pattern = f"%{nro_orden_rua}%"  # Busca cualquier nro_orden_rua que contenga estos números
             query = query.filter(Proyecto.nro_orden_rua.ilike(search_pattern))
-
-        # # Filtro por subregistros
-        # if subregistro_1 is not None:  # Verificamos que no sea None, porque False es un valor válido
-        #     query = query.filter(Proyecto.subregistro_1 == ("Y" if subregistro_1 else "N"))
-        # if subregistro_2 is not None: 
-        #     query = query.filter(Proyecto.subregistro_2 == ("Y" if subregistro_2 else "N"))
-        # if subregistro_3 is not None: 
-        #     query = query.filter(Proyecto.subregistro_3 == ("Y" if subregistro_3 else "N"))
-        # if subregistro_4 is not None: 
-        #     query = query.filter(Proyecto.subregistro_4 == ("Y" if subregistro_4 else "N"))
-        # if subregistro_5_a is not None: 
-        #     query = query.filter(Proyecto.subregistro_5_a == ("Y" if subregistro_5_a else "N"))
-        # if subregistro_5_b is not None: 
-        #     query = query.filter(Proyecto.subregistro_5_b == ("Y" if subregistro_5_b else "N"))
-        # if subregistro_5_c is not None: 
-        #     query = query.filter(Proyecto.subregistro_5_c == ("Y" if subregistro_5_c else "N"))
-        # if subregistro_6_a is not None: 
-        #     query = query.filter(Proyecto.subregistro_6_a == ("Y" if subregistro_6_a else "N"))
-        # if subregistro_6_b is not None: 
-        #     query = query.filter(Proyecto.subregistro_6_b == ("Y" if subregistro_6_b else "N"))
-        # if subregistro_6_c is not None: 
-        #     query = query.filter(Proyecto.subregistro_6_c == ("Y" if subregistro_6_c else "N"))
-        # if subregistro_6_d is not None: 
-        #     query = query.filter(Proyecto.subregistro_6_d == ("Y" if subregistro_6_d else "N"))
-        # if subregistro_6_2 is not None: 
-        #     query = query.filter(Proyecto.subregistro_6_2 == ("Y" if subregistro_6_2 else "N"))
-        # if subregistro_6_3 is not None: 
-        #     query = query.filter(Proyecto.subregistro_6_3 == ("Y" if subregistro_6_3 else "N"))
-        # if subregistro_6_mas_de_3 is not None: 
-        #     query = query.filter(Proyecto.subregistro_6_mas_de_3 == ("Y" if subregistro_6_mas_de_3 else "N"))
-        # if subregistro_flexible is not None: 
-        #     query = query.filter(Proyecto.subregistro_flexible == ("Y" if subregistro_flexible else "N"))
-        # if subregistro_otra_provincia is not None: 
-        #     query = query.filter(Proyecto.subregistro_otra_provincia == ("Y" if subregistro_otra_provincia else "N"))
 
 
         if login_profesional:
@@ -316,8 +265,6 @@ def get_proyectos(
                 field = subregistro_field_map.get(sr)
                 if field is not None:
                     query = query.filter(field == "Y")
-
-
         
 
         if search:
@@ -364,6 +311,52 @@ def get_proyectos(
             #     .all()
             # ]
 
+            comentarios_sobre_estado = None
+
+            # 1. Casos entrevistando o calendarizando
+            if proyecto.estado_general in ["calendarizando", "entrevistando"]:
+                evaluaciones = db.query(AgendaEntrevistas.evaluacion_comentarios).filter(
+                    AgendaEntrevistas.proyecto_id == proyecto.proyecto_id,
+                    AgendaEntrevistas.evaluacion_comentarios != None,
+                    AgendaEntrevistas.evaluacion_comentarios != ""
+                ).all()
+
+                if evaluaciones:
+                    comentarios_sobre_estado = "Entrevistas realizadas:\n" + "\n".join(
+                        f"- {e.evaluacion_comentarios}" for e in evaluaciones
+                    )
+                else:
+                    comentarios_sobre_estado = "Aún no se registraron evaluaciones en las entrevistas."
+
+            # 2. Casos vinculacion o guarda
+            # Casos vinculacion o guarda → obtener NNA de la carpeta asociada
+            elif proyecto.estado_general in ["vinculacion", "guarda", "adopcion_definitiva"]:
+
+                subquery_carpeta = db.query(DetalleProyectosEnCarpeta.carpeta_id).filter(
+                    DetalleProyectosEnCarpeta.proyecto_id == proyecto.proyecto_id
+                ).subquery()
+
+                nna_relacionados = (
+                    db.query(Nna.nna_nombre, Nna.nna_apellido)
+                    .join(DetalleNNAEnCarpeta, DetalleNNAEnCarpeta.nna_id == Nna.nna_id)
+                    .filter(DetalleNNAEnCarpeta.carpeta_id.in_(subquery_carpeta))
+                    .all()
+                )
+
+                if nna_relacionados:
+                    nombres_nna = [f"{n.nna_nombre} {n.nna_apellido}" for n in nna_relacionados]
+                    comentarios_sobre_estado = "NNA relacionado/s:\n" + "\n".join(nombres_nna)
+
+            # 3. Caso en_carpeta
+            elif proyecto.estado_general == "en_carpeta":
+                
+                carpeta = db.query(Carpeta).join(DetalleProyectosEnCarpeta).filter(
+                    DetalleProyectosEnCarpeta.proyecto_id == proyecto.proyecto_id
+                ).order_by(Carpeta.created_at.desc()).first()
+                if carpeta:
+                    comentarios_sobre_estado = f"En carpeta: estado '{carpeta.estado}'"
+
+
 
             proyecto_dict = {
                 "proyecto_id": proyecto.proyecto_id,
@@ -389,6 +382,7 @@ def get_proyectos(
                 "doc_proyecto_convivencia_o_estado_civil": proyecto.doc_proyecto_convivencia_o_estado_civil,
 
                 "estado_general": proyecto.estado_general,
+                "comentarios_sobre_estado": comentarios_sobre_estado or "",
 
                 "ingreso_por": proyecto.ingreso_por,
 
