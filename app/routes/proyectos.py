@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Request, status, B
 from typing import List, Optional, Literal, Tuple
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import func, case, and_, or_, Integer
+from sqlalchemy import func, case, and_, or_, Integer, literal_column
 import json
 
 
@@ -290,6 +290,29 @@ def get_proyectos(
             query = query.filter(and_(*condiciones_por_palabra))
 
 
+        # Determina si nro_orden_rua es válido (4 o 5 dígitos numéricos)
+        orden_valido = func.length(Proyecto.nro_orden_rua).in_([4, 5]) & Proyecto.nro_orden_rua.op('REGEXP')('^[0-9]+$')
+
+        # Campo cast a entero si válido, NULL si no
+        nro_orden_valido = case(
+            (orden_valido, func.cast(Proyecto.nro_orden_rua, Integer)),
+            else_=None
+        )
+
+        # Campo para forzar que los válidos aparezcan primero
+        orden_es_valido = case(
+            (orden_valido, 0),  # primero los válidos
+            else_=1             # luego los inválidos o vacíos
+        )
+
+        query = query.order_by(
+            orden_es_valido.asc(),          # 1. Primero los que tienen nro válido
+            nro_orden_valido.asc(),        # 2. nro_orden válido (de mayor a menor)
+            Proyecto.fecha_asignacion_nro_orden.desc()  # 3. fecha más antigua primero
+        )
+
+
+
         # Paginación
         total_records = query.count()
         total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
@@ -344,17 +367,24 @@ def get_proyectos(
                 )
 
                 if nna_relacionados:
-                    nombres_nna = [f"{n.nna_nombre} {n.nna_apellido}" for n in nna_relacionados]
+                    nombres_nna = list({f"{n.nna_nombre} {n.nna_apellido}" for n in nna_relacionados})
                     comentarios_sobre_estado = "NNA relacionado/s:\n" + "\n".join(nombres_nna)
 
             # 3. Caso en_carpeta
             elif proyecto.estado_general == "en_carpeta":
-                
                 carpeta = db.query(Carpeta).join(DetalleProyectosEnCarpeta).filter(
                     DetalleProyectosEnCarpeta.proyecto_id == proyecto.proyecto_id
-                ).order_by(Carpeta.created_at.desc()).first()
+                ).order_by(Carpeta.fecha_creacion.desc()).first()
+
                 if carpeta:
-                    comentarios_sobre_estado = f"En carpeta: estado '{carpeta.estado}'"
+                    estado_carpeta_map = {
+                        "vacia": "Vacía",
+                        "preparando_carpeta": "Preparando",
+                        "enviada_a_juzgado": "Enviada a juzgado",
+                        "proyecto_seleccionado": "Proyecto seleccionado"
+                    }
+                    estado_legible = estado_carpeta_map.get(carpeta.estado_carpeta, carpeta.estado_carpeta)
+                    comentarios_sobre_estado = f"Estado de carpeta: '{estado_legible}'"
 
 
 

@@ -10,7 +10,7 @@ from database.config import get_db
 from security.security import verify_api_key, require_roles, get_current_user
 
 from models.carpeta import Carpeta, DetalleProyectosEnCarpeta, DetalleNNAEnCarpeta
-from models.proyecto import Proyecto
+from models.proyecto import Proyecto, ProyectoHistorialEstado
 from models.users import User
 from models.eventos_y_configs import RuaEvento
 from fastapi.responses import FileResponse, JSONResponse
@@ -24,7 +24,6 @@ from io import BytesIO
 from dotenv import load_dotenv
 from PIL import Image
 from pathlib import Path
-from models.proyecto import ProyectoHistorialEstado
 
 
 
@@ -217,14 +216,33 @@ def crear_carpeta(
         db.commit()
         db.refresh(nueva_carpeta)
 
-        # Asociar proyectos
+              
         for proyecto_id in proyectos_id:
+            # Asociar a la carpeta
             detalle = DetalleProyectosEnCarpeta(
-                carpeta_id = nueva_carpeta.carpeta_id,
-                proyecto_id = proyecto_id,
-                fecha_asignacion = datetime.now().date()
+                carpeta_id=nueva_carpeta.carpeta_id,
+                proyecto_id=proyecto_id,
+                fecha_asignacion=datetime.now().date()
             )
             db.add(detalle)
+
+            # Actualizar estado del proyecto
+            proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+            if proyecto:
+                estado_anterior = proyecto.estado_general
+                proyecto.estado_general = "en_carpeta"
+                proyecto.ultimo_cambio_de_estado = datetime.now().date()
+
+                # Agregar al historial
+                historial = ProyectoHistorialEstado(
+                    proyecto_id=proyecto.proyecto_id,
+                    estado_anterior=estado_anterior,
+                    estado_nuevo="en_carpeta",
+                    fecha_hora=datetime.now()
+                )
+                db.add(historial)
+
+
 
         # Asociar NNAs
         for id_nna in nna_id:
@@ -283,17 +301,57 @@ def actualizar_carpeta(
         nuevos_proyectos = set(data.get("proyectos_id", []))
         nuevos_nnas = set(data.get("nna_id", []))
 
+
+        # Obtener los proyectos actualmente asociados antes de eliminar
+        proyectos_previos = db.query(DetalleProyectosEnCarpeta.proyecto_id)\
+            .filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta_id)\
+            .all()
+        proyectos_previos = {p.proyecto_id for p in proyectos_previos}
+
         # Eliminar asignaciones actuales
         db.query(DetalleProyectosEnCarpeta).filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta_id).delete()
         db.query(DetalleNNAEnCarpeta).filter(DetalleNNAEnCarpeta.carpeta_id == carpeta_id).delete()
 
-        # Insertar nuevas asignaciones
+        # Proyectos que se eliminaron
+        proyectos_eliminados = proyectos_previos - nuevos_proyectos
+
+        # Actualizar estado de proyectos eliminados
+        for proyecto_id in proyectos_eliminados:
+            proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+            if proyecto:
+                estado_anterior = proyecto.estado_general
+                proyecto.estado_general = "viable"  # o "aprobado", o lo que corresponda
+                proyecto.ultimo_cambio_de_estado = datetime.now().date()
+
+                db.add(ProyectoHistorialEstado(
+                    proyecto_id=proyecto_id,
+                    estado_anterior=estado_anterior,
+                    estado_nuevo="viable",
+                    fecha_hora=datetime.now()
+                ))
+
+        # Insertar nuevas asignaciones y cambiar estado a 'en_carpeta'
         for proyecto_id in nuevos_proyectos:
             db.add(DetalleProyectosEnCarpeta(
-                carpeta_id = carpeta_id,
-                proyecto_id = proyecto_id,
-                fecha_asignacion = datetime.now().date()
+                carpeta_id=carpeta_id,
+                proyecto_id=proyecto_id,
+                fecha_asignacion=datetime.now().date()
             ))
+
+            proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+            if proyecto:
+                estado_anterior = proyecto.estado_general
+                proyecto.estado_general = "en_carpeta"
+                proyecto.ultimo_cambio_de_estado = datetime.now().date()
+                
+                db.add(ProyectoHistorialEstado(
+                    proyecto_id=proyecto_id,
+                    estado_anterior=estado_anterior,
+                    estado_nuevo="en_carpeta",
+                    fecha_hora=datetime.now()
+                ))
+
+
 
         for nna_id in nuevos_nnas:
             db.add(DetalleNNAEnCarpeta(

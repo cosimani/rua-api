@@ -6,16 +6,15 @@ from datetime import datetime
 from fastapi.responses import FileResponse
 from fastapi import Query
 
-
 from typing import List, Optional, Literal
 from database.config import get_db
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from models.nna import Nna
-from models.carpeta import DetalleNNAEnCarpeta
+from models.carpeta import DetalleNNAEnCarpeta, Carpeta
 from security.security import get_current_user, verify_api_key, require_roles
 
-from sqlalchemy import func, or_, text, literal_column
+from sqlalchemy import and_, func, or_, text, literal_column
 
 from datetime import date
 from helpers.utils import edad_como_texto, normalizar_y_validar_dni
@@ -45,30 +44,25 @@ os.makedirs(UPLOAD_DIR_DOC_NNAS, exist_ok=True)
 nna_router = APIRouter()
 
 
-@nna_router.get("/", response_model=dict, 
-                dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+
+
+@nna_router.get("/", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
 def get_nnas(
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
-    search: Optional[str] = Query(None, min_length=3, description="Búsqueda por nombre, apellido o DNI"),
-    provincia: Optional[str] = Query(None, description="Filtrar por provincia"),
-    localidad: Optional[str] = Query(None, description="Filtrar por localidad"),
-    nna_en_convocatoria: Optional[bool] = Query(None, description="Filtrar por si está en convocatoria"),
-    nna_archivado: Optional[bool] = Query(None, description="Filtrar por si está archivado"),
-    subregistro_1: Optional[bool] = Query(None, description="0 a 3 años"),
-    subregistro_2: Optional[bool] = Query(None, description="4 a 6 años"),
-    subregistro_3: Optional[bool] = Query(None, description="7 a 11 años"),
-    subregistro_4: Optional[bool] = Query(None, description="12 a 17 años"),
-    subregistro_5a: Optional[bool] = Query(None, description="Dificultades motrices leves, Sindrome de Down, ..."),
-    subregistro_5b: Optional[bool] = Query(None, description="Patologías crónicas y/o congénitas"),
-    subregistro_5c: Optional[bool] = Query(None, description="Ceguera, sordera"),
-    disponible: Optional[bool] = Query(None, description="Filtrar por disponibilidad"),
+    search: Optional[str] = Query(None, min_length=3),
+    provincia: Optional[str] = Query(None),
+    localidad: Optional[str] = Query(None),
+    nna_en_convocatoria: Optional[bool] = Query(None),
+    nna_archivado: Optional[bool] = Query(None),
+    disponible: Optional[bool] = Query(None),
+    subregistros: Optional[List[str]] = Query(None, alias="subregistro_portada")
 ):
     """
-    Devuelve los registros de NNA paginados.  
-    Permite búsqueda parcial por nombre, apellido o DNI.  
-    Se pueden filtrar por provincia, localidad, estado en convocatoria, archivado y subregistro por edad.
+    Devuelve los registros de NNA paginados.
+    Filtra por subregistros de edad y salud (nna_5A / nna_5B) según selección múltiple.
     """
     try:
         query = db.query(Nna)
@@ -84,56 +78,58 @@ def get_nnas(
 
         if provincia:
             query = query.filter(Nna.nna_provincia == provincia)
-
         if localidad:
             query = query.filter(Nna.nna_localidad == localidad)
-
         if nna_en_convocatoria is not None:
             query = query.filter(Nna.nna_en_convocatoria == ("Y" if nna_en_convocatoria else "N"))
-
         if nna_archivado is not None:
             query = query.filter(Nna.nna_archivado == ("Y" if nna_archivado else "N"))
 
-        # Filtro por subregistros de edad
-        today = date.today()
-        # Usamos CURDATE() directamente desde SQL
-        edad_expr = text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE())")
+        # Subregistro por edad o salud (nuevo: usa nna_5A / nna_5B)
+        subregistro_field_map = {
+            "1": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 0 AND 3"),
+            "2": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 4 AND 7"),
+            "3": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 8 AND 12"),
+            "4": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 13 AND 17"),
+            "5A": Nna.nna_5A == "Y",
+            "5B": Nna.nna_5B == "Y",
+        }
 
-        subregistro_filters = []
+        
+        if subregistros:
+            filtros_edad = []
+            filtros_salud = []
 
-        if subregistro_1:
-            subregistro_filters.append(text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 0 AND 3"))
-        if subregistro_2:
-            subregistro_filters.append(text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 4 AND 7"))
-        if subregistro_3:
-            subregistro_filters.append(text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 8 AND 12"))
-        if subregistro_4:
-            subregistro_filters.append(text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 13 AND 17"))
+            for sr in subregistros:
+                if sr in ["1", "2", "3", "4"]:
+                    filtro_edad = subregistro_field_map.get(sr)
+                    if filtro_edad is not None:
+                        filtros_edad.append(filtro_edad)
+                elif sr in ["5A", "5B"]:
+                    filtro_salud = subregistro_field_map.get(sr)
+                    if filtro_salud is not None:
+                        filtros_salud.append(filtro_salud)
 
-        if subregistro_filters:
-            query = query.filter(or_(*subregistro_filters))
+            if filtros_edad and filtros_salud:
+                query = query.filter(and_(
+                    or_(*filtros_edad),
+                    or_(*filtros_salud)
+                ))
+            elif filtros_edad:
+                query = query.filter(or_(*filtros_edad))
+            elif filtros_salud:
+                query = query.filter(or_(*filtros_salud))
 
 
-        if subregistro_5a:
-            query = query.filter(Nna.nna_subregistro_salud.ilike("%a%"))
-        if subregistro_5b:
-            query = query.filter(Nna.nna_subregistro_salud.ilike("%b%"))
-        if subregistro_5c:
-            query = query.filter(Nna.nna_subregistro_salud.ilike("%c%"))
-
-
+        # Filtro por disponibilidad (si está o no en carpeta)
         subquery_nnas_en_carpeta = db.query(DetalleNNAEnCarpeta.nna_id).distinct()
-
         if disponible is not None:
             if disponible:
-                # Solo los NNAs que NO están en una carpeta
                 query = query.filter(~Nna.nna_id.in_(subquery_nnas_en_carpeta))
             else:
-                # Solo los NNAs que SÍ están en una carpeta
                 query = query.filter(Nna.nna_id.in_(subquery_nnas_en_carpeta))
 
-
-        # Paginación con total
+        # Paginación
         total_records = query.count()
         total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
 
@@ -148,16 +144,45 @@ def get_nnas(
 
         skip = (page - 1) * limit
         nnas = query.offset(skip).limit(limit).all()
-
-
         subquery_ids = [row[0] for row in subquery_nnas_en_carpeta.all()]
 
         nnas_list = []
+
         for nna in nnas:
-            # Calcular edad
-            nacimiento = nna.nna_fecha_nacimiento
-            today = date.today()
-            edad = today.year - nacimiento.year - ((today.month, today.day) < (nacimiento.month, nacimiento.day))
+            edad = date.today().year - nna.nna_fecha_nacimiento.year - (
+                (date.today().month, date.today().day) < (nna.nna_fecha_nacimiento.month, nna.nna_fecha_nacimiento.day)
+            )
+
+            # Calcular subregistro por edad
+            if edad <= 3:
+                subregistro_por_edad = "1"
+            elif 4 <= edad <= 7:
+                subregistro_por_edad = "2"
+            elif 8 <= edad <= 12:
+                subregistro_por_edad = "3"
+            elif 13 <= edad <= 17:
+                subregistro_por_edad = "4"
+            else:
+                subregistro_por_edad = "Mayor"
+
+            # Calcular estado y comentarios_estado
+            if edad >= 18:
+                estado = "Mayor de edad"
+                comentarios_estado = ""
+            elif nna.nna_id in subquery_ids:
+                # Buscar la carpeta más reciente del NNA
+                carpeta = (
+                    db.query(Carpeta)
+                    .join(DetalleNNAEnCarpeta)
+                    .filter(DetalleNNAEnCarpeta.nna_id == nna.nna_id)
+                    .order_by(Carpeta.fecha_creacion.desc())
+                    .first()
+                )
+                estado = "En carpeta"
+                comentarios_estado = carpeta.estado_carpeta if carpeta else ""
+            else:
+                estado = "Disponible"
+                comentarios_estado = ""
 
             nnas_list.append({
                 "nna_id": nna.nna_id,
@@ -166,24 +191,29 @@ def get_nnas(
                 "nna_dni": nna.nna_dni,
                 "nna_fecha_nacimiento": nna.nna_fecha_nacimiento,
                 "nna_edad": edad_como_texto(nna.nna_fecha_nacimiento),
+                "nna_edad_num": edad,
+                "subregistro_por_edad": subregistro_por_edad,
                 "nna_calle_y_nro": nna.nna_calle_y_nro,
                 "nna_barrio": nna.nna_barrio,
                 "nna_localidad": nna.nna_localidad,
                 "nna_provincia": nna.nna_provincia,
-                "nna_subregistro_salud": nna.nna_subregistro_salud,
+                "nna_5A": nna.nna_5A,
+                "nna_5B": nna.nna_5B,
                 "nna_en_convocatoria": nna.nna_en_convocatoria,
                 "nna_ficha": nna.nna_ficha,
                 "nna_sentencia": nna.nna_sentencia,
                 "nna_archivado": nna.nna_archivado,
-                "nna_disponible": nna.nna_id not in subquery_ids
+                "nna_disponible": nna.nna_id not in subquery_ids,
+                "estado": estado,
+                "comentarios_estado": comentarios_estado
             })
-
+            
         return {
             "page": page,
             "limit": limit,
             "total_pages": total_pages,
             "total_records": total_records,
-            "nnas": nnas_list,
+            "nnas": nnas_list
         }
 
     except SQLAlchemyError as e:

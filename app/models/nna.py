@@ -31,6 +31,9 @@ class Nna(Base):
     nna_sentencia = Column(String(1024), nullable=True) 
     nna_archivado = Column(String(1), nullable=False, default="N")
 
+    nna_5A = Column(String(1))
+    nna_5B = Column(String(1))
+
     # # Relación con otra tabla (si existe)
     detalle_nna = relationship("DetalleNNAEnCarpeta", back_populates="nna", lazy="joined")
     detalle_convocatorias = relationship("DetalleNNAEnConvocatoria", back_populates="nna", lazy="joined")
