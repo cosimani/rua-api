@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Body
 from typing import List, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError
+
 from database.config import get_db
 from security.security import get_current_user, verify_api_key, require_roles
 from helpers.utils import normalizar_y_validar_dni
@@ -21,7 +22,7 @@ from helpers.notificaciones_utils import crear_notificacion_masiva_por_rol
 convocatoria_router = APIRouter()
 
 
-@convocatoria_router.get("/", response_model=dict, dependencies=[Depends(verify_api_key)])
+@convocatoria_router.get( "/", response_model=dict, dependencies=[Depends(verify_api_key)])
 def get_convocatorias(
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1),
@@ -43,29 +44,38 @@ def get_convocatorias(
         if fecha_publicacion:
             query = query.filter(Convocatoria.convocatoria_fecha_publicacion == fecha_publicacion)
 
-        if online is None:
-            query = query.filter(Convocatoria.convocatoria_online == "Y")
-        else:
+        if online is not None:
             query = query.filter(Convocatoria.convocatoria_online == ("Y" if online else "N"))
 
         total_records = query.count()
         total_pages = ceil(total_records / limit)
 
-        # Ordenar primero por fecha (descendente) y luego por referencia (ascendente)
         convocatorias = query \
+            .options(joinedload(Convocatoria.detalle_nnas).joinedload(DetalleNNAEnConvocatoria.nna)) \
             .order_by(
                 Convocatoria.convocatoria_fecha_publicacion.desc(),
                 Convocatoria.convocatoria_referencia.desc()
             ) \
-            .offset( ( page - 1 ) * limit ) \
-            .limit( limit ) \
+            .offset((page - 1) * limit) \
+            .limit(limit) \
             .all()
 
         convocatorias_list = []
         for convocatoria in convocatorias:
-            nna_ids = db.query(DetalleNNAEnConvocatoria.nna_id).filter(
-                DetalleNNAEnConvocatoria.convocatoria_id == convocatoria.convocatoria_id
-            ).all()
+            nna_asociados = []
+            for detalle in convocatoria.detalle_nnas:
+                nna = detalle.nna
+                if nna:
+                    edad = date.today().year - nna.nna_fecha_nacimiento.year - (
+                        (date.today().month, date.today().day) < (nna.nna_fecha_nacimiento.month, nna.nna_fecha_nacimiento.day)
+                    )
+                    nna_asociados.append({
+                        "nna_id": nna.nna_id,
+                        "nna_nombre": nna.nna_nombre,
+                        "nna_apellido": nna.nna_apellido,
+                        "nna_edad": edad  # o edad_como_texto(nna.nna_fecha_nacimiento)
+                    })
+
             convocatorias_list.append({
                 "convocatoria_id": convocatoria.convocatoria_id,
                 "convocatoria_referencia": convocatoria.convocatoria_referencia,
@@ -76,7 +86,8 @@ def get_convocatorias(
                 "convocatoria_juzgado_interviniente": convocatoria.convocatoria_juzgado_interviniente,
                 "convocatoria_fecha_publicacion": convocatoria.convocatoria_fecha_publicacion,
                 "convocatoria_online": convocatoria.convocatoria_online,
-                "nna_ids": [n[0] for n in nna_ids]
+                "nna_ids": [detalle.nna_id for detalle in convocatoria.detalle_nnas],
+                "nna_asociados": nna_asociados
             })
 
         return {
@@ -89,6 +100,7 @@ def get_convocatorias(
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al recuperar convocatorias: {str(e)}")
+
 
 
 
@@ -121,41 +133,24 @@ def get_convocatoria_by_id(convocatoria_id: int, db: Session = Depends(get_db)):
 
 
 
-
-@convocatoria_router.post("/", response_model = dict, dependencies = [Depends(verify_api_key)])
-def create_convocatoria(
+@convocatoria_router.post("/", response_model=dict, 
+                  dependencies=[Depends( verify_api_key ), 
+                                Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def upsert_convocatoria(
     convocatoria_data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """
-    📝 Crea una nueva convocatoria en la base de datos.
-
-    📥 JSON esperado:
-    ```json
-    {
-        "convocatoria_referencia": "08/25",
-        "convocatoria_llamado": "Niño",
-        "convocatoria_edad_es": "12 años",
-        "convocatoria_residencia_postulantes": "Córdoba y alrededores",
-        "convocatoria_descripcion": "Se busca grupo familiar para hermanos pequeños.",
-        "convocatoria_juzgado_interviniente": "Juzgado de Familia N°3",
-        "nna_id": [101, 102] 
-    }
-    ```
-
-    🔁 `convocatoria_online` será "N" hasta tanto se agreguen NNA/s.
-    """
     try:
+        convocatoria_id = convocatoria_data.get("convocatoria_id")
         nna_ids = convocatoria_data.get("nna_id", [])
-        convocatoria_online = "Y" if nna_ids else "N"
+        convocatoria_online = convocatoria_data.get("convocatoria_online")
 
         # 🛡️ Validar existencia de todos los NNAs enviados
         if nna_ids:
             existentes = db.query(Nna.nna_id).filter(Nna.nna_id.in_(nna_ids)).all()
             existentes_ids = {nna_id for (nna_id,) in existentes}
             faltantes = [nna_id for nna_id in nna_ids if nna_id not in existentes_ids]
-
             if faltantes:
                 return {
                     "success": False,
@@ -165,43 +160,55 @@ def create_convocatoria(
                     "next_page": "actual"
                 }
 
-        new_convocatoria = Convocatoria(
-            convocatoria_referencia = convocatoria_data.get("convocatoria_referencia"),
-            convocatoria_llamado = convocatoria_data.get("convocatoria_llamado"),
-            convocatoria_edad_es = convocatoria_data.get("convocatoria_edad_es"),
-            convocatoria_residencia_postulantes = convocatoria_data.get("convocatoria_residencia_postulantes"),
-            convocatoria_descripcion = convocatoria_data.get("convocatoria_descripcion"),
-            convocatoria_juzgado_interviniente = convocatoria_data.get("convocatoria_juzgado_interviniente"),
-            convocatoria_online = convocatoria_online
-        )
+        if convocatoria_id:
+            # 🔁 Actualizar convocatoria existente
+            convocatoria = db.query(Convocatoria).filter_by(convocatoria_id=convocatoria_id).first()
+            if not convocatoria:
+                raise HTTPException(status_code=404, detail="Convocatoria no encontrada")
 
-        db.add(new_convocatoria)
-        db.commit()
-        db.refresh(new_convocatoria)
+            convocatoria.convocatoria_referencia = convocatoria_data.get("convocatoria_referencia")
+            convocatoria.convocatoria_llamado = convocatoria_data.get("convocatoria_llamado")
+            convocatoria.convocatoria_edad_es = convocatoria_data.get("convocatoria_edad_es")
+            convocatoria.convocatoria_residencia_postulantes = convocatoria_data.get("convocatoria_residencia_postulantes")
+            convocatoria.convocatoria_descripcion = convocatoria_data.get("convocatoria_descripcion")
+            convocatoria.convocatoria_juzgado_interviniente = convocatoria_data.get("convocatoria_juzgado_interviniente")
+            convocatoria.convocatoria_online = convocatoria_online
 
-        # Asociar NNAs a la convocatoria
-        for nna_id in nna_ids:
-            detalle = DetalleNNAEnConvocatoria(
-                convocatoria_id = new_convocatoria.convocatoria_id,
-                nna_id = nna_id
+            # 🔄 Reemplazar los NNA asociados
+            db.query(DetalleNNAEnConvocatoria).filter_by(convocatoria_id=convocatoria_id).delete()
+        else:
+            # 🆕 Crear nueva convocatoria
+            convocatoria = Convocatoria(
+                convocatoria_referencia=convocatoria_data.get("convocatoria_referencia"),
+                convocatoria_llamado=convocatoria_data.get("convocatoria_llamado"),
+                convocatoria_edad_es=convocatoria_data.get("convocatoria_edad_es"),
+                convocatoria_residencia_postulantes=convocatoria_data.get("convocatoria_residencia_postulantes"),
+                convocatoria_descripcion=convocatoria_data.get("convocatoria_descripcion"),
+                convocatoria_juzgado_interviniente=convocatoria_data.get("convocatoria_juzgado_interviniente"),
+                convocatoria_online=convocatoria_online
             )
-            db.add(detalle)
+            db.add(convocatoria)
+            db.flush()  # importante para obtener el ID antes de agregar los NNA
 
+        # Asociar NNAs nuevamente
+        for nna_id in nna_ids:
+            db.add(DetalleNNAEnConvocatoria(convocatoria_id=convocatoria.convocatoria_id, nna_id=nna_id))
 
-        # 📌 Crear evento en RuaEvento
+        # 📌 Evento
         evento = RuaEvento(
-            evento_detalle = f"Se creó la convocatoria {new_convocatoria.convocatoria_referencia}",
-            evento_fecha = datetime.now(),
-            login = current_user["user"]["login"]
+            evento_detalle=(
+                f"Se {'modificó' if convocatoria_id else 'creó'} la convocatoria {convocatoria.convocatoria_referencia}"
+            ),
+            evento_fecha=datetime.now(),
+            login=current_user["user"]["login"]
         )
-
         db.add(evento)
-        db.commit()
 
+        db.commit()
         return {
             "success": True,
             "tipo_mensaje": "verde",
-            "mensaje": f"Convocatoria creada con éxito convocatoria_id {new_convocatoria.convocatoria_id}",
+            "mensaje": f"Convocatoria {'actualizada' if convocatoria_id else 'creada'} con éxito",
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
@@ -211,14 +218,16 @@ def create_convocatoria(
         return {
             "success": False,
             "tipo_mensaje": "rojo",
-            "mensaje": f"Error al crear la convocatoria: {str(e)}",
+            "mensaje": f"Error al guardar la convocatoria: {str(e)}",
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
 
 
+
 @convocatoria_router.delete("/{convocatoria_id}", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                  dependencies=[Depends( verify_api_key ), 
+                                Depends(require_roles(["administrador", "supervisora", "profesional"]))])
 def delete_convocatoria(convocatoria_id: int, db: Session = Depends(get_db)):
     """
     Elimina una convocatoria si existe.
@@ -592,3 +601,16 @@ def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_db), )
         }
 
 
+@convocatoria_router.put("/{convocatoria_id}/online", response_model=dict, 
+                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def actualizar_online(convocatoria_id: int, data: dict = Body(...), db: Session = Depends(get_db)):
+    try:
+        estado = data.get("convocatoria_online")
+        convocatoria = db.query(Convocatoria).filter_by(convocatoria_id=convocatoria_id).first()
+        if not convocatoria:
+            raise HTTPException(status_code=404, detail="Convocatoria no encontrada")
+        convocatoria.convocatoria_online = estado
+        db.commit()
+        return {"success": True, "message": f"Estado actualizado a {estado}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
