@@ -11,7 +11,9 @@ from database.config import get_db
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from models.nna import Nna
-from models.carpeta import DetalleNNAEnCarpeta, Carpeta
+from models.carpeta import DetalleNNAEnCarpeta, Carpeta, DetalleProyectosEnCarpeta
+from models.proyecto import Proyecto
+from models.users import User
 from security.security import get_current_user, verify_api_key, require_roles
 
 from sqlalchemy import and_, func, or_, text, literal_column
@@ -170,7 +172,13 @@ def get_nnas(
                 estado = "Mayor de edad"
                 comentarios_estado = ""
             elif nna.nna_id in subquery_ids:
-                # Buscar la carpeta más reciente del NNA
+
+                estado_map = {
+                    "vinculacion": "Vinculación",
+                    "guarda": "Guarda",
+                    "adopcion_definitiva": "Adopción definitiva",
+                }
+
                 carpeta = (
                     db.query(Carpeta)
                     .join(DetalleNNAEnCarpeta)
@@ -178,8 +186,44 @@ def get_nnas(
                     .order_by(Carpeta.fecha_creacion.desc())
                     .first()
                 )
+
                 estado = "En carpeta"
-                comentarios_estado = carpeta.estado_carpeta if carpeta else ""
+                comentarios_estado = ""
+
+                if carpeta:
+                    if carpeta.estado_carpeta == "proyecto_seleccionado":
+                        # Buscar el proyecto asociado a esta carpeta
+                        proyecto = (
+                            db.query(Proyecto)
+                            .join(DetalleProyectosEnCarpeta)
+                            .filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta.carpeta_id)
+                            .order_by(Proyecto.proyecto_id.desc())
+                            .first()
+                        )
+                        if proyecto:
+                            # Buscar usuarios desde sec_users por login
+                            pretensos = []
+
+                            usuario_1 = db.query(User).filter(User.login == proyecto.login_1).first()
+                            if usuario_1:
+                                nombre_1 = f"{usuario_1.nombre} {usuario_1.apellido or ''}".strip()
+                                pretensos.append(nombre_1)
+
+                            if proyecto.login_2:
+                                usuario_2 = db.query(User).filter(User.login == proyecto.login_2).first()
+                                if usuario_2:
+                                    nombre_2 = f"{usuario_2.nombre} {usuario_2.apellido or ''}".strip()
+                                    pretensos.append(nombre_2)
+
+                            estado_legible = estado_map.get(proyecto.estado_general, proyecto.estado_general)
+                            estado = estado_legible
+                            comentarios_estado = " y ".join(pretensos)
+                        else:
+                            estado = "Con dictamen"
+                            comentarios_estado = ""
+                    else:
+                        comentarios_estado = carpeta.estado_carpeta
+
             else:
                 estado = "Disponible"
                 comentarios_estado = ""
