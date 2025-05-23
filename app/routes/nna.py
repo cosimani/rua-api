@@ -266,22 +266,131 @@ def get_nnas(
 
 
 
+# @nna_router.get("/{nna_id}", response_model=dict, 
+#                   dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+# def get_nna_by_id(nna_id: int, db: Session = Depends(get_db)):
+#     """
+#     Devuelve un único NNA por su `nna_id`.
+#     """
+#     try:
+#         nna = db.query(Nna).filter(Nna.nna_id == nna_id).first()
+#         if not nna:
+#             raise HTTPException(status_code=404, detail="NNA no encontrado")
+
+#         # Verificar si el NNA está en alguna carpeta
+#         asignado_a_carpeta = db.query(DetalleNNAEnCarpeta).filter( DetalleNNAEnCarpeta.nna_id == nna_id ).first()
+
+#         esta_disponible = asignado_a_carpeta is None
+
+
+#         return {
+#             "nna_id": nna.nna_id,
+#             "nna_nombre": nna.nna_nombre,
+#             "nna_apellido": nna.nna_apellido,
+#             "nna_dni": nna.nna_dni,
+#             "nna_fecha_nacimiento": nna.nna_fecha_nacimiento,
+#             "nna_calle_y_nro": nna.nna_calle_y_nro,
+#             "nna_barrio": nna.nna_barrio,
+#             "nna_localidad": nna.nna_localidad,
+#             "nna_provincia": nna.nna_provincia,
+#             "nna_subregistro_salud": nna.nna_subregistro_salud,
+#             "nna_en_convocatoria": nna.nna_en_convocatoria,
+#             "nna_ficha": nna.nna_ficha,
+#             "nna_sentencia": nna.nna_sentencia,
+#             "nna_archivado": nna.nna_archivado,
+#             "nna_disponible": esta_disponible
+#         }
+
+#     except SQLAlchemyError as e:
+#         raise HTTPException(status_code=500, detail=f"Error al recuperar NNA: {str(e)}")
+
+
 @nna_router.get("/{nna_id}", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
 def get_nna_by_id(nna_id: int, db: Session = Depends(get_db)):
     """
-    Devuelve un único NNA por su `nna_id`.
+    Devuelve un único NNA por su `nna_id`, con misma estructura que el listado paginado.
     """
     try:
         nna = db.query(Nna).filter(Nna.nna_id == nna_id).first()
         if not nna:
             raise HTTPException(status_code=404, detail="NNA no encontrado")
 
+        edad = date.today().year - nna.nna_fecha_nacimiento.year - (
+            (date.today().month, date.today().day) < (nna.nna_fecha_nacimiento.month, nna.nna_fecha_nacimiento.day)
+        )
+
+        # Subregistro por edad
+        if edad <= 3:
+            subregistro_por_edad = "1"
+        elif 4 <= edad <= 7:
+            subregistro_por_edad = "2"
+        elif 8 <= edad <= 12:
+            subregistro_por_edad = "3"
+        elif 13 <= edad <= 17:
+            subregistro_por_edad = "4"
+        else:
+            subregistro_por_edad = "Mayor"
+
         # Verificar si el NNA está en alguna carpeta
-        asignado_a_carpeta = db.query(DetalleNNAEnCarpeta).filter( DetalleNNAEnCarpeta.nna_id == nna_id ).first()
+        subquery_ids = db.query(DetalleNNAEnCarpeta.nna_id).distinct()
+        esta_disponible = nna.nna_id not in [row[0] for row in subquery_ids.all()]
 
-        esta_disponible = asignado_a_carpeta is None
+        # Estado y comentarios
+        if edad >= 18:
+            estado = "Mayor de edad"
+            comentarios_estado = ""
+        elif not esta_disponible:
+            estado_map = {
+                "vinculacion": "Vinculación",
+                "guarda": "Guarda",
+                "adopcion_definitiva": "Adopción definitiva",
+            }
 
+            carpeta = (
+                db.query(Carpeta)
+                .join(DetalleNNAEnCarpeta)
+                .filter(DetalleNNAEnCarpeta.nna_id == nna.nna_id)
+                .order_by(Carpeta.fecha_creacion.desc())
+                .first()
+            )
+
+            estado = "En carpeta"
+            comentarios_estado = ""
+
+            if carpeta:
+                if carpeta.estado_carpeta == "proyecto_seleccionado":
+                    proyecto = (
+                        db.query(Proyecto)
+                        .join(DetalleProyectosEnCarpeta)
+                        .filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta.carpeta_id)
+                        .order_by(Proyecto.proyecto_id.desc())
+                        .first()
+                    )
+                    if proyecto:
+                        pretensos = []
+                        usuario_1 = db.query(User).filter(User.login == proyecto.login_1).first()
+                        if usuario_1:
+                            nombre_1 = f"{usuario_1.nombre} {usuario_1.apellido or ''}".strip()
+                            pretensos.append(nombre_1)
+
+                        if proyecto.login_2:
+                            usuario_2 = db.query(User).filter(User.login == proyecto.login_2).first()
+                            if usuario_2:
+                                nombre_2 = f"{usuario_2.nombre} {usuario_2.apellido or ''}".strip()
+                                pretensos.append(nombre_2)
+
+                        estado_legible = estado_map.get(proyecto.estado_general, proyecto.estado_general)
+                        estado = estado_legible
+                        comentarios_estado = " y ".join(pretensos)
+                    else:
+                        estado = "Con dictamen"
+                        comentarios_estado = ""
+                else:
+                    comentarios_estado = carpeta.estado_carpeta
+        else:
+            estado = "Disponible"
+            comentarios_estado = ""
 
         return {
             "nna_id": nna.nna_id,
@@ -289,20 +398,28 @@ def get_nna_by_id(nna_id: int, db: Session = Depends(get_db)):
             "nna_apellido": nna.nna_apellido,
             "nna_dni": nna.nna_dni,
             "nna_fecha_nacimiento": nna.nna_fecha_nacimiento,
+            "nna_edad": edad_como_texto(nna.nna_fecha_nacimiento),
+            "nna_edad_num": edad,
+            "subregistro_por_edad": subregistro_por_edad,
             "nna_calle_y_nro": nna.nna_calle_y_nro,
             "nna_barrio": nna.nna_barrio,
             "nna_localidad": nna.nna_localidad,
             "nna_provincia": nna.nna_provincia,
-            "nna_subregistro_salud": nna.nna_subregistro_salud,
+            "nna_5A": nna.nna_5A,
+            "nna_5B": nna.nna_5B,
             "nna_en_convocatoria": nna.nna_en_convocatoria,
             "nna_ficha": nna.nna_ficha,
             "nna_sentencia": nna.nna_sentencia,
             "nna_archivado": nna.nna_archivado,
-            "nna_disponible": esta_disponible
+            "nna_disponible": esta_disponible,
+            "estado": estado,
+            "comentarios_estado": comentarios_estado
         }
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al recuperar NNA: {str(e)}")
+
+
 
 
 @nna_router.post("/", response_model=dict, 
@@ -420,7 +537,8 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
         campos = [
             "nna_nombre", "nna_apellido", "nna_fecha_nacimiento", "nna_calle_y_nro",
             "nna_depto_etc", "nna_barrio", "nna_localidad", "nna_provincia",
-            "nna_subregistro_salud", "nna_en_convocatoria", "nna_archivado"
+            "nna_subregistro_salud", "nna_en_convocatoria", "nna_archivado",
+            "nna_5A", "nna_5B",
         ]
 
         if nna_existente:
