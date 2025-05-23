@@ -4585,7 +4585,7 @@ def aprobar_proyecto(
                 db=db,
                 login_destinatario=login_destinatario,
                 mensaje=mensaje_notificacion,
-                link="/menu_adoptantes/portada",
+                # link="/menu_adoptantes/portada",
                 # data_json={"accion": "aprobar_documentacion"},
                 tipo_mensaje="verde",
                 enviar_por_whatsapp=False,

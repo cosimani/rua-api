@@ -102,7 +102,48 @@ def get_convocatorias(
         raise HTTPException(status_code=500, detail=f"Error al recuperar convocatorias: {str(e)}")
 
 
+@convocatoria_router.get("/publicas", response_model=dict)
+def get_convocatorias_publicas(
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100)
+):
+    try:
+        query = db.query(Convocatoria).filter(Convocatoria.convocatoria_online == "Y")
 
+        total_records = query.count()
+        total_pages = ceil(total_records / limit)
+
+        convocatorias = query.order_by(
+            Convocatoria.convocatoria_fecha_publicacion.desc(),
+            Convocatoria.convocatoria_referencia.desc()
+        ).offset((page - 1) * limit).limit(limit).all()
+
+        convocatorias_list = [
+            {
+                "convocatoria_id": c.convocatoria_id,
+                "convocatoria_referencia": c.convocatoria_referencia,
+                "convocatoria_llamado": c.convocatoria_llamado,
+                "convocatoria_edad_es": c.convocatoria_edad_es,
+                "convocatoria_residencia_postulantes": c.convocatoria_residencia_postulantes,
+                "convocatoria_descripcion": c.convocatoria_descripcion,
+                "convocatoria_juzgado_interviniente": c.convocatoria_juzgado_interviniente,
+                "convocatoria_fecha_publicacion": c.convocatoria_fecha_publicacion,
+            }
+            for c in convocatorias
+        ]
+
+        return {
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages,
+            "total_records": total_records,
+            "convocatorias": convocatorias_list
+        }
+
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Error al recuperar convocatorias públicas: {str(e)}")
+    
 
 @convocatoria_router.get("/{convocatoria_id}", response_model=dict, dependencies=[Depends(verify_api_key)])
 def get_convocatoria_by_id(convocatoria_id: int, db: Session = Depends(get_db)):
@@ -130,6 +171,38 @@ def get_convocatoria_by_id(convocatoria_id: int, db: Session = Depends(get_db)):
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al recuperar convocatoria: {str(e)}")
+
+
+@convocatoria_router.get("/publicas/{convocatoria_id}", response_model=dict)
+def get_convocatoria_publica_by_id(convocatoria_id: int, db: Session = Depends(get_db)):
+    try:
+        convocatoria = db.query(Convocatoria).filter(
+            Convocatoria.convocatoria_id == convocatoria_id,
+            Convocatoria.convocatoria_online == "Y"
+        ).first()
+
+        if not convocatoria:
+            raise HTTPException(status_code=404, detail="Convocatoria no encontrada o no está publicada")
+
+        nna_ids = db.query(DetalleNNAEnConvocatoria.nna_id).filter(
+            DetalleNNAEnConvocatoria.convocatoria_id == convocatoria.convocatoria_id
+        ).all()
+
+        return {
+            "convocatoria_id": convocatoria.convocatoria_id,
+            "convocatoria_referencia": convocatoria.convocatoria_referencia,
+            "convocatoria_llamado": convocatoria.convocatoria_llamado,
+            "convocatoria_edad_es": convocatoria.convocatoria_edad_es,
+            "convocatoria_residencia_postulantes": convocatoria.convocatoria_residencia_postulantes,
+            "convocatoria_descripcion": convocatoria.convocatoria_descripcion,
+            "convocatoria_juzgado_interviniente": convocatoria.convocatoria_juzgado_interviniente,
+            "convocatoria_fecha_publicacion": convocatoria.convocatoria_fecha_publicacion,
+            "nna_ids": [n[0] for n in nna_ids]
+        }
+
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Error al recuperar convocatoria pública: {str(e)}")
+
 
 
 
