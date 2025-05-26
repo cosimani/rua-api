@@ -303,7 +303,6 @@ class DDJJ(Base):
     subreg_F6E1 = Column(String(1))
     subreg_F6E2 = Column(String(1))
     subreg_F6E3 = Column(String(1))
-    subreg_F6E4 = Column(String(1))
     subreg_F6ET = Column(String(1))
 
 

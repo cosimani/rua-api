@@ -281,7 +281,22 @@ def upsert_ddjj(
 
         # Flexibilidad hermanos
         "ddjj_flex_hermanos_comp_1", "ddjj_flex_hermanos_comp_2", "ddjj_flex_hermanos_comp_3",
-        "ddjj_flex_hermanos_edad_0", "ddjj_flex_hermanos_edad_1", "ddjj_flex_hermanos_edad_2", "ddjj_flex_hermanos_edad_3"
+        "ddjj_flex_hermanos_edad_0", "ddjj_flex_hermanos_edad_1", "ddjj_flex_hermanos_edad_2", "ddjj_flex_hermanos_edad_3",
+
+        # Nuevos subregistros definitivos
+        "subreg_1", "subreg_2", "subreg_3", "subreg_4",
+        "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
+        "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
+        "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
+        "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
+        "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
+        "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
+        "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
+        "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
+        "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
+        "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
+        "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
+        "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET"
     ]
 
 
@@ -656,74 +671,23 @@ def get_ddjj_by_login(
             },
 
             "disponibilidad_adoptiva": {
-                # Subregistros ya existentes
-                "subregistro_1": ddjj.ddjj_subregistro_1,
-                "subregistro_2": ddjj.ddjj_subregistro_2,
-                "subregistro_3": ddjj.ddjj_subregistro_3,
-                "subregistro_4": ddjj.ddjj_subregistro_4,
-                "subregistro_5_a": ddjj.ddjj_subregistro_5_a,
-                "subregistro_5_b": ddjj.ddjj_subregistro_5_b,
-                "subregistro_5_c": ddjj.ddjj_subregistro_5_c,
-                "subregistro_6_a": ddjj.ddjj_subregistro_6_a,
-                "subregistro_6_b": ddjj.ddjj_subregistro_6_b,
-                "subregistro_6_c": ddjj.ddjj_subregistro_6_c,
-                "subregistro_6_d": ddjj.ddjj_subregistro_6_d,
-                "subregistro_6_2": ddjj.ddjj_subregistro_6_2,
-                "subregistro_6_3": ddjj.ddjj_subregistro_6_3,
-                "subregistro_6_mas_de_3": ddjj.ddjj_subregistro_6_mas_de_3,
-                "subregistro_flexible": ddjj.ddjj_subregistro_flexible,
-
-                # Campos nuevos
-                "flex_edad_1": ddjj.ddjj_flex_edad_1,
-                "flex_edad_2": ddjj.ddjj_flex_edad_2,
-                "flex_edad_3": ddjj.ddjj_flex_edad_3,
-                "flex_edad_4": ddjj.ddjj_flex_edad_4,
-                "flex_edad_todos": ddjj.ddjj_flex_edad_todos,
-
-                "discapacidad_1": ddjj.ddjj_discapacidad_1,
-                "discapacidad_2": ddjj.ddjj_discapacidad_2,
-
-                "edad_discapacidad_0": ddjj.ddjj_edad_discapacidad_0,
-                "edad_discapacidad_1": ddjj.ddjj_edad_discapacidad_1,
-                "edad_discapacidad_2": ddjj.ddjj_edad_discapacidad_2,
-                "edad_discapacidad_3": ddjj.ddjj_edad_discapacidad_3,
-                "edad_discapacidad_4": ddjj.ddjj_edad_discapacidad_4,
-
-                "enfermedad_1": ddjj.ddjj_enfermedad_1,
-                "enfermedad_2": ddjj.ddjj_enfermedad_2,
-                "enfermedad_3": ddjj.ddjj_enfermedad_3,
-
-                "edad_enfermedad_0": ddjj.ddjj_edad_enfermedad_0,
-                "edad_enfermedad_1": ddjj.ddjj_edad_enfermedad_1,
-                "edad_enfermedad_2": ddjj.ddjj_edad_enfermedad_2,
-                "edad_enfermedad_3": ddjj.ddjj_edad_enfermedad_3,
-                "edad_enfermedad_4": ddjj.ddjj_edad_enfermedad_4,
-
-                "flex_condiciones_salud": ddjj.ddjj_flex_condiciones_salud,
-                "flex_salud_edad_0": ddjj.ddjj_flex_salud_edad_0,
-                "flex_salud_edad_1": ddjj.ddjj_flex_salud_edad_1,
-                "flex_salud_edad_2": ddjj.ddjj_flex_salud_edad_2,
-                "flex_salud_edad_3": ddjj.ddjj_flex_salud_edad_3,
-                "flex_salud_edad_4": ddjj.ddjj_flex_salud_edad_4,
-
-                "hermanos_comp_1": ddjj.ddjj_hermanos_comp_1,
-                "hermanos_comp_2": ddjj.ddjj_hermanos_comp_2,
-                "hermanos_comp_3": ddjj.ddjj_hermanos_comp_3,
-
-                "hermanos_edad_0": ddjj.ddjj_hermanos_edad_0,
-                "hermanos_edad_1": ddjj.ddjj_hermanos_edad_1,
-                "hermanos_edad_2": ddjj.ddjj_hermanos_edad_2,
-                "hermanos_edad_3": ddjj.ddjj_hermanos_edad_3,
-
-                "flex_hermanos_comp_1": ddjj.ddjj_flex_hermanos_comp_1,
-                "flex_hermanos_comp_2": ddjj.ddjj_flex_hermanos_comp_2,
-                "flex_hermanos_comp_3": ddjj.ddjj_flex_hermanos_comp_3,
-
-                "flex_hermanos_edad_0": ddjj.ddjj_flex_hermanos_edad_0,
-                "flex_hermanos_edad_1": ddjj.ddjj_flex_hermanos_edad_1,
-                "flex_hermanos_edad_2": ddjj.ddjj_flex_hermanos_edad_2,
-                "flex_hermanos_edad_3": ddjj.ddjj_flex_hermanos_edad_3
+                key.replace("ddjj_", ""): value
+                for key, value in ddjj.__dict__.items()
+                if key.startswith("ddjj_subregistro_") or
+                key.startswith("ddjj_flex_") or
+                key.startswith("ddjj_discapacidad_") or
+                key.startswith("ddjj_edad_discapacidad_") or
+                key.startswith("ddjj_enfermedad_") or
+                key.startswith("ddjj_edad_enfermedad_") or
+                key.startswith("ddjj_flex_condiciones_salud") or
+                key.startswith("ddjj_flex_salud_edad_") or
+                key.startswith("ddjj_hermanos_comp_") or
+                key.startswith("ddjj_hermanos_edad_") or
+                key.startswith("ddjj_flex_hermanos_comp_") or
+                key.startswith("ddjj_flex_hermanos_edad_") or
+                key.startswith("subreg_")
             },
+
 
             "tramo_final": {
                 "acepto_1": ddjj.ddjj_acepto_1,
