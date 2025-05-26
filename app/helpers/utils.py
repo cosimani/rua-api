@@ -495,53 +495,82 @@ def build_subregistro_string(user):
 
 
 def construir_subregistro_string(row):
-    subregistro_field_map = {
-        "1": "subregistro_1",
-        "2": "subregistro_2",
-        "3": "subregistro_3",
-        "4": "subregistro_4",
-        "FE1": "flex_edad_1",
-        "FE2": "flex_edad_2",
-        "FE3": "flex_edad_3",
-        "FE4": "flex_edad_4",
-        "FET": "flex_edad_todos",
-        "5A1": "discapacidad_1",
-        "5A2": "discapacidad_2",
-        "5A1E1": "edad_discapacidad_0",
-        "5A1E2": "edad_discapacidad_1",
-        "5A1E3": "edad_discapacidad_2",
-        "5A1E4": "edad_discapacidad_3",
-        "5A1ET": "edad_discapacidad_4",
-        "F5S": "flex_condiciones_salud",
-        "F5E1": "flex_salud_edad_0",
-        "F5E2": "flex_salud_edad_1",
-        "F5E3": "flex_salud_edad_2",
-        "F5E4": "flex_salud_edad_3",
-        "F5ET": "flex_salud_edad_4",
-        "61": "hermanos_comp_1",
-        "62": "hermanos_comp_2",
-        "63": "hermanos_comp_3",
-        "61E1": "hermanos_edad_0",
-        "61E2": "hermanos_edad_1",
-        "61E3": "hermanos_edad_2",
-        "61ET": "hermanos_edad_3",
-        "FQ1": "flex_hermanos_comp_1",
-        "FQ2": "flex_hermanos_comp_2",
-        "FQ3": "flex_hermanos_comp_3",
-        "F6E1": "flex_hermanos_edad_0",
-        "F6E2": "flex_hermanos_edad_1",
-        "F6E3": "flex_hermanos_edad_2",
-        "F6E4": "flex_hermanos_edad_3",
-        "F6ET": "flex_hermanos_edad_3",
-    }
+    subregistros_definitivos = [
+        "subreg_1", "subreg_2", "subreg_3", "subreg_4",
+        "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
+        "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
+        "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
+        "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
+        "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
+        "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
+        "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
+        "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
+        "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
+        "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
+        "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
+        "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET",
+    ]
 
     resultado = []
-    for clave, campo in subregistro_field_map.items():
+
+    for campo in subregistros_definitivos:
         valor = getattr(row, campo, None)
-        if valor and str(valor).upper() == "Y":
-            resultado.append(clave)
+        if str(valor).upper() == "Y":
+            resultado.append(campo.replace("subreg_", ""))
 
     return " ; ".join(resultado)
+
+
+
+
+# def construir_subregistro_string(row):
+#     subregistro_field_map = {
+#         "1": "subregistro_1",
+#         "2": "subregistro_2",
+#         "3": "subregistro_3",
+#         "4": "subregistro_4",
+#         "FE1": "flex_edad_1",
+#         "FE2": "flex_edad_2",
+#         "FE3": "flex_edad_3",
+#         "FE4": "flex_edad_4",
+#         "FET": "flex_edad_todos",
+#         "5A1": "discapacidad_1",
+#         "5A2": "discapacidad_2",
+#         "5A1E1": "edad_discapacidad_0",
+#         "5A1E2": "edad_discapacidad_1",
+#         "5A1E3": "edad_discapacidad_2",
+#         "5A1E4": "edad_discapacidad_3",
+#         "5A1ET": "edad_discapacidad_4",
+#         "F5S": "flex_condiciones_salud",
+#         "F5E1": "flex_salud_edad_0",
+#         "F5E2": "flex_salud_edad_1",
+#         "F5E3": "flex_salud_edad_2",
+#         "F5E4": "flex_salud_edad_3",
+#         "F5ET": "flex_salud_edad_4",
+#         "61": "hermanos_comp_1",
+#         "62": "hermanos_comp_2",
+#         "63": "hermanos_comp_3",
+#         "61E1": "hermanos_edad_0",
+#         "61E2": "hermanos_edad_1",
+#         "61E3": "hermanos_edad_2",
+#         "61ET": "hermanos_edad_3",
+#         "FQ1": "flex_hermanos_comp_1",
+#         "FQ2": "flex_hermanos_comp_2",
+#         "FQ3": "flex_hermanos_comp_3",
+#         "F6E1": "flex_hermanos_edad_0",
+#         "F6E2": "flex_hermanos_edad_1",
+#         "F6E3": "flex_hermanos_edad_2",
+#         "F6E4": "flex_hermanos_edad_3",
+#         "F6ET": "flex_hermanos_edad_3",
+#     }
+
+#     resultado = []
+#     for clave, campo in subregistro_field_map.items():
+#         valor = getattr(row, campo, None)
+#         if valor and str(valor).upper() == "Y":
+#             resultado.append(clave)
+
+#     return " ; ".join(resultado)
 
 
 

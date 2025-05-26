@@ -393,7 +393,7 @@ def get_proyectos(
                 "proyecto_tipo": proyecto.proyecto_tipo,
                 "nro_orden_rua": proyecto.nro_orden_rua,
 
-                "subregistro_string": construir_subregistro_string(proyecto),  # Aquí se construye el string concatenado
+                "subregistro_string": construir_subregistro_string(proyecto),  
 
                 "proyecto_calle_y_nro": proyecto.proyecto_calle_y_nro,
                 "proyecto_depto_etc": proyecto.proyecto_depto_etc,
@@ -419,6 +419,26 @@ def get_proyectos(
                 # "carpeta_ids": carpeta_ids,  # Lista de carpetas asociadas al proyecto
 
             }
+
+            # 🔽 Agregar los campos subreg_... explícitamente al dict
+            subregistros_definitivos = [
+                "subreg_1", "subreg_2", "subreg_3", "subreg_4",
+                "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
+                "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
+                "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
+                "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
+                "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
+                "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
+                "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
+                "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
+                "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
+                "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
+                "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
+                "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET",
+            ]
+
+            for campo in subregistros_definitivos:
+                proyecto_dict[campo] = getattr(proyecto, campo, None)
 
             
             if login_profesional:
@@ -586,6 +606,64 @@ def get_proyecto_por_id(
                 Proyecto.flex_hermanos_edad_2.label("flex_hermanos_edad_2"),
                 Proyecto.flex_hermanos_edad_3.label("flex_hermanos_edad_3"),
 
+                Proyecto.subreg_1,
+                Proyecto.subreg_2,
+                Proyecto.subreg_3,
+                Proyecto.subreg_4,
+                Proyecto.subreg_FE1,
+                Proyecto.subreg_FE2,
+                Proyecto.subreg_FE3,
+                Proyecto.subreg_FE4,
+                Proyecto.subreg_FET,
+                Proyecto.subreg_5A1E1,
+                Proyecto.subreg_5A1E2,
+                Proyecto.subreg_5A1E3,
+                Proyecto.subreg_5A1E4,
+                Proyecto.subreg_5A1ET,
+                Proyecto.subreg_5A2E1,
+                Proyecto.subreg_5A2E2,
+                Proyecto.subreg_5A2E3,
+                Proyecto.subreg_5A2E4,
+                Proyecto.subreg_5A2ET,
+                Proyecto.subreg_5B1E1,
+                Proyecto.subreg_5B1E2,
+                Proyecto.subreg_5B1E3,
+                Proyecto.subreg_5B1E4,
+                Proyecto.subreg_5B1ET,
+                Proyecto.subreg_5B2E1,
+                Proyecto.subreg_5B2E2,
+                Proyecto.subreg_5B2E3,
+                Proyecto.subreg_5B2E4,
+                Proyecto.subreg_5B2ET,
+                Proyecto.subreg_5B3E1,
+                Proyecto.subreg_5B3E2,
+                Proyecto.subreg_5B3E3,
+                Proyecto.subreg_5B3E4,
+                Proyecto.subreg_5B3ET,
+                Proyecto.subreg_F5E1,
+                Proyecto.subreg_F5E2,
+                Proyecto.subreg_F5E3,
+                Proyecto.subreg_F5E4,
+                Proyecto.subreg_F5ET,
+                Proyecto.subreg_61E1,
+                Proyecto.subreg_61E2,
+                Proyecto.subreg_61E3,
+                Proyecto.subreg_61ET,
+                Proyecto.subreg_62E1,
+                Proyecto.subreg_62E2,
+                Proyecto.subreg_62E3,
+                Proyecto.subreg_62ET,
+                Proyecto.subreg_63E1,
+                Proyecto.subreg_63E2,
+                Proyecto.subreg_63E3,
+                Proyecto.subreg_63ET,
+                Proyecto.subreg_FQ1,
+                Proyecto.subreg_FQ2,
+                Proyecto.subreg_FQ3,
+                Proyecto.subreg_F6E1,
+                Proyecto.subreg_F6E2,
+                Proyecto.subreg_F6E3,
+                Proyecto.subreg_F6ET,
                 
             )
             .filter(Proyecto.proyecto_id == proyecto_id)
@@ -4585,7 +4663,7 @@ def aprobar_proyecto(
                 db=db,
                 login_destinatario=login_destinatario,
                 mensaje=mensaje_notificacion,
-                # link="/menu_adoptantes/portada",
+                link="/menu_adoptantes/portada",
                 # data_json={"accion": "aprobar_documentacion"},
                 tipo_mensaje="verde",
                 enviar_por_whatsapp=False,
