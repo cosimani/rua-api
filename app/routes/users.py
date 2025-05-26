@@ -838,7 +838,8 @@ def get_user_by_login(
             "mostrar_boton_proyecto": bool(user.proyecto_id),
 
             "boton_aprobar_documentacion": docs_de_pretenso_presentados and user.doc_adoptante_estado == "pedido_revision",
-            "boton_solicitar_actualizacion": docs_de_pretenso_presentados and user.doc_adoptante_estado == "pedido_revision",
+            "boton_solicitar_actualizacion": docs_de_pretenso_presentados and ( 
+                user.doc_adoptante_estado == "pedido_revision" or user.doc_adoptante_estado == "aprobado" ),
 
             "boton_ver_proyecto": bool(user.proyecto_id),
 
