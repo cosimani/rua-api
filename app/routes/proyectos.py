@@ -221,44 +221,66 @@ def get_proyectos(
             query = query.filter(Proyecto.proyecto_id.in_(subq_proyectos))
 
         subregistro_field_map = {
-            "1": Proyecto.subregistro_1,
-            "2": Proyecto.subregistro_2,
-            "3": Proyecto.subregistro_3,
-            "4": Proyecto.subregistro_4,
-            "FE1": Proyecto.flex_edad_1,
-            "FE2": Proyecto.flex_edad_2,
-            "FE3": Proyecto.flex_edad_3,
-            "FE4": Proyecto.flex_edad_4,
-            "FET": Proyecto.flex_edad_todos,
-            "5A1": Proyecto.discapacidad_1,
-            "5A2": Proyecto.discapacidad_2,
-            "5A1E1": Proyecto.edad_discapacidad_0,
-            "5A1E2": Proyecto.edad_discapacidad_1,
-            "5A1E3": Proyecto.edad_discapacidad_2,
-            "5A1E4": Proyecto.edad_discapacidad_3,
-            "5A1ET": Proyecto.edad_discapacidad_4,
-            "F5S": Proyecto.flex_condiciones_salud,
-            "F5E1": Proyecto.flex_salud_edad_0,
-            "F5E2": Proyecto.flex_salud_edad_1,
-            "F5E3": Proyecto.flex_salud_edad_2,
-            "F5E4": Proyecto.flex_salud_edad_3,
-            "F5ET": Proyecto.flex_salud_edad_4,
-            "61": Proyecto.hermanos_comp_1,
-            "62": Proyecto.hermanos_comp_2,
-            "63": Proyecto.hermanos_comp_3,
-            "61E1": Proyecto.hermanos_edad_0,
-            "61E2": Proyecto.hermanos_edad_1,
-            "61E3": Proyecto.hermanos_edad_2,
-            "61ET": Proyecto.hermanos_edad_3,
-            "FQ1": Proyecto.flex_hermanos_comp_1,
-            "FQ2": Proyecto.flex_hermanos_comp_2,
-            "FQ3": Proyecto.flex_hermanos_comp_3,
-            "F6E1": Proyecto.flex_hermanos_edad_0,
-            "F6E2": Proyecto.flex_hermanos_edad_1,
-            "F6E3": Proyecto.flex_hermanos_edad_2,
-            "F6E4": Proyecto.flex_hermanos_edad_3,
-            "F6ET": Proyecto.flex_hermanos_edad_3,  # O el que corresponda
+            "1": Proyecto.subreg_1,
+            "2": Proyecto.subreg_2,
+            "3": Proyecto.subreg_3,
+            "4": Proyecto.subreg_4,
+            "FE1": Proyecto.subreg_FE1,
+            "FE2": Proyecto.subreg_FE2,
+            "FE3": Proyecto.subreg_FE3,
+            "FE4": Proyecto.subreg_FE4,
+            "FET": Proyecto.subreg_FET,
+            "5A1E1": Proyecto.subreg_5A1E1,
+            "5A1E2": Proyecto.subreg_5A1E2,
+            "5A1E3": Proyecto.subreg_5A1E3,
+            "5A1E4": Proyecto.subreg_5A1E4,
+            "5A1ET": Proyecto.subreg_5A1ET,
+            "5A2E1": Proyecto.subreg_5A2E1,
+            "5A2E2": Proyecto.subreg_5A2E2,
+            "5A2E3": Proyecto.subreg_5A2E3,
+            "5A2E4": Proyecto.subreg_5A2E4,
+            "5A2ET": Proyecto.subreg_5A2ET,
+            "5B1E1": Proyecto.subreg_5B1E1,
+            "5B1E2": Proyecto.subreg_5B1E2,
+            "5B1E3": Proyecto.subreg_5B1E3,
+            "5B1E4": Proyecto.subreg_5B1E4,
+            "5B1ET": Proyecto.subreg_5B1ET,
+            "5B2E1": Proyecto.subreg_5B2E1,
+            "5B2E2": Proyecto.subreg_5B2E2,
+            "5B2E3": Proyecto.subreg_5B2E3,
+            "5B2E4": Proyecto.subreg_5B2E4,
+            "5B2ET": Proyecto.subreg_5B2ET,
+            "5B3E1": Proyecto.subreg_5B3E1,
+            "5B3E2": Proyecto.subreg_5B3E2,
+            "5B3E3": Proyecto.subreg_5B3E3,
+            "5B3E4": Proyecto.subreg_5B3E4,
+            "5B3ET": Proyecto.subreg_5B3ET,
+            "F5E1": Proyecto.subreg_F5E1,
+            "F5E2": Proyecto.subreg_F5E2,
+            "F5E3": Proyecto.subreg_F5E3,
+            "F5E4": Proyecto.subreg_F5E4,
+            "F5ET": Proyecto.subreg_F5ET,
+            "61E1": Proyecto.subreg_61E1,
+            "61E2": Proyecto.subreg_61E2,
+            "61E3": Proyecto.subreg_61E3,
+            "61ET": Proyecto.subreg_61ET,
+            "62E1": Proyecto.subreg_62E1,
+            "62E2": Proyecto.subreg_62E2,
+            "62E3": Proyecto.subreg_62E3,
+            "62ET": Proyecto.subreg_62ET,
+            "63E1": Proyecto.subreg_63E1,
+            "63E2": Proyecto.subreg_63E2,
+            "63E3": Proyecto.subreg_63E3,
+            "63ET": Proyecto.subreg_63ET,
+            "FQ1": Proyecto.subreg_FQ1,
+            "FQ2": Proyecto.subreg_FQ2,
+            "FQ3": Proyecto.subreg_FQ3,
+            "F6E1": Proyecto.subreg_F6E1,
+            "F6E2": Proyecto.subreg_F6E2,
+            "F6E3": Proyecto.subreg_F6E3,
+            "F6ET": Proyecto.subreg_F6ET,
         }
+
 
         if subregistros:
             for sr in subregistros:
@@ -826,6 +848,27 @@ def get_proyecto_por_id(
 
             
         }
+
+        # 🔁 Agrega todos los campos subreg_... al dict
+        subregistros_definitivos = [
+            "subreg_1", "subreg_2", "subreg_3", "subreg_4",
+            "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
+            "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
+            "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
+            "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
+            "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
+            "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
+            "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
+            "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
+            "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
+            "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
+            "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
+            "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET",
+        ]
+
+        for campo in subregistros_definitivos:
+            proyecto_dict[campo] = getattr(proyecto, campo, None)
+
 
         return proyecto_dict
 
@@ -3865,6 +3908,29 @@ def crear_proyecto_completo(
         def subreg(k):
             return "Y" if data.get(k) == "Y" else "N"
 
+
+        # 🔁 Automatiza la carga de subregistros
+        subregistros_definitivos = [
+            "subreg_1", "subreg_2", "subreg_3", "subreg_4",
+            "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
+            "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
+            "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
+            "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
+            "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
+            "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
+            "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
+            "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
+            "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
+            "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
+            "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
+            "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET",
+        ]
+
+        # Crea un dict con los campos
+        subreg_data = {campo: subreg(campo) for campo in subregistros_definitivos}
+
+        
+
         nuevo = Proyecto(
             login_1=login_1,
             login_2=login_2,
@@ -3877,66 +3943,67 @@ def crear_proyecto_completo(
             proyecto_provincia=provincia,
             ingreso_por="rua",
 
-            subregistro_1=subreg("subregistro_1"),
-            subregistro_2=subreg("subregistro_2"),
-            subregistro_3=subreg("subregistro_3"),
-            subregistro_4=subreg("subregistro_4"),
+            # subregistro_1=subreg("subregistro_1"),
+            # subregistro_2=subreg("subregistro_2"),
+            # subregistro_3=subreg("subregistro_3"),
+            # subregistro_4=subreg("subregistro_4"),
             
-            # Flexibilidad edad
-            flex_edad_1=subreg("flex_edad_1"),
-            flex_edad_2=subreg("flex_edad_2"),
-            flex_edad_3=subreg("flex_edad_3"),
-            flex_edad_4=subreg("flex_edad_4"),
-            flex_edad_todos=subreg("flex_edad_todos"),
+            # # Flexibilidad edad
+            # flex_edad_1=subreg("flex_edad_1"),
+            # flex_edad_2=subreg("flex_edad_2"),
+            # flex_edad_3=subreg("flex_edad_3"),
+            # flex_edad_4=subreg("flex_edad_4"),
+            # flex_edad_todos=subreg("flex_edad_todos"),
 
-            # Discapacidad
-            discapacidad_1=subreg("discapacidad_1"),
-            discapacidad_2=subreg("discapacidad_2"),
-            edad_discapacidad_0=subreg("edad_discapacidad_0"),
-            edad_discapacidad_1=subreg("edad_discapacidad_1"),
-            edad_discapacidad_2=subreg("edad_discapacidad_2"),
-            edad_discapacidad_3=subreg("edad_discapacidad_3"),
-            edad_discapacidad_4=subreg("edad_discapacidad_4"),
+            # # Discapacidad
+            # discapacidad_1=subreg("discapacidad_1"),
+            # discapacidad_2=subreg("discapacidad_2"),
+            # edad_discapacidad_0=subreg("edad_discapacidad_0"),
+            # edad_discapacidad_1=subreg("edad_discapacidad_1"),
+            # edad_discapacidad_2=subreg("edad_discapacidad_2"),
+            # edad_discapacidad_3=subreg("edad_discapacidad_3"),
+            # edad_discapacidad_4=subreg("edad_discapacidad_4"),
 
-            # Enfermedades
-            enfermedad_1=subreg("enfermedad_1"),
-            enfermedad_2=subreg("enfermedad_2"),
-            enfermedad_3=subreg("enfermedad_3"),
-            edad_enfermedad_0=subreg("edad_enfermedad_0"),
-            edad_enfermedad_1=subreg("edad_enfermedad_1"),
-            edad_enfermedad_2=subreg("edad_enfermedad_2"),
-            edad_enfermedad_3=subreg("edad_enfermedad_3"),
-            edad_enfermedad_4=subreg("edad_enfermedad_4"),
+            # # Enfermedades
+            # enfermedad_1=subreg("enfermedad_1"),
+            # enfermedad_2=subreg("enfermedad_2"),
+            # enfermedad_3=subreg("enfermedad_3"),
+            # edad_enfermedad_0=subreg("edad_enfermedad_0"),
+            # edad_enfermedad_1=subreg("edad_enfermedad_1"),
+            # edad_enfermedad_2=subreg("edad_enfermedad_2"),
+            # edad_enfermedad_3=subreg("edad_enfermedad_3"),
+            # edad_enfermedad_4=subreg("edad_enfermedad_4"),
 
-            # Flexibilidad salud
-            flex_condiciones_salud=subreg("flex_condiciones_salud"),
-            flex_salud_edad_0=subreg("flex_salud_edad_0"),
-            flex_salud_edad_1=subreg("flex_salud_edad_1"),
-            flex_salud_edad_2=subreg("flex_salud_edad_2"),
-            flex_salud_edad_3=subreg("flex_salud_edad_3"),
-            flex_salud_edad_4=subreg("flex_salud_edad_4"),
+            # # Flexibilidad salud
+            # flex_condiciones_salud=subreg("flex_condiciones_salud"),
+            # flex_salud_edad_0=subreg("flex_salud_edad_0"),
+            # flex_salud_edad_1=subreg("flex_salud_edad_1"),
+            # flex_salud_edad_2=subreg("flex_salud_edad_2"),
+            # flex_salud_edad_3=subreg("flex_salud_edad_3"),
+            # flex_salud_edad_4=subreg("flex_salud_edad_4"),
 
-            # Grupo de hermanos
-            hermanos_comp_1=subreg("hermanos_comp_1"),
-            hermanos_comp_2=subreg("hermanos_comp_2"),
-            hermanos_comp_3=subreg("hermanos_comp_3"),
-            hermanos_edad_0=subreg("hermanos_edad_0"),
-            hermanos_edad_1=subreg("hermanos_edad_1"),
-            hermanos_edad_2=subreg("hermanos_edad_2"),
-            hermanos_edad_3=subreg("hermanos_edad_3"),
-            flex_hermanos_comp_1=subreg("flex_hermanos_comp_1"),
-            flex_hermanos_comp_2=subreg("flex_hermanos_comp_2"),
-            flex_hermanos_comp_3=subreg("flex_hermanos_comp_3"),
-            flex_hermanos_edad_0=subreg("flex_hermanos_edad_0"),
-            flex_hermanos_edad_1=subreg("flex_hermanos_edad_1"),
-            flex_hermanos_edad_2=subreg("flex_hermanos_edad_2"),
-            flex_hermanos_edad_3=subreg("flex_hermanos_edad_3"),
+            # # Grupo de hermanos
+            # hermanos_comp_1=subreg("hermanos_comp_1"),
+            # hermanos_comp_2=subreg("hermanos_comp_2"),
+            # hermanos_comp_3=subreg("hermanos_comp_3"),
+            # hermanos_edad_0=subreg("hermanos_edad_0"),
+            # hermanos_edad_1=subreg("hermanos_edad_1"),
+            # hermanos_edad_2=subreg("hermanos_edad_2"),
+            # hermanos_edad_3=subreg("hermanos_edad_3"),
+            # flex_hermanos_comp_1=subreg("flex_hermanos_comp_1"),
+            # flex_hermanos_comp_2=subreg("flex_hermanos_comp_2"),
+            # flex_hermanos_comp_3=subreg("flex_hermanos_comp_3"),
+            # flex_hermanos_edad_0=subreg("flex_hermanos_edad_0"),
+            # flex_hermanos_edad_1=subreg("flex_hermanos_edad_1"),
+            # flex_hermanos_edad_2=subreg("flex_hermanos_edad_2"),
+            # flex_hermanos_edad_3=subreg("flex_hermanos_edad_3"),
 
 
             aceptado="N" if aceptado_code else None,
             aceptado_code=aceptado_code,
             operativo="Y",
-            estado_general=estado
+            estado_general=estado,
+            **subreg_data  # ✅ Desempaqueta todos los subreg_... con "Y"/"N"
         )
 
         db.add(nuevo)
