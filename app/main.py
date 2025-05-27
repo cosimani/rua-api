@@ -13,6 +13,7 @@ from routes.estadisticas import estadisticas_router
 from routes.notificaciones import notificaciones_router
 from routes.nna import nna_router
 from routes.convocatorias import convocatoria_router
+from routes.postulaciones import postulaciones_router
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
@@ -51,6 +52,7 @@ app.include_router(convocatoria_router, prefix="/convocatorias", tags=["Convocat
 app.include_router(ddjj_router, prefix="/ddjj", tags=["Ddjj"])
 app.include_router(estadisticas_router, prefix="/estadisticas", tags=["Estadísticas"])
 app.include_router(notificaciones_router, prefix="/notificaciones", tags=["Notificaciones"])
+app.include_router(postulaciones_router, prefix="/postulaciones", tags=["Postulaciones"])
 
 
 if __name__ == "__main__":

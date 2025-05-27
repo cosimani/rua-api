@@ -687,3 +687,4 @@ def actualizar_online(convocatoria_id: int, data: dict = Body(...), db: Session 
         return {"success": True, "message": f"Estado actualizado a {estado}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
