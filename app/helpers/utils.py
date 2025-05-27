@@ -389,6 +389,40 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             .count() 
         )
 
+        proyectos_sin_valorar_subregistros_altos = (
+            proyectos_monoparentales_sin_valorar + proyectos_en_pareja_sin_valorar
+        )
+
+        proyectos_viables_disponibles = (
+            proyectos_monoparental_viable + proyectos_en_pareja_viable
+        )
+
+        proyectos_enviados_juzgado = db.query(Proyecto).filter(
+            Proyecto.estado_general == 'en_carpeta'
+        ).count()
+
+        proyectos_en_guarda = db.query(Proyecto).filter(
+            Proyecto.estado_general == 'guarda'
+        ).count()
+
+        proyectos_adopcion_definitiva = db.query(Proyecto).filter(
+            Proyecto.estado_general == 'adopcion_definitiva'
+        ).count()
+
+        proyectos_en_vinculacion = db.query(Proyecto).filter(
+            Proyecto.estado_general == 'vinculacion'
+        ).count()
+
+        convocatorias_con_adopcion_definitiva = db.query(Proyecto).filter(
+            Proyecto.ingreso_por == 'convocatoria',
+            Proyecto.estado_general == 'adopcion_definitiva'
+        ).count()
+
+
+
+
+
+
 
 
         return {
@@ -399,12 +433,14 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             "con_curso_con_ddjj": con_curso_con_ddjj,
 
             "proyectos_sin_valorar_subregistros_altos": 26,
-            "proyectos_viables_disponibles": 52,
-            "proyectos_enviados_juzgado": 4,
-            "proyectos_en_guarda": 37,
-            "proyectos_adopcion_definitiva": 23,
-            "proyectos_en_vinculacion": 26,       
-            "convocatorias_con_adopcion_definitiva_": 7,
+            
+            "proyectos_sin_valorar_subregistros_altos": proyectos_sin_valorar_subregistros_altos,
+            "proyectos_viables_disponibles": proyectos_viables_disponibles,
+            "proyectos_enviados_juzgado": proyectos_enviados_juzgado,
+            "proyectos_en_guarda": proyectos_en_guarda,
+            "proyectos_adopcion_definitiva": proyectos_adopcion_definitiva,
+            "proyectos_en_vinculacion": proyectos_en_vinculacion,
+            "convocatorias_con_adopcion_definitiva": convocatorias_con_adopcion_definitiva,
 
             "pretensos_presentando_documentacion": pretensos_presentando_documentacion,
             "pretensos_aprobados": pretensos_aprobados,
