@@ -389,6 +389,8 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             .count() 
         )
 
+        proyectos_viables = ( db.query(Proyecto).filter( Proyecto.estado_general == 'viable' ).count() )
+
         proyectos_sin_valorar_subregistros_altos = (
             proyectos_monoparentales_sin_valorar + proyectos_en_pareja_sin_valorar
         )
@@ -418,6 +420,21 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             Proyecto.estado_general == 'adopcion_definitiva'
         ).count()
 
+        proyectos_en_entrevistas = db.query(Proyecto).filter(
+            or_(
+                Proyecto.estado_general == 'calendarizando',
+                Proyecto.estado_general == 'entrevistando'
+            )
+        ).count()
+
+        proyectos_en_suspenso = db.query(Proyecto).filter(
+            Proyecto.estado_general == 'en_suspenso'
+        ).count()
+
+        proyectos_no_viables = db.query(Proyecto).filter(
+            Proyecto.estado_general == 'no_viable'
+        ).count()
+
 
 
 
@@ -434,8 +451,10 @@ def calcular_estadisticas_generales(db: Session) -> dict:
 
             "proyectos_sin_valorar_subregistros_altos": 26,
             
-            "proyectos_sin_valorar_subregistros_altos": proyectos_sin_valorar_subregistros_altos,
-            "proyectos_viables_disponibles": proyectos_viables_disponibles,
+            "proyectos_en_entrevistas": proyectos_en_entrevistas,
+            "proyectos_viables": proyectos_viables,
+            "proyectos_no_viables": proyectos_no_viables,
+            "proyectos_en_suspenso": proyectos_en_suspenso,
             "proyectos_enviados_juzgado": proyectos_enviados_juzgado,
             "proyectos_en_guarda": proyectos_en_guarda,
             "proyectos_adopcion_definitiva": proyectos_adopcion_definitiva,
