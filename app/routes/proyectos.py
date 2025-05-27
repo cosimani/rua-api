@@ -19,7 +19,7 @@ from models.nna import Nna
 from models.users import User, Group, UserGroup 
 from database.config import get_db
 from helpers.utils import get_user_name_by_login, construir_subregistro_string, parse_date, generar_codigo_para_link, \
-    enviar_mail, get_setting_value
+    enviar_mail, get_setting_value, edad_como_texto
 from models.eventos_y_configs import RuaEvento
 
 from security.security import get_current_user, verify_api_key, require_roles
@@ -5364,3 +5364,68 @@ def actualizar_nro_orden(
         "tiempo_mensaje": 5,
         "next_page": "actual"
     }
+
+
+
+
+@proyectos_router.get("/nnas/por-proyecto/{proyecto_id}", dependencies=[
+    Depends(verify_api_key),
+    Depends(require_roles(["administrador", "supervisora", "profesional", "coordinadora"]))
+])
+def get_nnas_por_proyecto(proyecto_id: int, db: Session = Depends(get_db)):
+    """
+    🔍 Devuelve los NNAs vinculados a las carpetas en las que participa el proyecto indicado.
+    """
+    carpetas_ids = db.query(DetalleProyectosEnCarpeta.carpeta_id)\
+        .filter(DetalleProyectosEnCarpeta.proyecto_id == proyecto_id)\
+        .distinct().all()
+
+    if not carpetas_ids:
+        return []
+
+    carpetas_ids = [c[0] for c in carpetas_ids]
+
+    detalle_nna = (
+        db.query(DetalleNNAEnCarpeta)
+        .join(Nna)
+        .filter(DetalleNNAEnCarpeta.carpeta_id.in_(carpetas_ids))
+        .all()
+    )
+
+    nna_vistos = {}
+    for detalle in detalle_nna:
+        nna = detalle.nna
+        if nna.nna_id in nna_vistos:
+            continue
+
+        # Cálculo de edad en años y texto legible
+        edad = None
+        edad_legible = None
+        if nna.nna_fecha_nacimiento:
+            edad = (
+                date.today().year - nna.nna_fecha_nacimiento.year
+                - ((date.today().month, date.today().day) < (nna.nna_fecha_nacimiento.month, nna.nna_fecha_nacimiento.day))
+            )
+            edad_legible = edad_como_texto(nna.nna_fecha_nacimiento)
+
+        nna_vistos[nna.nna_id] = {
+            "nna_id": nna.nna_id,
+            "nna_nombre": nna.nna_nombre,
+            "nna_apellido": nna.nna_apellido,
+            "nna_dni": nna.nna_dni,
+            "nna_fecha_nacimiento": str(nna.nna_fecha_nacimiento) if nna.nna_fecha_nacimiento else None,
+            "nna_edad": edad_legible,
+            "nna_edad_num": edad,
+            "nna_localidad": nna.nna_localidad,
+            "nna_provincia": nna.nna_provincia,
+            "nna_subregistro_salud": nna.nna_subregistro_salud,
+            "nna_en_convocatoria": nna.nna_en_convocatoria,
+            "nna_disponible": getattr(nna, "nna_disponible", None),
+            "nna_ficha": nna.nna_ficha,
+            "nna_sentencia": nna.nna_sentencia,
+            "nna_archivado": nna.nna_archivado,
+            "nna_5A": nna.nna_5A,
+            "nna_5B": nna.nna_5B
+        }
+
+    return list(nna_vistos.values())
