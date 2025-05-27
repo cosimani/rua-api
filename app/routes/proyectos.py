@@ -2951,54 +2951,103 @@ def valorar_proyecto_final(
 
         estado_anterior = proyecto.estado_general
 
-        subregistros_map = {
-            "1": "subregistro_1",
-            "2": "subregistro_2",
-            "3": "subregistro_3",
-            "4": "subregistro_4",
-            "FE1": "flex_edad_1",
-            "FE2": "flex_edad_2",
-            "FE3": "flex_edad_3",
-            "FE4": "flex_edad_4",
-            "FET": "flex_edad_todos",
-            "5A1": "discapacidad_1",
-            "5A2": "discapacidad_2",
-            "5A1E1": "edad_discapacidad_0",
-            "5A1E2": "edad_discapacidad_1",
-            "5A1E3": "edad_discapacidad_2",
-            "5A1E4": "edad_discapacidad_3",
-            "5A1ET": "edad_discapacidad_4",
-            "F5S": "flex_condiciones_salud",
-            "F5E1": "flex_salud_edad_0",
-            "F5E2": "flex_salud_edad_1",
-            "F5E3": "flex_salud_edad_2",
-            "F5E4": "flex_salud_edad_3",
-            "F5ET": "flex_salud_edad_4",
-            "61": "hermanos_comp_1",
-            "62": "hermanos_comp_2",
-            "63": "hermanos_comp_3",
-            "61E1": "hermanos_edad_0",
-            "61E2": "hermanos_edad_1",
-            "61E3": "hermanos_edad_2",
-            "61ET": "hermanos_edad_3",
-            "FQ1": "flex_hermanos_comp_1",
-            "FQ2": "flex_hermanos_comp_2",
-            "FQ3": "flex_hermanos_comp_3",
-            "F6E1": "flex_hermanos_edad_0",
-            "F6E2": "flex_hermanos_edad_1",
-            "F6E3": "flex_hermanos_edad_2",
-            "F6E4": "flex_hermanos_edad_3",
-            "F6ET": "flex_hermanos_edad_3"
+        # subregistros_map = {
+        #     "1": "subregistro_1",
+        #     "2": "subregistro_2",
+        #     "3": "subregistro_3",
+        #     "4": "subregistro_4",
+        #     "FE1": "flex_edad_1",
+        #     "FE2": "flex_edad_2",
+        #     "FE3": "flex_edad_3",
+        #     "FE4": "flex_edad_4",
+        #     "FET": "flex_edad_todos",
+        #     "5A1": "discapacidad_1",
+        #     "5A2": "discapacidad_2",
+        #     "5A1E1": "edad_discapacidad_0",
+        #     "5A1E2": "edad_discapacidad_1",
+        #     "5A1E3": "edad_discapacidad_2",
+        #     "5A1E4": "edad_discapacidad_3",
+        #     "5A1ET": "edad_discapacidad_4",
+        #     "F5S": "flex_condiciones_salud",
+        #     "F5E1": "flex_salud_edad_0",
+        #     "F5E2": "flex_salud_edad_1",
+        #     "F5E3": "flex_salud_edad_2",
+        #     "F5E4": "flex_salud_edad_3",
+        #     "F5ET": "flex_salud_edad_4",
+        #     "61": "hermanos_comp_1",
+        #     "62": "hermanos_comp_2",
+        #     "63": "hermanos_comp_3",
+        #     "61E1": "hermanos_edad_0",
+        #     "61E2": "hermanos_edad_1",
+        #     "61E3": "hermanos_edad_2",
+        #     "61ET": "hermanos_edad_3",
+        #     "FQ1": "flex_hermanos_comp_1",
+        #     "FQ2": "flex_hermanos_comp_2",
+        #     "FQ3": "flex_hermanos_comp_3",
+        #     "F6E1": "flex_hermanos_edad_0",
+        #     "F6E2": "flex_hermanos_edad_1",
+        #     "F6E3": "flex_hermanos_edad_2",
+        #     "F6E4": "flex_hermanos_edad_3",
+        #     "F6ET": "flex_hermanos_edad_3"
+        # }
+
+        subregistros_definitivos_map = {
+            "1": "subreg_1",
+            "2": "subreg_2",
+            "3": "subreg_3",
+            "4": "subreg_4",
+            "FE1": "subreg_FE1",
+            "FE2": "subreg_FE2",
+            "FE3": "subreg_FE3",
+            "FE4": "subreg_FE4",
+            "FET": "subreg_FET",
+            "5A1E1": "subreg_5A1E1",
+            "5A1E2": "subreg_5A1E2",
+            "5A1E3": "subreg_5A1E3",
+            "5A1E4": "subreg_5A1E4",
+            "5A1ET": "subreg_5A1ET",
+            "5A2E1": "subreg_5A2E1",
+            "5A2E2": "subreg_5A2E2",
+            "5A2E3": "subreg_5A2E3",
+            "5A2E4": "subreg_5A2E4",
+            "5A2ET": "subreg_5A2ET",
+            "F5E1": "subreg_F5E1",
+            "F5E2": "subreg_F5E2",
+            "F5E3": "subreg_F5E3",
+            "F5E4": "subreg_F5E4",
+            "F5ET": "subreg_F5ET",
+            "61E1": "subreg_61E1",
+            "61E2": "subreg_61E2",
+            "61E3": "subreg_61E3",
+            "61ET": "subreg_61ET",
+            "FQ1": "subreg_FQ1",
+            "FQ2": "subreg_FQ2",
+            "FQ3": "subreg_FQ3",
+            "F6E1": "subreg_F6E1",
+            "F6E2": "subreg_F6E2",
+            "F6E3": "subreg_F6E3",
+            "F6ET": "subreg_F6ET"
         }
 
+
         if estado_final == "viable":
-            # Primero limpiamos todo
-            for campo in set(subregistros_map.values()):
+            # # Primero limpiamos todo
+            # for campo in set(subregistros_map.values()):
+            #     setattr(proyecto, campo, "N")
+
+            # # Luego activamos los seleccionados
+            # for codigo in subregistros_raw:
+            #     campo = subregistros_map.get(codigo)
+            #     if campo:
+            #         setattr(proyecto, campo, "Y")
+
+            # Limpiar todos los subreg_...
+            for campo in set(subregistros_definitivos_map.values()):
                 setattr(proyecto, campo, "N")
 
-            # Luego activamos los seleccionados
+            # Activar los seleccionados
             for codigo in subregistros_raw:
-                campo = subregistros_map.get(codigo)
+                campo = subregistros_definitivos_map.get(codigo)
                 if campo:
                     setattr(proyecto, campo, "Y")
 
@@ -3031,6 +3080,76 @@ def valorar_proyecto_final(
             evento_fecha = datetime.now()
         )
         db.add(evento)
+
+
+        # ✅ Enviar mail si se pidió notificación
+        if enviar_notificacion:
+            logins_destinatarios = [proyecto.login_1]
+            if proyecto.login_2:
+                logins_destinatarios.append(proyecto.login_2)
+
+            for login_destinatario in logins_destinatarios:
+                user = db.query(User).filter(User.login == login_destinatario).first()
+                if user and user.mail:
+                    try:
+                        cuerpo_mensaje_html = f"""
+                            <p>Recibiste una notificación del <strong>RUA</strong>:</p>
+                            <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
+                                <em>{texto_observacion}</em>
+                            </div>
+                        """
+                        cuerpo = f"""
+                        <html>
+                        <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                            <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                            <tr>
+                                <td align="center">
+                                <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                    <tr>
+                                    <td style="font-size: 24px; color: #007bff;">
+                                        <strong>Hola {user.nombre},</strong>
+                                    </td>
+                                    </tr>
+                                    <tr>
+                                    <td style="padding-top: 20px; font-size: 17px;">
+                                        {cuerpo_mensaje_html}
+                                    </td>
+                                    </tr>
+                                    <tr>
+                                    <td align="center" style="font-size: 17px; padding-top: 30px;">
+                                        <p><strong>Muchas gracias.</strong></p>
+                                    </td>
+                                    </tr>
+                                    <tr>
+                                    <td style="padding-top: 30px;">
+                                        <hr style="border: none; border-top: 1px solid #dee2e6;">
+                                        <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
+                                        <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                        </p>
+                                    </td>
+                                    </tr>
+                                </table>
+                                </td>
+                            </tr>
+                            </table>
+                        </body>
+                        </html>
+                        """
+                        enviar_mail(
+                            destinatario=user.mail,
+                            asunto="Notificación del Sistema RUA",
+                            cuerpo=cuerpo
+                        )
+                    except Exception as e:
+                        db.rollback()
+                        return {
+                            "success": False,
+                            "tipo_mensaje": "naranja",
+                            "mensaje": f"⚠️ Error al enviar correo a {user.nombre}: {str(e)}",
+                            "tiempo_mensaje": 5,
+                            "next_page": "actual"
+                        }
+
 
 
         db.commit()
