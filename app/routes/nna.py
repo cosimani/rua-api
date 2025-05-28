@@ -41,9 +41,9 @@ os.makedirs(UPLOAD_DIR_DOC_NNAS, exist_ok=True)
 
 
 
-
-
 nna_router = APIRouter()
+
+
 
 
 @nna_router.get("/", response_model=dict,
@@ -60,18 +60,39 @@ def get_nnas(
     nna_archivado: Optional[bool] = Query(None),
     disponible: Optional[bool] = Query(None),
     subregistros: Optional[List[str]] = Query(None, alias="subregistro_portada"),
-    estado_filtro: Optional[List[str]] = Query(None)
+    estado_filtro: Optional[List[str]] = Query(None),
 ):
     try:
         query = db.query(Nna)
 
+        # if search:
+        #     pattern = f"%{search}%"
+        #     query = query.filter(
+        #         (Nna.nna_nombre.ilike(pattern)) |
+        #         (Nna.nna_apellido.ilike(pattern)) |
+        #         (Nna.nna_dni.ilike(pattern)) |
+        #         (Nna.nna_localidad.ilike(pattern)) 
+        #     )
+
         if search:
-            pattern = f"%{search}%"
-            query = query.filter(
-                (Nna.nna_nombre.ilike(pattern)) |
-                (Nna.nna_apellido.ilike(pattern)) |
-                (Nna.nna_dni.ilike(pattern))
-            )
+            palabras = search.strip().split()
+
+            condiciones_por_palabra = []
+            for palabra in palabras:
+                patron = f"%{palabra}%"
+                condiciones_por_palabra.append(
+                    or_(
+                        Nna.nna_nombre.ilike(patron),
+                        Nna.nna_apellido.ilike(patron),
+                        Nna.nna_dni.ilike(patron),
+                        Nna.nna_localidad.ilike(patron)
+                    )
+                )
+
+            query = query.filter(and_(*condiciones_por_palabra))
+
+
+
         if provincia:
             query = query.filter(Nna.nna_provincia == provincia)
         if localidad:
