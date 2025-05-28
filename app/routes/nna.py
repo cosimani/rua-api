@@ -46,10 +46,9 @@ os.makedirs(UPLOAD_DIR_DOC_NNAS, exist_ok=True)
 nna_router = APIRouter()
 
 
-
-
 @nna_router.get("/", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[Depends(verify_api_key), 
+                  Depends(require_roles(["administrador", "supervisora", "profesional", "coordinadora"]))])
 def get_nnas(
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1),
@@ -60,24 +59,19 @@ def get_nnas(
     nna_en_convocatoria: Optional[bool] = Query(None),
     nna_archivado: Optional[bool] = Query(None),
     disponible: Optional[bool] = Query(None),
-    subregistros: Optional[List[str]] = Query(None, alias="subregistro_portada")
+    subregistros: Optional[List[str]] = Query(None, alias="subregistro_portada"),
+    estado_filtro: Optional[List[str]] = Query(None)
 ):
-    """
-    Devuelve los registros de NNA paginados.
-    Filtra por subregistros de edad y salud (nna_5A / nna_5B) según selección múltiple.
-    """
     try:
         query = db.query(Nna)
 
-        # Búsqueda por nombre, apellido o DNI
         if search:
-            search_pattern = f"%{search}%"
+            pattern = f"%{search}%"
             query = query.filter(
-                (Nna.nna_nombre.ilike(search_pattern)) |
-                (Nna.nna_apellido.ilike(search_pattern)) |
-                (Nna.nna_dni.ilike(search_pattern))
+                (Nna.nna_nombre.ilike(pattern)) |
+                (Nna.nna_apellido.ilike(pattern)) |
+                (Nna.nna_dni.ilike(pattern))
             )
-
         if provincia:
             query = query.filter(Nna.nna_provincia == provincia)
         if localidad:
@@ -87,98 +81,76 @@ def get_nnas(
         if nna_archivado is not None:
             query = query.filter(Nna.nna_archivado == ("Y" if nna_archivado else "N"))
 
-        # Subregistro por edad o salud (nuevo: usa nna_5A / nna_5B)
+        # Subregistros
         subregistro_field_map = {
             "1": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 0 AND 3"),
             "2": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 4 AND 7"),
             "3": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 8 AND 12"),
             "4": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 13 AND 17"),
+            "Mayor": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) >= 18"),
             "5A": Nna.nna_5A == "Y",
             "5B": Nna.nna_5B == "Y",
         }
 
-        
         if subregistros:
-            filtros_edad = []
-            filtros_salud = []
-
+            filtros_edad, filtros_salud = [], []
             for sr in subregistros:
-                if sr in ["1", "2", "3", "4"]:
-                    filtro_edad = subregistro_field_map.get(sr)
-                    if filtro_edad is not None:
-                        filtros_edad.append(filtro_edad)
+                if sr in ["1", "2", "3", "4", "Mayor"]:
+                    filtro = subregistro_field_map.get(sr)
+                    if filtro is not None:
+                        filtros_edad.append(filtro)
                 elif sr in ["5A", "5B"]:
-                    filtro_salud = subregistro_field_map.get(sr)
-                    if filtro_salud is not None:
-                        filtros_salud.append(filtro_salud)
-
+                    filtro = subregistro_field_map.get(sr)
+                    if filtro is not None:
+                        filtros_salud.append(filtro)
             if filtros_edad and filtros_salud:
-                query = query.filter(and_(
-                    or_(*filtros_edad),
-                    or_(*filtros_salud)
-                ))
+                query = query.filter(and_(or_(*filtros_edad), or_(*filtros_salud)))
             elif filtros_edad:
                 query = query.filter(or_(*filtros_edad))
             elif filtros_salud:
                 query = query.filter(or_(*filtros_salud))
 
-
-        # Filtro por disponibilidad (si está o no en carpeta)
-        subquery_nnas_en_carpeta = db.query(DetalleNNAEnCarpeta.nna_id).distinct()
+        ids_en_carpeta = [row[0] for row in db.query(DetalleNNAEnCarpeta.nna_id).distinct().all()]
         if disponible is not None:
             if disponible:
-                query = query.filter(~Nna.nna_id.in_(subquery_nnas_en_carpeta))
+                query = query.filter(~Nna.nna_id.in_(ids_en_carpeta))
+                edad_limite = date.today().replace(year=date.today().year - 18)
+                query = query.filter(Nna.nna_fecha_nacimiento > edad_limite)
             else:
-                query = query.filter(Nna.nna_id.in_(subquery_nnas_en_carpeta))
+                query = query.filter(Nna.nna_id.in_(ids_en_carpeta))
 
-        # Paginación
-        total_records = query.count()
-        total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
+        # 🔀 SI HAY FILTRO POR ESTADO → traer todo y paginar en Python
+        if estado_filtro:
+            nnas = query.all()
+        else:
+            total_records = query.count()
+            total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
+            if page > total_pages:
+                return {
+                    "page": page, "limit": limit,
+                    "total_pages": total_pages, "total_records": total_records,
+                    "nnas": []
+                }
+            nnas = query.offset((page - 1) * limit).limit(limit).all()
 
-        if page > total_pages:
-            return {
-                "page": page,
-                "limit": limit,
-                "total_pages": total_pages,
-                "total_records": total_records,
-                "nnas": []
-            }
-
-        skip = (page - 1) * limit
-        nnas = query.offset(skip).limit(limit).all()
-        subquery_ids = [row[0] for row in subquery_nnas_en_carpeta.all()]
-
+        # 💡 Armar resultado con estado
         nnas_list = []
-
         for nna in nnas:
             edad = date.today().year - nna.nna_fecha_nacimiento.year - (
                 (date.today().month, date.today().day) < (nna.nna_fecha_nacimiento.month, nna.nna_fecha_nacimiento.day)
             )
 
-            # Calcular subregistro por edad
-            if edad <= 3:
-                subregistro_por_edad = "1"
-            elif 4 <= edad <= 7:
-                subregistro_por_edad = "2"
-            elif 8 <= edad <= 12:
-                subregistro_por_edad = "3"
-            elif 13 <= edad <= 17:
-                subregistro_por_edad = "4"
-            else:
-                subregistro_por_edad = "Mayor"
+            subregistro_por_edad = (
+                "1" if edad <= 3 else
+                "2" if edad <= 7 else
+                "3" if edad <= 12 else
+                "4" if edad <= 17 else "Mayor"
+            )
 
-            # Calcular estado y comentarios_estado
-            if edad >= 18:
-                estado = "Mayor de edad"
-                comentarios_estado = ""
-            elif nna.nna_id in subquery_ids:
+            estado = "Disponible"
+            comentarios_estado = ""
 
-                estado_map = {
-                    "vinculacion": "Vinculación",
-                    "guarda": "Guarda",
-                    "adopcion_definitiva": "Adopción definitiva",
-                }
-
+            if nna.nna_id in ids_en_carpeta:
                 carpeta = (
                     db.query(Carpeta)
                     .join(DetalleNNAEnCarpeta)
@@ -186,13 +158,9 @@ def get_nnas(
                     .order_by(Carpeta.fecha_creacion.desc())
                     .first()
                 )
-
                 estado = "En carpeta"
-                comentarios_estado = ""
-
                 if carpeta:
                     if carpeta.estado_carpeta == "proyecto_seleccionado":
-                        # Buscar el proyecto asociado a esta carpeta
                         proyecto = (
                             db.query(Proyecto)
                             .join(DetalleProyectosEnCarpeta)
@@ -201,38 +169,28 @@ def get_nnas(
                             .first()
                         )
                         if proyecto:
-                            # Buscar usuarios desde sec_users por login
                             pretensos = []
-
-                            usuario_1 = db.query(User).filter(User.login == proyecto.login_1).first()
-                            if usuario_1:
-                                nombre_1 = f"{usuario_1.nombre} {usuario_1.apellido or ''}".strip()
-                                pretensos.append(nombre_1)
-
-                            if proyecto.login_2:
-                                usuario_2 = db.query(User).filter(User.login == proyecto.login_2).first()
-                                if usuario_2:
-                                    nombre_2 = f"{usuario_2.nombre} {usuario_2.apellido or ''}".strip()
-                                    pretensos.append(nombre_2)
-
-                            estado_legible = estado_map.get(proyecto.estado_general, proyecto.estado_general)
-                            estado = estado_legible
+                            for login in [proyecto.login_1, proyecto.login_2]:
+                                if login:
+                                    usuario = db.query(User).filter(User.login == login).first()
+                                    if usuario:
+                                        pretensos.append(f"{usuario.nombre} {usuario.apellido or ''}".strip())
+                            estado = {
+                                "vinculacion": "Vinculación",
+                                "guarda": "Guarda",
+                                "adopcion_definitiva": "Adopción definitiva"
+                            }.get(proyecto.estado_general, proyecto.estado_general)
                             comentarios_estado = " y ".join(pretensos)
                         else:
                             estado = "Con dictamen"
-                            comentarios_estado = ""
                     else:
                         comentarios_estado = carpeta.estado_carpeta
-
-            else:
-                estado = "Disponible"
-                comentarios_estado = ""
 
             nnas_list.append({
                 "nna_id": nna.nna_id,
                 "nna_nombre": nna.nna_nombre,
                 "nna_apellido": nna.nna_apellido,
-                "nombre_completo": nna.nna_nombre + " " + nna.nna_apellido,
+                "nombre_completo": f"{nna.nna_nombre} {nna.nna_apellido}",
                 "nna_dni": nna.nna_dni,
                 "nna_fecha_nacimiento": nna.nna_fecha_nacimiento,
                 "nna_edad": edad_como_texto(nna.nna_fecha_nacimiento),
@@ -248,11 +206,28 @@ def get_nnas(
                 "nna_ficha": nna.nna_ficha,
                 "nna_sentencia": nna.nna_sentencia,
                 "nna_archivado": nna.nna_archivado,
-                "nna_disponible": nna.nna_id not in subquery_ids,
+                "nna_disponible": nna.nna_id not in ids_en_carpeta,
                 "estado": estado,
                 "comentarios_estado": comentarios_estado
             })
-            
+
+        # Aplicar filtro por estado si corresponde
+        if estado_filtro:
+            estado_lower = [e.lower().strip() for e in estado_filtro]
+            nnas_list = [n for n in nnas_list if n["estado"].lower().strip() in estado_lower]
+
+            total_records = len(nnas_list)
+            total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
+            if page > total_pages:
+                return {
+                    "page": page, "limit": limit,
+                    "total_pages": total_pages, "total_records": total_records,
+                    "nnas": []
+                }
+            start = (page - 1) * limit
+            end = start + limit
+            nnas_list = nnas_list[start:end]
+
         return {
             "page": page,
             "limit": limit,
@@ -263,6 +238,268 @@ def get_nnas(
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al recuperar NNAs: {str(e)}")
+
+
+# @nna_router.get("/", response_model=dict,
+#     dependencies=[Depends(verify_api_key), 
+#                   Depends(require_roles(["administrador", "supervisora", "profesional", "coordinadora"]))])
+# def get_nnas(
+#     db: Session = Depends(get_db),
+#     page: int = Query(1, ge=1),
+#     limit: int = Query(10, ge=1, le=100),
+#     search: Optional[str] = Query(None, min_length=3),
+#     provincia: Optional[str] = Query(None),
+#     localidad: Optional[str] = Query(None),
+#     nna_en_convocatoria: Optional[bool] = Query(None),
+#     nna_archivado: Optional[bool] = Query(None),
+#     disponible: Optional[bool] = Query(None),
+#     subregistros: Optional[List[str]] = Query(None, alias="subregistro_portada"),
+#     estado_filtro: Optional[List[str]] = Query(None)
+
+# ):
+#     """
+#     Devuelve los registros de NNA paginados.
+#     Filtra por subregistros de edad y salud (nna_5A / nna_5B) según selección múltiple.
+#     """
+#     try:
+#         query = db.query(Nna)
+
+#         # Búsqueda por nombre, apellido o DNI
+#         if search:
+#             search_pattern = f"%{search}%"
+#             query = query.filter(
+#                 (Nna.nna_nombre.ilike(search_pattern)) |
+#                 (Nna.nna_apellido.ilike(search_pattern)) |
+#                 (Nna.nna_dni.ilike(search_pattern))
+#             )
+
+#         if provincia:
+#             query = query.filter(Nna.nna_provincia == provincia)
+#         if localidad:
+#             query = query.filter(Nna.nna_localidad == localidad)
+#         if nna_en_convocatoria is not None:
+#             query = query.filter(Nna.nna_en_convocatoria == ("Y" if nna_en_convocatoria else "N"))
+#         if nna_archivado is not None:
+#             query = query.filter(Nna.nna_archivado == ("Y" if nna_archivado else "N"))
+
+#         # Subregistro por edad o salud (nuevo: usa nna_5A / nna_5B)
+#         subregistro_field_map = {
+#             "1": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 0 AND 3"),
+#             "2": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 4 AND 7"),
+#             "3": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 8 AND 12"),
+#             "4": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 13 AND 17"),
+#             "Mayor": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) >= 18"),
+#             "5A": Nna.nna_5A == "Y",
+#             "5B": Nna.nna_5B == "Y",
+#         }
+
+        
+#         if subregistros:
+#             filtros_edad = []
+#             filtros_salud = []
+
+#             for sr in subregistros:
+#                 if sr in ["1", "2", "3", "4", "Mayor"]:  # ← incluimos "Mayor"
+#                     filtro_edad = subregistro_field_map.get(sr)
+#                     if filtro_edad is not None:
+#                         filtros_edad.append(filtro_edad)
+#                 elif sr in ["5A", "5B"]:
+#                     filtro_salud = subregistro_field_map.get(sr)
+#                     if filtro_salud is not None:
+#                         filtros_salud.append(filtro_salud)
+
+#             if filtros_edad and filtros_salud:
+#                 query = query.filter(and_(
+#                     or_(*filtros_edad),
+#                     or_(*filtros_salud)
+#                 ))
+#             elif filtros_edad:
+#                 query = query.filter(or_(*filtros_edad))
+#             elif filtros_salud:
+#                 query = query.filter(or_(*filtros_salud))
+
+
+#         # Filtro por disponibilidad (si está o no en carpeta)
+#         subquery_nnas_en_carpeta = db.query(DetalleNNAEnCarpeta.nna_id).distinct()
+#         # if disponible is not None:
+#         #     if disponible:
+#         #         query = query.filter(~Nna.nna_id.in_(subquery_nnas_en_carpeta))
+#         #     else:
+#         #         query = query.filter(Nna.nna_id.in_(subquery_nnas_en_carpeta))
+
+#         # Filtrar mayores de edad disponibles directamente desde la query
+#         # if disponible is not None:
+#         #     if disponible:
+#         #         query = query.filter(~Nna.nna_id.in_(subquery_nnas_en_carpeta))
+#         #     else:
+#         #         query = query.filter(Nna.nna_id.in_(subquery_nnas_en_carpeta))
+
+#         #     # 👉 Evitar mayores de edad solo si disponible=True
+#         #     query = query.filter(
+#         #         or_(
+#         #             text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) < 18"),
+#         #             Nna.nna_id.in_(subquery_nnas_en_carpeta)  # ya no están disponibles
+#         #         )
+#         #     )
+
+#         if disponible is not None:
+#             ids_en_carpeta = [row[0] for row in subquery_nnas_en_carpeta.all()]
+
+#             if disponible:
+#                 # Solo los que no están en carpeta
+#                 query = query.filter(~Nna.nna_id.in_(ids_en_carpeta))
+
+#                 # Excluimos mayores de edad disponibles
+#                 hoy = date.today()
+#                 edad_limite = hoy.replace(year=hoy.year - 18)
+#                 query = query.filter(Nna.nna_fecha_nacimiento > edad_limite)
+#             else:
+#                 # Solo los que sí están en carpeta
+#                 query = query.filter(Nna.nna_id.in_(ids_en_carpeta))
+
+
+#         # Paginación
+#         total_records = query.count()
+#         total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
+
+#         if page > total_pages:
+#             return {
+#                 "page": page,
+#                 "limit": limit,
+#                 "total_pages": total_pages,
+#                 "total_records": total_records,
+#                 "nnas": []
+#             }
+
+#         skip = (page - 1) * limit
+#         nnas = query.offset(skip).limit(limit).all()
+#         subquery_ids = [row[0] for row in subquery_nnas_en_carpeta.all()]
+
+#         nnas_list = []
+
+#         for nna in nnas:
+#             edad = date.today().year - nna.nna_fecha_nacimiento.year - (
+#                 (date.today().month, date.today().day) < (nna.nna_fecha_nacimiento.month, nna.nna_fecha_nacimiento.day)
+#             )
+
+#             # Calcular subregistro por edad
+#             if edad <= 3:
+#                 subregistro_por_edad = "1"
+#             elif 4 <= edad <= 7:
+#                 subregistro_por_edad = "2"
+#             elif 8 <= edad <= 12:
+#                 subregistro_por_edad = "3"
+#             elif 13 <= edad <= 17:
+#                 subregistro_por_edad = "4"
+#             else:
+#                 subregistro_por_edad = "Mayor"
+
+#             estado = "Disponible"
+#             comentarios_estado = ""
+
+#             if nna.nna_id in subquery_ids:
+#                 estado_map = {
+#                     "vinculacion": "Vinculación",
+#                     "guarda": "Guarda",
+#                     "adopcion_definitiva": "Adopción definitiva",
+#                 }
+
+#                 carpeta = (
+#                     db.query(Carpeta)
+#                     .join(DetalleNNAEnCarpeta)
+#                     .filter(DetalleNNAEnCarpeta.nna_id == nna.nna_id)
+#                     .order_by(Carpeta.fecha_creacion.desc())
+#                     .first()
+#                 )
+
+#                 estado = "En carpeta"
+#                 comentarios_estado = ""
+
+#                 if carpeta:
+#                     if carpeta.estado_carpeta == "proyecto_seleccionado":
+#                         proyecto = (
+#                             db.query(Proyecto)
+#                             .join(DetalleProyectosEnCarpeta)
+#                             .filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta.carpeta_id)
+#                             .order_by(Proyecto.proyecto_id.desc())
+#                             .first()
+#                         )
+#                         if proyecto:
+#                             pretensos = []
+#                             usuario_1 = db.query(User).filter(User.login == proyecto.login_1).first()
+#                             if usuario_1:
+#                                 nombre_1 = f"{usuario_1.nombre} {usuario_1.apellido or ''}".strip()
+#                                 pretensos.append(nombre_1)
+
+#                             if proyecto.login_2:
+#                                 usuario_2 = db.query(User).filter(User.login == proyecto.login_2).first()
+#                                 if usuario_2:
+#                                     nombre_2 = f"{usuario_2.nombre} {usuario_2.apellido or ''}".strip()
+#                                     pretensos.append(nombre_2)
+
+#                             estado_legible = estado_map.get(proyecto.estado_general, proyecto.estado_general)
+#                             estado = estado_legible
+#                             comentarios_estado = " y ".join(pretensos)
+#                         else:
+#                             estado = "Con dictamen"
+#                             comentarios_estado = ""
+#                     else:
+#                         comentarios_estado = carpeta.estado_carpeta
+#             else:
+#                 estado = "Disponible"
+#                 comentarios_estado = ""
+
+#             if edad >= 18:
+#                 estado = f"{estado}"
+
+#             # if edad >= 18 and estado == "Disponible":
+#             #     continue  # lo salteamos
+
+
+#             nnas_list.append({
+#                 "nna_id": nna.nna_id,
+#                 "nna_nombre": nna.nna_nombre,
+#                 "nna_apellido": nna.nna_apellido,
+#                 "nombre_completo": nna.nna_nombre + " " + nna.nna_apellido,
+#                 "nna_dni": nna.nna_dni,
+#                 "nna_fecha_nacimiento": nna.nna_fecha_nacimiento,
+#                 "nna_edad": edad_como_texto(nna.nna_fecha_nacimiento),
+#                 "nna_edad_num": edad,
+#                 "subregistro_por_edad": subregistro_por_edad,
+#                 "nna_calle_y_nro": nna.nna_calle_y_nro,
+#                 "nna_barrio": nna.nna_barrio,
+#                 "nna_localidad": nna.nna_localidad,
+#                 "nna_provincia": nna.nna_provincia,
+#                 "nna_5A": nna.nna_5A,
+#                 "nna_5B": nna.nna_5B,
+#                 "nna_en_convocatoria": nna.nna_en_convocatoria,
+#                 "nna_ficha": nna.nna_ficha,
+#                 "nna_sentencia": nna.nna_sentencia,
+#                 "nna_archivado": nna.nna_archivado,
+#                 "nna_disponible": nna.nna_id not in subquery_ids,
+#                 "estado": estado,
+#                 "comentarios_estado": comentarios_estado
+#             })
+
+
+#         if estado_filtro:
+#             estado_lower = [e.lower().strip() for e in estado_filtro]
+#             nnas_list = [
+#                 n for n in nnas_list if n["estado"].lower().strip() in estado_lower
+#             ]
+
+
+            
+#         return {
+#             "page": page,
+#             "limit": limit,
+#             "total_pages": total_pages,
+#             "total_records": total_records,
+#             "nnas": nnas_list
+#         }
+
+#     except SQLAlchemyError as e:
+#         raise HTTPException(status_code=500, detail=f"Error al recuperar NNAs: {str(e)}")
 
 
 
