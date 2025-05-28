@@ -30,23 +30,207 @@ def get_estadisticas(db: Session = Depends(get_db)):
 
 
 
+# @estadisticas_router.get("/informe_general", 
+#                          dependencies=[Depends(verify_api_key), 
+#                                        Depends(require_roles(["administrador", "supervisora", "coordinadora"]))])
+# def generar_pdf_estadisticas(db: Session = Depends(get_db)):
+#     """
+#     Genera un informe en PDF con estadísticas del sistema con formato fijo.
+#     """
+
+#     stats = calcular_estadisticas_generales(db)
+
+
+#     pdf = EstadisticasPDF()
+#     pdf.add_page()
+
+
+#     # Sección 1
+#     pdf.section_title("1) Estadísticas en relación a los pretensos")
+#     pretensos_data = [
+#         ["Indicador", "Cantidad"],
+#         ["Logueados en el sistema", stats["usuarios_activos"]],
+#         ["Con Curso aprobado", stats["con_curso_sin_ddjj"]],
+#         ["Con Curso y DDJJ firmada", stats["con_curso_con_ddjj"]],
+#         ["Presentando documentación", stats["pretensos_presentando_documentacion"]],
+#         ["Aprobados", stats["pretensos_aprobados"]],
+#         ["Rechazados", stats["pretensos_rechazados"]],
+#         ["Usuarios inactivos (sólo con usuario creado)", stats["sin_activar"]],
+#     ]
+#     pdf.add_table(pretensos_data)
+
+#     pdf.section_title("2) Estadísticas en relación a los proyectos aprobados")
+
+#     proyectos_resumen = [
+#         ["Tipo de Proyecto", "Presentando", "En revisión", "Calendarizables", "Entrevistando"],
+
+#         ["Pareja", 
+#         stats["proyectos_en_pareja_subiendo_documentacion"], 
+#         stats["proyectos_en_pareja_en_revision_por_supervision"], 
+#         stats["proyectos_en_pareja_aprobados_para_calendarizar"], 
+#         stats["entrevistando_en_pareja"]],       
+
+#         ["Monoparental", 
+#         stats["proyectos_monoparentales_subiendo_documentacion"], 
+#         stats["proyectos_monoparentales_en_revision_por_supervision"], 
+#         stats["proyectos_monoparentales_aprobados_para_calendarizar"], 
+#         stats["entrevistando_monoparental"]],
+
+#     ]
+#     pdf.add_table(proyectos_resumen)
+
+
+#     proyectos_resumen = [
+#         ["Tipo de Proyecto", "En suspenso", "No viables", "Baja definitiva"],
+
+#         ["Pareja", 
+#         stats["proyectos_en_pareja_en_suspenso"], 
+#         stats["proyectos_en_pareja_no_viable"], 
+#         stats["proyectos_en_pareja_baja_definitiva"]],
+        
+#         ["Monoparental", 
+#         stats["proyectos_monoparentales_en_suspenso"], 
+#         stats["proyectos_monoparentales_no_viable"], 
+#         stats["proyectos_monoparentales_baja_definitiva"]],
+#     ]
+#     pdf.add_table(proyectos_resumen)
+
+
+#     proyectos_resumen = [
+#         ["Tipo de Proyecto", "Viables TND", "Viables disponibles", "Adopción definitiva"],
+
+#         ["Pareja", 
+#         "127", 
+#         "35", 
+#         "15"],       
+
+#         ["Monoparental", 
+#         "59", 
+#         "17", 
+#         "8"],
+
+#     ]
+#     pdf.add_table(proyectos_resumen)
+
+
+#     subregistros = [
+#         ["Subregistro", "Cantidad"],
+#         ["Uno (0 a 3 años)", 94],
+#         ["Dos (4 a 6 años)", 83],
+#         ["Tres (7 a 11 años)", 8],
+#         ["Cuatro (12 a 17 años)", 1],
+#         ["Cinco a (discapacidad)", 0],
+#         ["Cinco b (condición específica)", 0],
+#         ["Cinco c (otras; sordera, ceguera)", 0],
+#     ]
+#     pdf.add_table(subregistros)
+
+#     pdf.add_page()
+
+#     # Sección 3
+#     pdf.section_title("3) Estadísticas en relación a los NNA con sentencia de adoptabilidad")
+#     pdf.add_table([
+#         ["Edad / Estado", "Con Sentencia", "En Vinculación", "En Guarda", "En Adopción"],
+#         ["0-3 años", 23, 19, 13, 2],
+#         ["4-6 años", 20, 16, 10, 7],
+#         ["7-11 años", 65, 18, 6, 2],
+#         ["12-17 años", 69, 11, 11, 1],
+#     ])
+
+#     # Sección 4
+#     pdf.section_title("4) Estadísticas en relación a los proyectos en procesos de guarda y adopción (RUA)")
+#     pdf.add_table([
+#         ["Estado del Proyecto", "Cantidad"],
+#         ["En vinculación", 53],
+#         ["En guarda", 37],
+#         ["Con adopción definitiva", 11],
+#     ])
+
+#     # Sección 5
+#     pdf.section_title("5) Estadísticas en relación a las convocatorias")
+#     pdf.add_table([
+#         ["Fecha", "Nº", "Unidad Judicial", "NNA", "Subregistro", "Inscriptos", "Viables", "No viables"],
+#         ["01/03/2024", "001", "Unidad Centro", "3", "1, 2", "14", "5", "9"],
+#         ["10/03/2024", "002", "Unidad Norte", "2", "3", "10", "3", "7"],
+#     ])
+
+
+#     # Guardar y devolver
+#     pdf_path = "/tmp/estadisticas_adopciones.pdf"
+#     pdf.output(pdf_path)
+#     return FileResponse(pdf_path, filename="estadisticas_adopciones.pdf", media_type="application/pdf")
+
+
+
 @estadisticas_router.get("/informe_general", 
                          dependencies=[Depends(verify_api_key), 
                                        Depends(require_roles(["administrador", "supervisora", "coordinadora"]))])
 def generar_pdf_estadisticas(db: Session = Depends(get_db)):
-    """
-    Genera un informe en PDF con estadísticas del sistema con formato fijo.
-    """
-
     stats = calcular_estadisticas_generales(db)
-
-
     pdf = EstadisticasPDF()
     pdf.add_page()
 
+    # Resumen General
+    pdf.section_title("Resumen General de Indicadores Clave")
+    resumen_general = [
+        ["Indicador", "Cantidad"],
+        ["Proyectos viables disponibles", stats.get("proyectos_viables", 0)],
+        ["Proyectos en etapa de entrevistas", stats.get("proyectos_en_entrevistas", 0)],
+        ["Pretensos aprobados", stats.get("pretensos_aprobados_con_estado_valido", 0)],
+        ["NNAs con Adopciones Definitivas", stats.get("nna_en_adopcion_definitiva", 0)],
+        ["NNAs en Guarda", stats.get("nna_en_guarda", 0)],
+        ["NNAs en RUA", stats.get("nna_en_rua", 0)],
+    ]
+    pdf.add_table(resumen_general)
 
-    # Sección 1
-    pdf.section_title("1) Estadísticas en relación a los pretensos")
+    # 1) Proyectos aprobados
+    pdf.section_title("1) Estadísticas en relación a los proyectos aprobados")
+
+    tabla_1 = [
+        ["Tipo de Proyecto", "Presentando", "En revisión", "Calendarizables", "Entrevistando"],
+        ["Pareja", stats["proyectos_en_pareja_subiendo_documentacion"],
+         stats["proyectos_en_pareja_en_revision_por_supervision"],
+         stats["proyectos_en_pareja_aprobados_para_calendarizar"],
+         stats["entrevistando_en_pareja"]],
+        ["Monoparental", stats["proyectos_monoparentales_subiendo_documentacion"],
+         stats["proyectos_monoparentales_en_revision_por_supervision"],
+         stats["proyectos_monoparentales_aprobados_para_calendarizar"],
+         stats["entrevistando_monoparental"]]
+    ]
+    pdf.add_table(tabla_1)
+
+    tabla_2 = [
+        ["Tipo de Proyecto", "En suspenso", "No viables", "Baja definitiva"],
+        ["Pareja", stats["proyectos_en_pareja_en_suspenso"], stats["proyectos_en_pareja_no_viable"], stats["proyectos_en_pareja_baja_definitiva"]],
+        ["Monoparental", stats["proyectos_monoparentales_en_suspenso"], stats["proyectos_monoparentales_no_viable"], stats["proyectos_monoparentales_baja_definitiva"]],
+    ]
+    pdf.add_table(tabla_2)
+
+    tabla_3 = [
+        ["Tipo de Proyecto", "Viables TND", "Viables disponibles", "Adopción definitiva"],
+        ["Pareja", "127", "35", "15"],
+        ["Monoparental", "59", "17", "8"]
+    ]
+    pdf.add_table(tabla_3)
+
+    # 2) NNA con sentencia
+    
+    pdf.section_title("2) Estadísticas en relación a los NNA con sentencia de adoptabilidad")
+
+    nna_sentencia = [
+        ["Edad / Estado", "Con Sentencia", "En Vinculación", "En Guarda", "En Adopción"],
+        ["0-3 años", 23, 19, 13, 2],
+        ["4-6 años", 20, 16, 10, 7],
+        ["7-11 años", 65, 18, 6, 2],
+        ["12-17 años", 69, 11, 11, 1],
+    ]
+    pdf.add_table(nna_sentencia)
+
+    pdf.add_page()
+
+    # 3) Pretensos
+    pdf.section_title("3) Estadísticas en relación a los pretensos")
+
     pretensos_data = [
         ["Indicador", "Cantidad"],
         ["Logueados en el sistema", stats["usuarios_activos"]],
@@ -59,107 +243,10 @@ def generar_pdf_estadisticas(db: Session = Depends(get_db)):
     ]
     pdf.add_table(pretensos_data)
 
-    pdf.section_title("2) Estadísticas en relación a los proyectos aprobados")
-
-    proyectos_resumen = [
-        ["Tipo de Proyecto", "Presentando", "En revisión", "Calendarizables", "Entrevistando"],
-
-        ["Pareja", 
-        stats["proyectos_en_pareja_subiendo_documentacion"], 
-        stats["proyectos_en_pareja_en_revision_por_supervision"], 
-        stats["proyectos_en_pareja_aprobados_para_calendarizar"], 
-        stats["entrevistando_en_pareja"]],       
-
-        ["Monoparental", 
-        stats["proyectos_monoparentales_subiendo_documentacion"], 
-        stats["proyectos_monoparentales_en_revision_por_supervision"], 
-        stats["proyectos_monoparentales_aprobados_para_calendarizar"], 
-        stats["entrevistando_monoparental"]],
-
-    ]
-    pdf.add_table(proyectos_resumen)
-
-
-    proyectos_resumen = [
-        ["Tipo de Proyecto", "En suspenso", "No viables", "Baja definitiva"],
-
-        ["Pareja", 
-        stats["proyectos_en_pareja_en_suspenso"], 
-        stats["proyectos_en_pareja_no_viable"], 
-        stats["proyectos_en_pareja_baja_definitiva"]],
-        
-        ["Monoparental", 
-        stats["proyectos_monoparentales_en_suspenso"], 
-        stats["proyectos_monoparentales_no_viable"], 
-        stats["proyectos_monoparentales_baja_definitiva"]],
-    ]
-    pdf.add_table(proyectos_resumen)
-
-
-    proyectos_resumen = [
-        ["Tipo de Proyecto", "Viables TND", "Viables disponibles", "Adopción definitiva"],
-
-        ["Pareja", 
-        "127", 
-        "35", 
-        "15"],       
-
-        ["Monoparental", 
-        "59", 
-        "17", 
-        "8"],
-
-    ]
-    pdf.add_table(proyectos_resumen)
-
-
-    subregistros = [
-        ["Subregistro", "Cantidad"],
-        ["Uno (0 a 3 años)", 94],
-        ["Dos (4 a 6 años)", 83],
-        ["Tres (7 a 11 años)", 8],
-        ["Cuatro (12 a 17 años)", 1],
-        ["Cinco a (discapacidad)", 0],
-        ["Cinco b (condición específica)", 0],
-        ["Cinco c (otras; sordera, ceguera)", 0],
-    ]
-    pdf.add_table(subregistros)
-
-    pdf.add_page()
-
-    # Sección 3
-    pdf.section_title("3) Estadísticas en relación a los NNA con sentencia de adoptabilidad")
-    pdf.add_table([
-        ["Edad / Estado", "Con Sentencia", "En Vinculación", "En Guarda", "En Adopción"],
-        ["0-3 años", 23, 19, 13, 2],
-        ["4-6 años", 20, 16, 10, 7],
-        ["7-11 años", 65, 18, 6, 2],
-        ["12-17 años", 69, 11, 11, 1],
-    ])
-
-    # Sección 4
-    pdf.section_title("4) Estadísticas en relación a los proyectos en procesos de guarda y adopción (RUA)")
-    pdf.add_table([
-        ["Estado del Proyecto", "Cantidad"],
-        ["En vinculación", 53],
-        ["En guarda", 37],
-        ["Con adopción definitiva", 11],
-    ])
-
-    # Sección 5
-    pdf.section_title("5) Estadísticas en relación a las convocatorias")
-    pdf.add_table([
-        ["Fecha", "Nº", "Unidad Judicial", "NNA", "Subregistro", "Inscriptos", "Viables", "No viables"],
-        ["01/03/2024", "001", "Unidad Centro", "3", "1, 2", "14", "5", "9"],
-        ["10/03/2024", "002", "Unidad Norte", "2", "3", "10", "3", "7"],
-    ])
-
-
-
-    # Guardar y devolver
     pdf_path = "/tmp/estadisticas_adopciones.pdf"
     pdf.output(pdf_path)
     return FileResponse(pdf_path, filename="estadisticas_adopciones.pdf", media_type="application/pdf")
+
 
 
 

@@ -67,44 +67,88 @@ def enviar_mail(destinatario: str, asunto: str, cuerpo: str):
 
 
 
-
 class EstadisticasPDF(FPDF):
-
     def header(self):
         self.set_font("Arial", "B", 12)
+        self.set_text_color(40, 40, 40)
         self.cell(0, 10, "SERVICIO DE GUARDA Y ADOPCIÓN", ln=True, align="C")
         self.set_font("Arial", "B", 11)
         self.cell(0, 10, "REGISTRO ÚNICO DE ADOPCIONES Y EQUIPO TÉCNICO DE ADOPCIONES", ln=True, align="C")
         self.set_font("Arial", "I", 9)
+        self.set_text_color(100, 100, 100)
         self.cell(0, 10, "INFORME DE ESTADÍSTICAS GENERALES", ln=True, align="C")
         self.ln(4)
 
-
     def section_title(self, title):
         self.set_font("Arial", "B", 12)
-        self.set_fill_color(230, 230, 230)
-        self.cell(0, 8, title, ln=True, fill=True)
-        self.ln(2)
-
+        self.set_fill_color(200, 220, 255)  # azul claro
+        self.set_text_color(0)
+        self.cell(0, 10, title, ln=True, fill=True)
+        self.ln(3)
 
     def add_table(self, data, col_widths=None):
         if not col_widths:
             col_widths = [190 // len(data[0])] * len(data[0])
+
         self.set_font("Arial", "B", 9)
+        self.set_fill_color(230, 230, 230)
+        self.set_text_color(0)
         for i, header in enumerate(data[0]):
-            self.cell(col_widths[i], 7, header, border=1, align="C")
+            self.cell(col_widths[i], 8, header, border=1, align="C", fill=True)
         self.ln()
+
         self.set_font("Arial", "", 9)
+        self.set_text_color(30, 30, 30)
         for row in data[1:]:
             for i, datum in enumerate(row):
                 self.cell(col_widths[i], 7, str(datum), border=1, align="C")
             self.ln()
-        self.ln(3)
+        self.ln(4)
 
     def footer(self):
         self.set_y(-15)
         self.set_font("Arial", "I", 8)
+        self.set_text_color(100, 100, 100)
         self.cell(0, 10, "Informe generado automáticamente - RUA", 0, 0, "C")
+
+
+# class EstadisticasPDF(FPDF):
+
+#     def header(self):
+#         self.set_font("Arial", "B", 12)
+#         self.cell(0, 10, "SERVICIO DE GUARDA Y ADOPCIÓN", ln=True, align="C")
+#         self.set_font("Arial", "B", 11)
+#         self.cell(0, 10, "REGISTRO ÚNICO DE ADOPCIONES Y EQUIPO TÉCNICO DE ADOPCIONES", ln=True, align="C")
+#         self.set_font("Arial", "I", 9)
+#         self.cell(0, 10, "INFORME DE ESTADÍSTICAS GENERALES", ln=True, align="C")
+#         self.ln(4)
+
+
+#     def section_title(self, title):
+#         self.set_font("Arial", "B", 12)
+#         self.set_fill_color(230, 230, 230)
+#         self.cell(0, 8, title, ln=True, fill=True)
+#         self.ln(2)
+
+
+#     def add_table(self, data, col_widths=None):
+#         if not col_widths:
+#             col_widths = [190 // len(data[0])] * len(data[0])
+#         self.set_font("Arial", "B", 9)
+#         for i, header in enumerate(data[0]):
+#             self.cell(col_widths[i], 7, header, border=1, align="C")
+#         self.ln()
+#         self.set_font("Arial", "", 9)
+#         for row in data[1:]:
+#             for i, datum in enumerate(row):
+#                 self.cell(col_widths[i], 7, str(datum), border=1, align="C")
+#             self.ln()
+#         self.ln(3)
+
+#     def footer(self):
+#         self.set_y(-15)
+#         self.set_font("Arial", "I", 8)
+#         self.cell(0, 10, "Informe generado automáticamente - RUA", 0, 0, "C")
 
 
 
