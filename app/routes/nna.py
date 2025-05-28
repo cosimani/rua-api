@@ -111,6 +111,7 @@ def get_nnas(
                 query = query.filter(or_(*filtros_salud))
 
         ids_en_carpeta = [row[0] for row in db.query(DetalleNNAEnCarpeta.nna_id).distinct().all()]
+
         if disponible is not None:
             if disponible:
                 query = query.filter(~Nna.nna_id.in_(ids_en_carpeta))
@@ -118,6 +119,7 @@ def get_nnas(
                 query = query.filter(Nna.nna_fecha_nacimiento > edad_limite)
             else:
                 query = query.filter(Nna.nna_id.in_(ids_en_carpeta))
+
 
         # 🔀 SI HAY FILTRO POR ESTADO → traer todo y paginar en Python
         if estado_filtro:
