@@ -232,6 +232,7 @@ def get_nnas(
                 "nna_id": nna.nna_id,
                 "nna_nombre": nna.nna_nombre,
                 "nna_apellido": nna.nna_apellido,
+                "nombre_completo": nna.nna_nombre + " " + nna.nna_apellido,
                 "nna_dni": nna.nna_dni,
                 "nna_fecha_nacimiento": nna.nna_fecha_nacimiento,
                 "nna_edad": edad_como_texto(nna.nna_fecha_nacimiento),
