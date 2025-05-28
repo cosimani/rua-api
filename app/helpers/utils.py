@@ -1,6 +1,6 @@
 import hashlib
-from sqlalchemy.orm import Session
-from sqlalchemy import or_, func, and_
+from sqlalchemy.orm import Session, aliased
+from sqlalchemy import or_, func, and_, distinct, not_
 from models.users import User
 from datetime import datetime, date
 import re
@@ -16,6 +16,8 @@ from fastapi import HTTPException
 
 from models.users import User
 from models.proyecto import Proyecto
+from models.carpeta import Carpeta, DetalleNNAEnCarpeta, DetalleProyectosEnCarpeta
+from models.nna import Nna
 
 
 import smtplib
@@ -435,14 +437,98 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             Proyecto.estado_general == 'no_viable'
         ).count()
 
+        nna_en_adopcion_definitiva = (
+            db.query(distinct(DetalleNNAEnCarpeta.nna_id))
+            .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
+            .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
+            .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
+            .filter(
+                Carpeta.estado_carpeta == 'proyecto_seleccionado',
+                Proyecto.estado_general == 'adopcion_definitiva'
+            )
+            .count()
+        )
 
+        ProyectoAlias = aliased(Proyecto)
 
+        pretensos_aprobados_con_estado_valido = (
+            db.query(User)
+            .outerjoin(
+                ProyectoAlias,
+                or_(
+                    ProyectoAlias.login_1 == User.login,
+                    ProyectoAlias.login_2 == User.login
+                )
+            )
+            .filter(
+                User.doc_adoptante_curso_aprobado == 'Y',
+                User.doc_adoptante_ddjj_firmada == 'Y',
+                User.doc_adoptante_estado == 'aprobado',
+                or_(
+                    ProyectoAlias.proyecto_id.is_(None),  # no tiene ningún proyecto
+                    ProyectoAlias.estado_general.in_([
+                        'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando', 'aprobado'
+                    ])
+                )
+            )
+            .distinct()
+            .count()
+        )
 
+        nna_en_guarda = (
+            db.query(distinct(DetalleNNAEnCarpeta.nna_id))
+            .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
+            .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
+            .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
+            .filter(
+                Carpeta.estado_carpeta == 'proyecto_seleccionado',
+                Proyecto.estado_general == 'guarda'
+            )
+            .count()
+        )
 
+        # nna_en_rua = (
+        #     db.query(Nna)
+        #     .filter(
+        #         not_(
+        #             db.query(DetalleNNAEnCarpeta.nna_id)
+        #             .filter(DetalleNNAEnCarpeta.nna_id == Nna.nna_id)
+        #             .exists()
+        #         )
+        #     )
+        #     .count()
+        # )
 
+        # Fecha límite: hoy menos 18 años
+        hoy = date.today()
+        fecha_limite_18 = date(hoy.year - 18, hoy.month, hoy.day)
 
+        nna_en_rua = (
+            db.query(Nna)
+            .filter(
+                Nna.nna_fecha_nacimiento > fecha_limite_18,
+                not_(
+                    db.query(DetalleNNAEnCarpeta.nna_id)
+                    .filter(DetalleNNAEnCarpeta.nna_id == Nna.nna_id)
+                    .exists()
+                )
+            )
+            .count()
+        )
 
+        
+
+        
         return {
+            "proyectos_viables": proyectos_viables,
+            "proyectos_en_entrevistas": proyectos_en_entrevistas,
+            "pretensos_aprobados_con_estado_valido": pretensos_aprobados_con_estado_valido,
+
+            "nna_en_adopcion_definitiva": nna_en_adopcion_definitiva,
+            "nna_en_guarda": nna_en_guarda,
+            "nna_en_rua": nna_en_rua,
+
+
             "sin_activar": sin_activar,
             "usuarios_activos": usuarios_activos,
             "sin_curso_sin_ddjj": sin_curso_sin_ddjj,
@@ -451,8 +537,8 @@ def calcular_estadisticas_generales(db: Session) -> dict:
 
             "proyectos_sin_valorar_subregistros_altos": 26,
             
-            "proyectos_en_entrevistas": proyectos_en_entrevistas,
-            "proyectos_viables": proyectos_viables,
+            
+            
             "proyectos_no_viables": proyectos_no_viables,
             "proyectos_en_suspenso": proyectos_en_suspenso,
             "proyectos_enviados_juzgado": proyectos_enviados_juzgado,
