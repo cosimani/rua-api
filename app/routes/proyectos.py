@@ -181,9 +181,13 @@ def get_proyectos(
             fecha_nro_orden_fin = datetime.strptime(fecha_nro_orden_fin, "%Y-%m-%d") if fecha_nro_orden_fin else datetime.now()
 
             # Verificar que Proyecto.fecha_asignacion_nro_orden no sea None antes de aplicar between
+            # query = query.filter(
+            #     Proyecto.fecha_asignacion_nro_orden != None,
+            #     func.str_to_date(Proyecto.fecha_asignacion_nro_orden, "%d/%m/%Y").between(fecha_nro_orden_inicio, fecha_nro_orden_fin)
+            # )
             query = query.filter(
                 Proyecto.fecha_asignacion_nro_orden != None,
-                func.str_to_date(Proyecto.fecha_asignacion_nro_orden, "%d/%m/%Y").between(fecha_nro_orden_inicio, fecha_nro_orden_fin)
+                Proyecto.fecha_asignacion_nro_orden.between(fecha_nro_orden_inicio, fecha_nro_orden_fin)
             )
 
         if fecha_cambio_estado_inicio or fecha_cambio_estado_fin:
@@ -191,9 +195,13 @@ def get_proyectos(
             fecha_cambio_estado_fin = datetime.strptime(fecha_cambio_estado_fin, "%Y-%m-%d") if fecha_cambio_estado_fin else datetime.now()
 
             # Verificar que Proyecto.fecha_asignacion_nro_orden no sea None antes de aplicar between
+            # query = query.filter(
+            #     Proyecto.ultimo_cambio_de_estado != None,
+            #     func.str_to_date(Proyecto.ultimo_cambio_de_estado, "%d/%m/%Y").between(fecha_cambio_estado_inicio, fecha_cambio_estado_fin)
+            # )
             query = query.filter(
                 Proyecto.ultimo_cambio_de_estado != None,
-                func.str_to_date(Proyecto.ultimo_cambio_de_estado, "%d/%m/%Y").between(fecha_cambio_estado_inicio, fecha_cambio_estado_fin)
+                Proyecto.ultimo_cambio_de_estado.between(fecha_cambio_estado_inicio, fecha_cambio_estado_fin)
             )
 
         # Filtro por tipo de proyecto
@@ -4957,16 +4965,152 @@ def aprobar_proyecto(
 
 
 
+# @proyectos_router.get("/proyectos/{proyecto_id}/descargar-pdf", response_class=FileResponse,
+#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+# def descargar_pdf_proyecto(
+#     proyecto_id: int,
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     📄 Descarga un PDF unificado con información del proyecto adoptivo y sus documentos adjuntos.
+#     """
+
+#     proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+#     if not proyecto:
+#         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+#     output_path = os.path.join(DIR_PDF_GENERADOS, f"proyecto_{proyecto_id}.pdf")
+#     pdf_paths: List[Tuple[str, str]] = []
+
+#     documentos_a_incluir = {
+#         "Informe del equipo técnico": proyecto.informe_profesionales,
+#         "Dictamen profesional": proyecto.doc_dictamen,
+#         "Sentencia de guarda": proyecto.doc_sentencia_guarda,
+#         "Sentencia de adopción": proyecto.doc_sentencia_adopcion,
+#     }
+
+#     def convertir_a_pdf_y_agregar(nombre, ruta_original):
+#         if not ruta_original or not os.path.exists(ruta_original):
+#             return
+
+#         ext = os.path.splitext(ruta_original)[1].lower()
+#         nombre_archivo = f"{nombre}_{os.path.basename(ruta_original)}.pdf"
+#         out_pdf = os.path.join(DIR_PDF_GENERADOS, nombre_archivo)
+
+#         if ext == ".pdf":
+#             shutil.copy(ruta_original, out_pdf)
+#         elif ext in [".jpg", ".jpeg", ".png"]:
+#             Image.open(ruta_original).convert("RGB").save(out_pdf)
+#         elif ext in [".doc", ".docx"]:
+#             subprocess.run([
+#                 "libreoffice", "--headless", "--convert-to", "pdf", "--outdir", DIR_PDF_GENERADOS, ruta_original
+#             ], check=True)
+#             out_pdf = os.path.join(DIR_PDF_GENERADOS, os.path.splitext(os.path.basename(ruta_original))[0] + ".pdf")
+#         else:
+#             return
+
+#         if os.path.exists(out_pdf):
+#             pdf_paths.append((nombre, out_pdf))
+
+#     for nombre, ruta in documentos_a_incluir.items():
+#         convertir_a_pdf_y_agregar(nombre, ruta)
+
+#     # Crear PDF combinado
+#     merged = fitz.open()
+
+#     portada = merged.new_page(width=595, height=842)
+#     portada.insert_textbox(
+#         fitz.Rect(0, 50, portada.rect.width, 100),
+#         "Proyecto Adoptivo - Detalles Generales",
+#         fontsize=22,
+#         fontname="helv",
+#         align=1
+#     )
+
+#     pretenso_1 = proyecto.usuario_1  # ← accede al User relacionado
+#     pretenso_2 = proyecto.usuario_2 if proyecto.login_2 else None
+
+
+#     # Domicilio completo
+#     domicilio = proyecto.proyecto_calle_y_nro or ""
+#     if proyecto.proyecto_depto_etc:
+#         domicilio += f", {proyecto.proyecto_depto_etc}"
+#     if proyecto.proyecto_barrio:
+#         domicilio += f", {proyecto.proyecto_barrio}"
+#     if proyecto.proyecto_localidad:
+#         domicilio += f", {proyecto.proyecto_localidad}"
+
+#     # Lista de líneas a insertar
+#     datos = []
+
+#     if proyecto.nro_orden_rua:
+#         datos.append(f"N° de orden RUA: {proyecto.nro_orden_rua}")
+
+#     if proyecto.proyecto_tipo:
+#         datos.append(f"Tipo de proyecto: {proyecto.proyecto_tipo}")
+
+#     if pretenso_1:
+#         datos.append(f"Pretenso 1: {pretenso_1.nombre} {pretenso_1.apellido} - DNI: {pretenso_1.login}")
+
+#     if pretenso_2:
+#         datos.append(f"Pretenso 2: {pretenso_2.nombre} {pretenso_2.apellido} - DNI: {pretenso_2.login}")
+
+#     if domicilio.strip():
+#         datos.append(f"Domicilio: {domicilio}")
+
+#     if proyecto.proyecto_provincia:
+#         datos.append(f"Provincia: {proyecto.proyecto_provincia}")
+
+
+#     if proyecto.estado_general:
+#         datos.append(f"Estado actual: {proyecto.estado_general}")
+
+
+#     y = 130
+#     for linea in datos:
+#         portada.insert_textbox(fitz.Rect(60, y, 530, y + 25), linea, fontsize=14, fontname="helv", align=0)
+#         y += 30
+
+#     portada.draw_line(p1=(60, y), p2=(portada.rect.width - 60, y), color=(0.5, 0.5, 0.5), width=0.8)
+
+#     # Agregar documentos adjuntos
+#     for titulo, path in pdf_paths:
+#         titulo_page = merged.new_page(width=595, height=842)
+#         titulo_page.insert_textbox(
+#             fitz.Rect(0, 280, 595, 320),
+#             titulo,
+#             fontsize=20,
+#             fontname="helv",
+#             align=1
+#         )
+
+#         if os.path.exists("/app/recursos/imagenes/flecha_hacia_abajo.png"):
+#             titulo_page.insert_image(fitz.Rect(250, 340, 345, 440), filename="/app/recursos/imagenes/flecha_hacia_abajo.png")
+
+#         with fitz.open(path) as doc:
+#             merged.insert_pdf(doc)
+
+#     merged.save(output_path)
+
+#     nombre_archivo = f"{pretenso_1.nombre}_{pretenso_1.apellido}".replace(" ", "_")
+#     if pretenso_2:
+#         nombre_archivo += f"_{pretenso_2.nombre}_{pretenso_2.apellido}".replace(" ", "_")
+
+
+#     return FileResponse(
+#         path=output_path,
+#         filename=f"proyecto_{nombre_archivo}.pdf",
+#         media_type="application/pdf"
+#     )
+
+
+
 @proyectos_router.get("/proyectos/{proyecto_id}/descargar-pdf", response_class=FileResponse,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
 def descargar_pdf_proyecto(
     proyecto_id: int,
     db: Session = Depends(get_db)
 ):
-    """
-    📄 Descarga un PDF unificado con información del proyecto adoptivo y sus documentos adjuntos.
-    """
-
     proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
     if not proyecto:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
@@ -4979,15 +5123,14 @@ def descargar_pdf_proyecto(
         "Dictamen profesional": proyecto.doc_dictamen,
         "Sentencia de guarda": proyecto.doc_sentencia_guarda,
         "Sentencia de adopción": proyecto.doc_sentencia_adopcion,
+        "Convivencia o estado civil": proyecto.doc_proyecto_convivencia_o_estado_civil,
     }
 
     def convertir_a_pdf_y_agregar(nombre, ruta_original):
         if not ruta_original or not os.path.exists(ruta_original):
             return
-
         ext = os.path.splitext(ruta_original)[1].lower()
-        nombre_archivo = f"{nombre}_{os.path.basename(ruta_original)}.pdf"
-        out_pdf = os.path.join(DIR_PDF_GENERADOS, nombre_archivo)
+        out_pdf = os.path.join(DIR_PDF_GENERADOS, f"{nombre}_{os.path.basename(ruta_original)}.pdf")
 
         if ext == ".pdf":
             shutil.copy(ruta_original, out_pdf)
@@ -5004,26 +5147,48 @@ def descargar_pdf_proyecto(
         if os.path.exists(out_pdf):
             pdf_paths.append((nombre, out_pdf))
 
+    def agregar_documentos_personales(user, destino: List[Tuple[str, str]]):
+        campos = [
+            "doc_adoptante_salud", "doc_adoptante_dni_frente", "doc_adoptante_dni_dorso", "doc_adoptante_domicilio",
+            "doc_adoptante_deudores_alimentarios", "doc_adoptante_antecedentes", "doc_adoptante_migraciones"
+        ]
+        for campo in campos:
+            ruta = getattr(user, campo, None)
+            if ruta and os.path.exists(ruta):
+                ext = os.path.splitext(ruta)[1].lower()
+                out_pdf = os.path.join(DIR_PDF_GENERADOS, f"{campo}_{user.login}.pdf")
+                if ext == ".pdf":
+                    shutil.copy(ruta, out_pdf)
+                elif ext in [".jpg", ".jpeg", ".png"]:
+                    Image.open(ruta).convert("RGB").save(out_pdf)
+                elif ext in [".doc", ".docx"]:
+                    subprocess.run([
+                        "libreoffice", "--headless", "--convert-to", "pdf", "--outdir", DIR_PDF_GENERADOS, ruta
+                    ], check=True)
+                    out_pdf = os.path.join(DIR_PDF_GENERADOS, os.path.splitext(os.path.basename(ruta))[0] + ".pdf")
+                else:
+                    continue
+                if os.path.exists(out_pdf):
+                    destino.append((f"{campo.replace('doc_adoptante_', '').replace('_', ' ').capitalize()} de {user.nombre} {user.apellido}", out_pdf))
+
     for nombre, ruta in documentos_a_incluir.items():
         convertir_a_pdf_y_agregar(nombre, ruta)
 
-    # Crear PDF combinado
+    pretenso_1 = proyecto.usuario_1
+    pretenso_2 = proyecto.usuario_2 if proyecto.login_2 else None
+
+    if pretenso_1:
+        agregar_documentos_personales(pretenso_1, pdf_paths)
+    if pretenso_2:
+        agregar_documentos_personales(pretenso_2, pdf_paths)
+
     merged = fitz.open()
 
     portada = merged.new_page(width=595, height=842)
-    portada.insert_textbox(
-        fitz.Rect(0, 50, portada.rect.width, 100),
-        "Proyecto Adoptivo - Detalles Generales",
-        fontsize=22,
-        fontname="helv",
-        align=1
-    )
+    portada.insert_textbox(fitz.Rect(0, 50, 595, 100), "SERVICIO DE GUARDA Y ADOPCIÓN", fontname="helv", fontsize=16, align=1, color=(0.1, 0.1, 0.3))
+    portada.insert_textbox(fitz.Rect(0, 75, 595, 120), "REGISTRO ÚNICO DE ADOPCIONES Y EQUIPO TÉCNICO", fontname="helv", fontsize=13, align=1, color=(0.2, 0.2, 0.4))
+    portada.insert_textbox(fitz.Rect(0, 105, 595, 135), "DOCUMENTACIÓN DEL PROYECTO ADOPTIVO", fontname="helv", fontsize=11, align=1, color=(0.4, 0.4, 0.4))
 
-    pretenso_1 = proyecto.usuario_1  # ← accede al User relacionado
-    pretenso_2 = proyecto.usuario_2 if proyecto.login_2 else None
-
-
-    # Domicilio completo
     domicilio = proyecto.proyecto_calle_y_nro or ""
     if proyecto.proyecto_depto_etc:
         domicilio += f", {proyecto.proyecto_depto_etc}"
@@ -5032,52 +5197,38 @@ def descargar_pdf_proyecto(
     if proyecto.proyecto_localidad:
         domicilio += f", {proyecto.proyecto_localidad}"
 
-    # Lista de líneas a insertar
     datos = []
-
     if proyecto.nro_orden_rua:
         datos.append(f"N° de orden RUA: {proyecto.nro_orden_rua}")
-
     if proyecto.proyecto_tipo:
         datos.append(f"Tipo de proyecto: {proyecto.proyecto_tipo}")
-
     if pretenso_1:
         datos.append(f"Pretenso 1: {pretenso_1.nombre} {pretenso_1.apellido} - DNI: {pretenso_1.login}")
-
     if pretenso_2:
         datos.append(f"Pretenso 2: {pretenso_2.nombre} {pretenso_2.apellido} - DNI: {pretenso_2.login}")
-
     if domicilio.strip():
         datos.append(f"Domicilio: {domicilio}")
-
     if proyecto.proyecto_provincia:
         datos.append(f"Provincia: {proyecto.proyecto_provincia}")
-
-
     if proyecto.estado_general:
         datos.append(f"Estado actual: {proyecto.estado_general}")
 
-
-    y = 130
+    
+    fondo = fitz.Rect(50, 160, 545, 380)
+    portada.draw_rect(fondo, fill=(0.88, 0.93, 0.98))
+    y = 170
     for linea in datos:
-        portada.insert_textbox(fitz.Rect(60, y, 530, y + 25), linea, fontsize=14, fontname="helv", align=0)
-        y += 30
+        portada.insert_textbox(fitz.Rect(60, y, 530, y + 25), linea, fontsize=13, fontname="helv", align=0, color=(0.1, 0.1, 0.1))
+        y += 28
 
-    portada.draw_line(p1=(60, y), p2=(portada.rect.width - 60, y), color=(0.5, 0.5, 0.5), width=0.8)
+    portada.draw_line(p1=(60, y + 10), p2=(portada.rect.width - 60, y + 10), color=(0.5, 0.5, 0.5), width=0.6)
 
-    # Agregar documentos adjuntos
     for titulo, path in pdf_paths:
-        titulo_page = merged.new_page(width=595, height=842)
-        titulo_page.insert_textbox(
-            fitz.Rect(0, 280, 595, 320),
-            titulo,
-            fontsize=20,
-            fontname="helv",
-            align=1
-        )
-
-        if os.path.exists("/app/recursos/imagenes/flecha_hacia_abajo.png"):
-            titulo_page.insert_image(fitz.Rect(250, 340, 345, 440), filename="/app/recursos/imagenes/flecha_hacia_abajo.png")
+        page = merged.new_page(width=595, height=842)
+        page.insert_textbox(fitz.Rect(0, 280, 595, 320), titulo, fontsize=20, fontname="helv", align=1)
+        icono = "/app/recursos/imagenes/flecha_hacia_abajo.png"
+        if os.path.exists(icono):
+            page.insert_image(fitz.Rect(250, 340, 345, 440), filename=icono)
 
         with fitz.open(path) as doc:
             merged.insert_pdf(doc)
@@ -5087,7 +5238,6 @@ def descargar_pdf_proyecto(
     nombre_archivo = f"{pretenso_1.nombre}_{pretenso_1.apellido}".replace(" ", "_")
     if pretenso_2:
         nombre_archivo += f"_{pretenso_2.nombre}_{pretenso_2.apellido}".replace(" ", "_")
-
 
     return FileResponse(
         path=output_path,

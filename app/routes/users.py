@@ -3494,23 +3494,48 @@ def descargar_documentos_usuario(
             "doc_adoptante_antecedentes": "Certificado de antecedentes penales",
             "doc_adoptante_migraciones": "Certificado de migraciones"
         }
+       
 
         # Fusionamos todos los PDF
         merged = fitz.open()
 
-        # Página inicial con datos personales del pretenso
+
+
+        # Portada con estilo institucional
         page = merged.new_page(pno=0, width=595, height=842)
 
-        # Encabezado centrado grande
+        # Encabezado institucional
         page.insert_textbox(
-            rect=fitz.Rect(0, 60, page.rect.width, 100),
-            buffer="Documentación del Pretenso Adoptante",
+            rect=fitz.Rect(0, 40, page.rect.width, 80),
+            buffer="SERVICIO DE GUARDA Y ADOPCIÓN",
             fontname="helv",
-            fontsize=22,
-            align=1
+            fontsize=16,
+            align=1,
+            color=(0.1, 0.1, 0.3)  # azul oscuro
         )
 
-        # Datos personales: insertados bien visibles más abajo
+        page.insert_textbox(
+            rect=fitz.Rect(0, 65, page.rect.width, 100),
+            buffer="REGISTRO ÚNICO DE ADOPCIONES Y EQUIPO TÉCNICO",
+            fontname="helv",
+            fontsize=13,
+            align=1,
+            color=(0.2, 0.2, 0.4)
+        )
+
+        page.insert_textbox(
+            rect=fitz.Rect(0, 95, page.rect.width, 120),
+            buffer="DOCUMENTACIÓN DEL PRETENSO ADOPTANTE",
+            fontname="helv",
+            fontsize=11,
+            align=1,
+            color=(0.4, 0.4, 0.4)
+        )
+
+        # Recuadro con fondo sutil para los datos personales
+        fondo = fitz.Rect(50, 150, page.rect.width - 50, 280)
+        page.draw_rect(fondo, color=(0.88, 0.93, 0.98), fill=(0.88, 0.93, 0.98))
+
         datos = [
             f"Nombre: {user.nombre} {user.apellido}",
             f"DNI: {user.login}",
@@ -3518,21 +3543,58 @@ def descargar_documentos_usuario(
             f"Celular: {user.celular or 'No registrado'}"
         ]
 
-        # Espaciado vertical correcto
-        y_pos = 120
+        y_pos = 165
         for linea in datos:
-            rect_linea = fitz.Rect(60, y_pos, page.rect.width - 60, y_pos + 25)
             page.insert_textbox(
-                rect=rect_linea,
+                rect=fitz.Rect(60, y_pos, page.rect.width - 60, y_pos + 25),
                 buffer=linea,
                 fontname="helv",
-                fontsize=14,
-                align=0  # alineado a la izquierda
+                fontsize=13,
+                align=0,
+                color=(0.1, 0.1, 0.1)
             )
-            y_pos += 35  # mayor espaciado para visibilidad
+            y_pos += 28
 
-        # Línea decorativa final
-        page.draw_line(p1=(60, y_pos), p2=(page.rect.width - 60, y_pos), color=(0.5, 0.5, 0.5), width=0.8)
+        # Línea decorativa inferior
+        page.draw_line(p1=(60, y_pos + 10), p2=(page.rect.width - 60, y_pos + 10), color=(0.5, 0.5, 0.5), width=0.6)
+
+
+
+        # # Página inicial con datos personales del pretenso
+        # page = merged.new_page(pno=0, width=595, height=842)
+
+        # # Encabezado centrado grande
+        # page.insert_textbox(
+        #     rect=fitz.Rect(0, 60, page.rect.width, 100),
+        #     buffer="Documentación del Pretenso Adoptante",
+        #     fontname="helv",
+        #     fontsize=22,
+        #     align=1
+        # )
+
+        # # Datos personales: insertados bien visibles más abajo
+        # datos = [
+        #     f"Nombre: {user.nombre} {user.apellido}",
+        #     f"DNI: {user.login}",
+        #     f"Correo electrónico: {user.mail or 'No registrado'}",
+        #     f"Celular: {user.celular or 'No registrado'}"
+        # ]
+
+        # # Espaciado vertical correcto
+        # y_pos = 120
+        # for linea in datos:
+        #     rect_linea = fitz.Rect(60, y_pos, page.rect.width - 60, y_pos + 25)
+        #     page.insert_textbox(
+        #         rect=rect_linea,
+        #         buffer=linea,
+        #         fontname="helv",
+        #         fontsize=14,
+        #         align=0  # alineado a la izquierda
+        #     )
+        #     y_pos += 35  # mayor espaciado para visibilidad
+
+        # # Línea decorativa final
+        # page.draw_line(p1=(60, y_pos), p2=(page.rect.width - 60, y_pos), color=(0.5, 0.5, 0.5), width=0.8)
 
 
 
