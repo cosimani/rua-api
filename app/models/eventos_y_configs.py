@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum
+from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey
 from datetime import datetime
+from sqlalchemy.orm import relationship
 
 from models.base import Base
 
@@ -27,3 +28,17 @@ class LoginIntentoIP(Base):
     ultimo_intento = Column(DateTime, default=datetime.now)
     bloqueo_hasta = Column(DateTime, nullable=True)
     usuarios = Column(String(1024), default="") 
+
+
+class UsuarioNotificadoInactivo(Base):
+    __tablename__ = "usuarios_notificados_inactivos"
+
+    login = Column(String(190), ForeignKey("sec_users.login"), primary_key=True)
+    mail_enviado_1 = Column(DateTime, nullable=True)
+    mail_enviado_2 = Column(DateTime, nullable=True)
+    mail_enviado_3 = Column(DateTime, nullable=True)
+    mail_enviado_4 = Column(DateTime, nullable=True)
+    dado_de_baja = Column(DateTime, nullable=True)
+
+    user = relationship("User", backref="notificacion_inactividad")
+

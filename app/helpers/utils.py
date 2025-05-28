@@ -560,7 +560,123 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             .count()
         )
 
+        proyectos_adopcion_definitiva_monoparental = db.query(Proyecto).filter(
+            Proyecto.proyecto_tipo == "Monoparental",
+            Proyecto.estado_general == "adopcion_definitiva"
+        ).count()
+
+        proyectos_adopcion_definitiva_pareja = db.query(Proyecto).filter(
+            Proyecto.proyecto_tipo != "Monoparental",
+            Proyecto.estado_general == "adopcion_definitiva"
+        ).count()
+
         
+
+        hoy = date.today()
+        fecha_6 = date(hoy.year - 6, hoy.month, hoy.day)
+        fecha_11 = date(hoy.year - 11, hoy.month, hoy.day)
+        fecha_17 = date(hoy.year - 17, hoy.month, hoy.day)
+        fecha_18 = date(hoy.year - 18, hoy.month, hoy.day)
+
+        # 0–6 años
+        guarda_grupo_0_6 = (
+            db.query(DetalleNNAEnCarpeta.nna_id)
+            .join(Nna, Nna.nna_id == DetalleNNAEnCarpeta.nna_id)
+            .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
+            .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
+            .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
+            .filter(
+                Carpeta.estado_carpeta == 'proyecto_seleccionado',
+                Proyecto.estado_general == 'guarda',
+                Nna.nna_fecha_nacimiento > fecha_6
+            )
+            .distinct()
+            .count()
+        )
+
+        # 7–11 años
+        guarda_grupo_7_11 = (
+            db.query(DetalleNNAEnCarpeta.nna_id)
+            .join(Nna, Nna.nna_id == DetalleNNAEnCarpeta.nna_id)
+            .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
+            .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
+            .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
+            .filter(
+                Carpeta.estado_carpeta == 'proyecto_seleccionado',
+                Proyecto.estado_general == 'guarda',
+                Nna.nna_fecha_nacimiento <= fecha_6,
+                Nna.nna_fecha_nacimiento > fecha_11
+            )
+            .distinct()
+            .count()
+        )
+
+        # 12–17 años
+        guarda_grupo_12_17 = (
+            db.query(DetalleNNAEnCarpeta.nna_id)
+            .join(Nna, Nna.nna_id == DetalleNNAEnCarpeta.nna_id)
+            .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
+            .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
+            .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
+            .filter(
+                Carpeta.estado_carpeta == 'proyecto_seleccionado',
+                Proyecto.estado_general == 'guarda',
+                Nna.nna_fecha_nacimiento <= fecha_11,
+                Nna.nna_fecha_nacimiento > fecha_18
+            )
+            .distinct()
+            .count()
+        )
+
+        # 0–6 años
+        adopcion_grupo_0_6 = (
+            db.query(DetalleNNAEnCarpeta.nna_id)
+            .join(Nna, Nna.nna_id == DetalleNNAEnCarpeta.nna_id)
+            .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
+            .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
+            .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
+            .filter(
+                Carpeta.estado_carpeta == 'proyecto_seleccionado',
+                Proyecto.estado_general == 'adopcion_definitiva',
+                Nna.nna_fecha_nacimiento > fecha_6
+            )
+            .distinct()
+            .count()
+        )
+
+        # 7–11 años
+        adopcion_grupo_7_11 = (
+            db.query(DetalleNNAEnCarpeta.nna_id)
+            .join(Nna, Nna.nna_id == DetalleNNAEnCarpeta.nna_id)
+            .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
+            .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
+            .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
+            .filter(
+                Carpeta.estado_carpeta == 'proyecto_seleccionado',
+                Proyecto.estado_general == 'adopcion_definitiva',
+                Nna.nna_fecha_nacimiento <= fecha_6,
+                Nna.nna_fecha_nacimiento > fecha_11
+            )
+            .distinct()
+            .count()
+        )
+
+        # 12–17 años
+        adopcion_grupo_12_17 = (
+            db.query(DetalleNNAEnCarpeta.nna_id)
+            .join(Nna, Nna.nna_id == DetalleNNAEnCarpeta.nna_id)
+            .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
+            .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
+            .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
+            .filter(
+                Carpeta.estado_carpeta == 'proyecto_seleccionado',
+                Proyecto.estado_general == 'adopcion_definitiva',
+                Nna.nna_fecha_nacimiento <= fecha_11,
+                Nna.nna_fecha_nacimiento > fecha_18
+            )
+            .distinct()
+            .count()
+        )
 
         
         return {
@@ -571,6 +687,17 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             "nna_en_adopcion_definitiva": nna_en_adopcion_definitiva,
             "nna_en_guarda": nna_en_guarda,
             "nna_en_rua": nna_en_rua,
+
+            "proyectos_adopcion_definitiva_monoparental": proyectos_adopcion_definitiva_monoparental,
+            "proyectos_adopcion_definitiva_pareja": proyectos_adopcion_definitiva_pareja,
+
+            "guarda_grupo_0_6": guarda_grupo_0_6,
+            "guarda_grupo_7_11": guarda_grupo_7_11,
+            "guarda_grupo_12_17": guarda_grupo_12_17,
+
+            "adopcion_grupo_0_6": adopcion_grupo_0_6,
+            "adopcion_grupo_7_11": adopcion_grupo_7_11,
+            "adopcion_grupo_12_17": adopcion_grupo_12_17,
 
 
             "sin_activar": sin_activar,

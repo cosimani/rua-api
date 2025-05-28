@@ -184,7 +184,7 @@ def generar_pdf_estadisticas(db: Session = Depends(get_db)):
     pdf.add_table(resumen_general)
 
     # 1) Proyectos aprobados
-    pdf.section_title("1) Estadísticas en relación a los proyectos aprobados")
+    pdf.section_title("1) Estadísticas en relación a los proyectos")
 
     tabla_1 = [
         ["Tipo de Proyecto", "Presentando", "En revisión", "Calendarizables", "Entrevistando"],
@@ -207,24 +207,24 @@ def generar_pdf_estadisticas(db: Session = Depends(get_db)):
     pdf.add_table(tabla_2)
 
     tabla_3 = [
-        ["Tipo de Proyecto", "Viables TND", "Viables disponibles", "Adopción definitiva"],
-        ["Pareja", "127", "35", "15"],
-        ["Monoparental", "59", "17", "8"]
+        ["Tipo de Proyecto", "Viables disponibles", "Adopción definitiva"],
+        ["Pareja", stats["proyectos_en_pareja_viable"], stats["proyectos_adopcion_definitiva_pareja"]],
+        ["Monoparental", stats["proyectos_monoparental_viable"], stats["proyectos_adopcion_definitiva_monoparental"]]
     ]
     pdf.add_table(tabla_3)
 
     # 2) NNA con sentencia
     
-    pdf.section_title("2) Estadísticas en relación a los NNA con sentencia de adoptabilidad")
+    pdf.section_title("2) Estadísticas en relación a NNAs")
 
     nna_sentencia = [
-        ["Edad / Estado", "Con Sentencia", "En Vinculación", "En Guarda", "En Adopción"],
-        ["0-3 años", 23, 19, 13, 2],
-        ["4-6 años", 20, 16, 10, 7],
-        ["7-11 años", 65, 18, 6, 2],
-        ["12-17 años", 69, 11, 11, 1],
+        ["Edad / Estado", "En Guarda", "En Adopción"],
+        ["0-6 años", stats["guarda_grupo_0_6"], stats["adopcion_grupo_0_6"]],
+        ["7-11 años", stats["guarda_grupo_7_11"], stats["adopcion_grupo_7_11"]],
+        ["12-17 años", stats["guarda_grupo_12_17"], stats["adopcion_grupo_12_17"]],
     ]
     pdf.add_table(nna_sentencia)
+
 
     pdf.add_page()
 

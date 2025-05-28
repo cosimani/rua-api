@@ -30,11 +30,11 @@ import time
 from database.config import get_db  # Importá get_db desde config.py
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import case, func, and_, or_, select, union_all, join, literal_column, desc
+from sqlalchemy import case, func, and_, or_, select, union_all, join, literal_column, desc, text
 from sqlalchemy.sql import literal_column
 
 
-from models.eventos_y_configs import RuaEvento
+from models.eventos_y_configs import RuaEvento, UsuarioNotificadoInactivo
 from datetime import date, datetime
 from security.security import get_current_user, require_roles, verify_api_key, get_password_hash
 import os
@@ -3653,3 +3653,167 @@ def descargar_documentos_usuario(
                 "next_page": "actual"
             }
         )
+
+
+
+@users_router.post("/notificar-inactivos")
+def notificar_usuario_inactivo(db: Session = Depends(get_db)):
+    # fechas de referencia
+    hoy = datetime.now()
+    hace_180 = hoy - timedelta(days=180)
+    hace_7 = hoy - timedelta(days=7)
+
+    # subconsulta: logins que tuvieron "inicio de sesión" en los últimos 180 días
+    subq_activos = (
+        db.query(RuaEvento.login)
+          .filter(
+              RuaEvento.evento_detalle.ilike("%inicio de sesión%"),
+              RuaEvento.evento_fecha >= hace_180
+          )
+          .distinct()
+          .subquery()
+    )
+
+    # para evitar el “Illegal mix of collations” al comparar login
+    login_0900 = User.login.collate('utf8mb4_0900_ai_ci')
+
+    # buscamos el primer usuario operativo inactivo y que no haya recibido aviso en los últimos 7 días
+    usuario = (
+        db.query(User)
+          .outerjoin(
+              UsuarioNotificadoInactivo,
+              login_0900 == UsuarioNotificadoInactivo.login
+          )
+          .filter(User.operativo == 'Y')
+          .filter(~login_0900.in_(subq_activos))
+          .filter(
+              or_(
+                  UsuarioNotificadoInactivo.mail_enviado_4 == None,
+                  UsuarioNotificadoInactivo.mail_enviado_4 <= hace_7
+              )
+          )
+          .order_by(User.fecha_alta.asc())
+          .limit(1)
+          .first()
+    )
+
+    if not usuario or not usuario.mail:
+        raise HTTPException(status_code=404,
+                            detail="No hay usuarios inactivos pendientes de notificar.")
+
+    # obtener o crear registro de notificaciones
+    notificacion = (
+        db.query(UsuarioNotificadoInactivo)
+          .filter(UsuarioNotificadoInactivo.login == usuario.login)
+          .first()
+    )
+
+    if not notificacion:
+        notificacion = UsuarioNotificadoInactivo(
+            login=usuario.login,
+            mail_enviado_1=hoy
+        )
+        db.add(notificacion)
+        nro_envio = 1
+    elif notificacion.mail_enviado_2 is None:
+        notificacion.mail_enviado_2 = hoy
+        nro_envio = 2
+    elif notificacion.mail_enviado_3 is None:
+        notificacion.mail_enviado_3 = hoy
+        nro_envio = 3
+    elif notificacion.mail_enviado_4 is None:
+        notificacion.mail_enviado_4 = hoy
+        nro_envio = 4
+    else:
+        # tras 4 avisos, damos de baja
+        usuario.operativo = 'N'
+        notificacion.dado_de_baja = hoy
+        evento_baja = RuaEvento(
+            login=usuario.login,
+            evento_detalle="Usuario dado de baja por inactividad prolongada.",
+            evento_fecha=hoy
+        )
+        db.add(evento_baja)
+        db.commit()
+        return {"message": f"Usuario {usuario.login} dado de baja por inactividad."}
+
+    # enviamos el mail
+    try:
+        cuerpo_html = f"""
+            <html>
+            <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                <tr>
+                    <td align="center">
+                    <table cellpadding="0" cellspacing="0" width="600"
+                        style="background-color: #ffffff; border-radius: 10px; padding: 30px;
+                                font-family: Arial, sans-serif; color: #333333;
+                                box-shadow: 0 0 10px rgba(0,0,0,0.05);">
+                        <tr>
+                        <td style="font-size: 18px; padding-bottom: 20px;">
+                            Hola <strong>{usuario.nombre}</strong>,
+                        </td>
+                        </tr>
+                        <tr>
+                        <td style="font-size: 17px; padding-bottom: 10px;">
+                            Detectamos que no utilizás el Sistema RUA desde hace más de 6 meses.
+                        </td>
+                        </tr>
+                        <tr>
+                        <td style="font-size: 17px; padding-bottom: 10px;">
+                            Este es el aviso número <strong>{nro_envio}</strong>.
+                        </td>
+                        </tr>
+                        <tr>
+                        <td>
+                            <table cellpadding="0" cellspacing="0" width="100%">
+                            <tr>
+                                <td style="border-left: 4px solid #ccc; padding-left: 12px;
+                                        font-size: 17px; color: #555555; background-color: #f9f9f9;
+                                        padding: 12px; border-radius: 4px;">
+                                    Ingresá al sistema RUA para conservar tu cuenta:<br>
+                                    <a href="https://rua.justiciacordoba.gob.ar" target="_blank">
+                                        https://rua.justiciacordoba.gob.ar
+                                    </a>
+                                </td>
+                            </tr>
+                            </table>
+                        </td>
+                        </tr>
+                        <tr>
+                        <td style="font-size: 17px; color: #d48806; padding-top: 20px;">
+                            📄 Si no ingresás nuevamente, tu cuenta será desactivada luego de 4 avisos semanales.
+                        </td>
+                        </tr>
+                        <tr>
+                        <td style="padding-top: 30px; font-size: 16px;">
+                            Saludos cordiales,<br><strong>Equipo RUA</strong>
+                        </td>
+                        </tr>
+                    </table>
+                    </td>
+                </tr>
+                </table>
+            </body>
+            </html>
+            """
+
+        enviar_mail(
+            destinatario=usuario.mail,
+            asunto="Aviso por inactividad - Sistema RUA",
+            cuerpo=cuerpo_html
+        )
+
+        evento_mail = RuaEvento(
+            login=usuario.login,
+            evento_detalle=f"Notificación de inactividad enviada (envío #{nro_envio}).",
+            evento_fecha=hoy
+        )
+        db.add(evento_mail)
+        db.commit()
+        return {"message": f"Notificación enviada a {usuario.login} (envío #{nro_envio})."}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500,
+                            detail=f"Error al enviar mail: {str(e)}")
