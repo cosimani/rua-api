@@ -234,11 +234,11 @@ def generar_pdf_estadisticas(db: Session = Depends(get_db)):
     pretensos_data = [
         ["Indicador", "Cantidad"],
         ["Logueados en el sistema", stats["usuarios_activos"]],
-        ["Con Curso aprobado", stats["con_curso_sin_ddjj"]],
+        # ["Con Curso aprobado", stats["con_curso_sin_ddjj"]],
         ["Con Curso y DDJJ firmada", stats["con_curso_con_ddjj"]],
-        ["Presentando documentación", stats["pretensos_presentando_documentacion"]],
-        ["Aprobados", stats["pretensos_aprobados"]],
-        ["Rechazados", stats["pretensos_rechazados"]],
+        # ["Presentando documentación", stats["pretensos_presentando_documentacion"]],
+        # ["Aprobados", stats["pretensos_aprobados"]],
+        # ["Rechazados", stats["pretensos_rechazados"]],
         ["Usuarios inactivos (sólo con usuario creado)", stats["sin_activar"]],
     ]
     pdf.add_table(pretensos_data)

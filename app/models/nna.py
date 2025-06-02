@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date
+from sqlalchemy import Column, Integer, String, Date, Enum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
@@ -34,6 +34,11 @@ class Nna(Base):
     nna_5A = Column(String(1))
     nna_5B = Column(String(1))
 
+    nna_estado = Column(Enum( 'sin_ficha_sin_sentencia', 'con_ficha_sin_sentencia', 'sin_ficha_con_sentencia', 
+                              'disponible', 'preparando_carpeta', 'enviada_a_juzgado', 'proyecto_seleccionado', 
+                              'vinculacion', 'guarda', 'adopcion_definitiva', 'interrupcion', 
+                              'mayor_sin_adopcion', 'en_convocatoria' ), nullable=True)             
+    
     # # Relación con otra tabla (si existe)
     detalle_nna = relationship("DetalleNNAEnCarpeta", back_populates="nna", lazy="joined")
     detalle_convocatorias = relationship("DetalleNNAEnConvocatoria", back_populates="nna", lazy="joined")

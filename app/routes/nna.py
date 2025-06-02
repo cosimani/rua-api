@@ -131,30 +131,20 @@ def get_nnas(
             elif filtros_salud:
                 query = query.filter(or_(*filtros_salud))
 
-        ids_en_carpeta = [row[0] for row in db.query(DetalleNNAEnCarpeta.nna_id).distinct().all()]
-
-        if disponible is not None:
-            if disponible:
-                query = query.filter(~Nna.nna_id.in_(ids_en_carpeta))
-                edad_limite = date.today().replace(year=date.today().year - 18)
-                query = query.filter(Nna.nna_fecha_nacimiento > edad_limite)
-            else:
-                query = query.filter(Nna.nna_id.in_(ids_en_carpeta))
-
-
-        # 🔀 SI HAY FILTRO POR ESTADO → traer todo y paginar en Python
+        # Filtrar por estado directamente en base de datos
         if estado_filtro:
-            nnas = query.all()
-        else:
-            total_records = query.count()
-            total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
-            if page > total_pages:
-                return {
-                    "page": page, "limit": limit,
-                    "total_pages": total_pages, "total_records": total_records,
-                    "nnas": []
-                }
-            nnas = query.offset((page - 1) * limit).limit(limit).all()
+            query = query.filter(Nna.nna_estado.in_(estado_filtro))
+
+        total_records = query.count()
+        total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
+        if page > total_pages:
+            return {
+                "page": page, "limit": limit,
+                "total_pages": total_pages, "total_records": total_records,
+                "nnas": []
+            }
+        nnas = query.offset((page - 1) * limit).limit(limit).all()
+
 
         # 💡 Armar resultado con estado
         nnas_list = []
@@ -173,42 +163,7 @@ def get_nnas(
             estado = "Disponible"
             comentarios_estado = ""
 
-            if nna.nna_id in ids_en_carpeta:
-                carpeta = (
-                    db.query(Carpeta)
-                    .join(DetalleNNAEnCarpeta)
-                    .filter(DetalleNNAEnCarpeta.nna_id == nna.nna_id)
-                    .order_by(Carpeta.fecha_creacion.desc())
-                    .first()
-                )
-                estado = "En carpeta"
-                if carpeta:
-                    if carpeta.estado_carpeta == "proyecto_seleccionado":
-                        proyecto = (
-                            db.query(Proyecto)
-                            .join(DetalleProyectosEnCarpeta)
-                            .filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta.carpeta_id)
-                            .order_by(Proyecto.proyecto_id.desc())
-                            .first()
-                        )
-                        if proyecto:
-                            pretensos = []
-                            for login in [proyecto.login_1, proyecto.login_2]:
-                                if login:
-                                    usuario = db.query(User).filter(User.login == login).first()
-                                    if usuario:
-                                        pretensos.append(f"{usuario.nombre} {usuario.apellido or ''}".strip())
-                            estado = {
-                                "vinculacion": "Vinculación",
-                                "guarda": "Guarda",
-                                "adopcion_definitiva": "Adopción definitiva"
-                            }.get(proyecto.estado_general, proyecto.estado_general)
-                            comentarios_estado = " y ".join(pretensos)
-                        else:
-                            estado = "Con dictamen"
-                    else:
-                        comentarios_estado = carpeta.estado_carpeta
-
+            
             nnas_list.append({
                 "nna_id": nna.nna_id,
                 "nna_nombre": nna.nna_nombre,
@@ -229,27 +184,9 @@ def get_nnas(
                 "nna_ficha": nna.nna_ficha,
                 "nna_sentencia": nna.nna_sentencia,
                 "nna_archivado": nna.nna_archivado,
-                "nna_disponible": nna.nna_id not in ids_en_carpeta,
-                "estado": estado,
+                "estado": nna.nna_estado,
                 "comentarios_estado": comentarios_estado
             })
-
-        # Aplicar filtro por estado si corresponde
-        if estado_filtro:
-            estado_lower = [e.lower().strip() for e in estado_filtro]
-            nnas_list = [n for n in nnas_list if n["estado"].lower().strip() in estado_lower]
-
-            total_records = len(nnas_list)
-            total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
-            if page > total_pages:
-                return {
-                    "page": page, "limit": limit,
-                    "total_pages": total_pages, "total_records": total_records,
-                    "nnas": []
-                }
-            start = (page - 1) * limit
-            end = start + limit
-            nnas_list = nnas_list[start:end]
 
         return {
             "page": page,
