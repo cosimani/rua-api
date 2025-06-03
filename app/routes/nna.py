@@ -92,7 +92,6 @@ def get_nnas(
             query = query.filter(and_(*condiciones_por_palabra))
 
 
-
         if provincia:
             query = query.filter(Nna.nna_provincia == provincia)
         if localidad:

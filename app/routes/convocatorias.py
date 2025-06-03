@@ -22,30 +22,37 @@ from helpers.notificaciones_utils import crear_notificacion_masiva_por_rol
 convocatoria_router = APIRouter()
 
 
-@convocatoria_router.get( "/", response_model=dict, dependencies=[Depends(verify_api_key)])
+
+@convocatoria_router.get("/", response_model=dict, dependencies=[Depends(verify_api_key)])
 def get_convocatorias(
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     search: Optional[str] = Query(None, min_length=3),
-    fecha_publicacion: Optional[str] = Query(None),
+    fecha_inicio: Optional[date] = Query(None),
+    fecha_fin: Optional[date] = Query(None),
     online: Optional[bool] = Query(None)
 ):
     try:
         query = db.query(Convocatoria)
 
         if search:
-            search_pattern = f"%{search}%"
+            pattern = f"%{search}%"
             query = query.filter(
-                (Convocatoria.convocatoria_referencia.ilike(search_pattern)) |
-                (Convocatoria.convocatoria_juzgado_interviniente.ilike(search_pattern))
+                (Convocatoria.convocatoria_referencia.ilike(pattern)) |
+                (Convocatoria.convocatoria_juzgado_interviniente.ilike(pattern))
             )
 
-        if fecha_publicacion:
-            query = query.filter(Convocatoria.convocatoria_fecha_publicacion == fecha_publicacion)
+        if fecha_inicio:
+            query = query.filter(Convocatoria.convocatoria_fecha_publicacion >= fecha_inicio)
+        if fecha_fin:
+            query = query.filter(Convocatoria.convocatoria_fecha_publicacion <= fecha_fin)
 
-        if online is not None:
-            query = query.filter(Convocatoria.convocatoria_online == ("Y" if online else "N"))
+        if online is True:
+            query = query.filter(Convocatoria.convocatoria_online == "Y")
+        elif online is False:
+            query = query.filter(Convocatoria.convocatoria_online == "N")
+
 
         total_records = query.count()
         total_pages = ceil(total_records / limit)

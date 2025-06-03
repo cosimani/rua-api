@@ -5,9 +5,9 @@ from sqlalchemy import DateTime
 from datetime import datetime
 from models.nna import Nna
 
-
-
 from models.base import Base
+
+
 
 class Convocatoria(Base):
     __tablename__ = "convocatorias"
