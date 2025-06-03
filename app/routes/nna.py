@@ -134,8 +134,12 @@ def get_nnas(
         if estado_filtro:
             query = query.filter(Nna.nna_estado.in_(estado_filtro))
 
+        # 👇 Ordenar por apellido y luego por nombre
+        query = query.order_by(Nna.nna_apellido.asc(), Nna.nna_nombre.asc())
+
         total_records = query.count()
         total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
+        
         if page > total_pages:
             return {
                 "page": page, "limit": limit,
