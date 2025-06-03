@@ -432,12 +432,12 @@ def aceptar_invitacion(
 
             puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
             host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
-            link = f"{protocolo}://{host_con_puerto}/menu_adoptantes/proyecto"
+            link = f"{protocolo}://{host_con_puerto}/login"
 
             if user1 and user1.mail:
                 estado_respuesta = "aceptado" if respuesta == "Y" else "rechazado"
                 color = "#28a745" if respuesta == "Y" else "#dc3545"
-                texto_botón = "Ir al Proyecto" if respuesta == "Y" else "Ir al sistema"
+                texto_botón = "Ir al sistema" if respuesta == "Y" else "Ir al sistema"
                 
                 if respuesta == "Y":
                     mensaje_personalizado = (

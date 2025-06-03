@@ -12,6 +12,7 @@ from security.security import verify_api_key, require_roles, get_current_user
 from models.carpeta import Carpeta, DetalleProyectosEnCarpeta, DetalleNNAEnCarpeta
 from models.proyecto import Proyecto, ProyectoHistorialEstado
 from models.users import User
+from models.nna import Nna
 from models.eventos_y_configs import RuaEvento
 from fastapi.responses import FileResponse, JSONResponse
 import tempfile, shutil
@@ -195,11 +196,12 @@ def crear_carpeta(
     }
     ```
     """
-    try:
-        proyectos_id = data.get("proyectos_id", [])
-        nna_id = data.get("nna_id", [])
 
-        if not proyectos_id and not nna_id:
+    try:
+        proyectos_ids = data.get("proyectos_id", [])
+        nnas_ids = data.get("nna_id", [])
+
+        if not proyectos_ids and not nnas_ids:
             return {
                 "success": False,
                 "tipo_mensaje": "rojo",
@@ -208,6 +210,43 @@ def crear_carpeta(
                 "next_page": "actual"
             }
 
+        # 1. Validación de proyectos
+        proyectos_invalidos = db.query(Proyecto).filter(
+            Proyecto.proyecto_id.in_(proyectos_ids),
+            Proyecto.estado_general != 'viable'
+        ).all()
+        if proyectos_invalidos:
+            ids_invalidos = [p.proyecto_id for p in proyectos_invalidos]
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": f"Los siguientes proyectos no están en estado 'viable': {ids_invalidos}",
+                "tiempo_mensaje": 8,
+                "next_page": "actual"
+            }
+
+        # 2. Validación de NNA
+        estados_permitidos = [
+            'sin_ficha_sin_sentencia',
+            'con_ficha_sin_sentencia',
+            'sin_ficha_con_sentencia',
+            'disponible'
+        ]
+        nnas_invalidos = db.query(Nna).filter(
+            Nna.nna_id.in_(nnas_ids),
+            Nna.nna_estado.notin_(estados_permitidos)
+        ).all()
+        if nnas_invalidos:
+            ids_invalidos = [n.nna_id for n in nnas_invalidos]
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": f"Los siguientes NNA no están en un estado permitido: {ids_invalidos}",
+                "tiempo_mensaje": 8,
+                "next_page": "actual"
+            }
+
+        # 3. Crear carpeta
         nueva_carpeta = Carpeta(
             fecha_creacion = datetime.now().date(),
             estado_carpeta = "preparando_carpeta"
@@ -216,9 +255,8 @@ def crear_carpeta(
         db.commit()
         db.refresh(nueva_carpeta)
 
-              
-        for proyecto_id in proyectos_id:
-            # Asociar a la carpeta
+        # 4. Asociar proyectos
+        for proyecto_id in proyectos_ids:
             detalle = DetalleProyectosEnCarpeta(
                 carpeta_id=nueva_carpeta.carpeta_id,
                 proyecto_id=proyecto_id,
@@ -233,7 +271,6 @@ def crear_carpeta(
                 proyecto.estado_general = "en_carpeta"
                 proyecto.ultimo_cambio_de_estado = datetime.now().date()
 
-                # Agregar al historial
                 historial = ProyectoHistorialEstado(
                     proyecto_id=proyecto.proyecto_id,
                     estado_anterior=estado_anterior,
@@ -242,15 +279,18 @@ def crear_carpeta(
                 )
                 db.add(historial)
 
-
-
-        # Asociar NNAs
-        for id_nna in nna_id:
+        # 5. Asociar NNAs
+        for id_nna in nnas_ids:
             detalle_nna = DetalleNNAEnCarpeta(
                 carpeta_id = nueva_carpeta.carpeta_id,
                 nna_id = id_nna
             )
             db.add(detalle_nna)
+
+            # Actualizar estado del NNA
+            nna = db.query(Nna).filter(Nna.nna_id == id_nna).first()
+            if nna:
+                nna.nna_estado = 'preparando_carpeta'
 
         db.commit()
 
@@ -262,6 +302,7 @@ def crear_carpeta(
             "next_page": "actual",
             "carpeta_id": nueva_carpeta.carpeta_id
         }
+
 
     except SQLAlchemyError as e:
         db.rollback()
@@ -308,9 +349,57 @@ def actualizar_carpeta(
             .all()
         proyectos_previos = {p.proyecto_id for p in proyectos_previos}
 
+
+        
+        # Validación previa antes de eliminar y volver a insertar
+        # Validar proyectos nuevos
+        proyectos_invalidos = db.query(Proyecto).filter(
+            Proyecto.proyecto_id.in_(nuevos_proyectos),
+            Proyecto.estado_general != 'viable'
+        ).all()
+        if proyectos_invalidos:
+            ids_invalidos = [p.proyecto_id for p in proyectos_invalidos]
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": f"Los siguientes proyectos no están en estado 'viable': {ids_invalidos}",
+                "tiempo_mensaje": 8,
+                "next_page": "actual"
+            }
+
+        # Validar NNA nuevos
+        estados_permitidos = [
+            'sin_ficha_sin_sentencia',
+            'con_ficha_sin_sentencia',
+            'sin_ficha_con_sentencia',
+            'disponible'
+        ]
+        nnas_invalidos = db.query(Nna).filter(
+            Nna.nna_id.in_(nuevos_nnas),
+            Nna.nna_estado.notin_(estados_permitidos)
+        ).all()
+        if nnas_invalidos:
+            ids_invalidos = [n.nna_id for n in nnas_invalidos]
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": f"Los siguientes NNA no están en un estado permitido: {ids_invalidos}",
+                "tiempo_mensaje": 8,
+                "next_page": "actual"
+            }
+
+
+        # Obtener NNA actualmente asociados antes de eliminar
+        nnas_previos = db.query(DetalleNNAEnCarpeta.nna_id)\
+            .filter(DetalleNNAEnCarpeta.carpeta_id == carpeta_id)\
+            .all()
+        nnas_previos = {n.nna_id for n in nnas_previos}
+
+
         # Eliminar asignaciones actuales
         db.query(DetalleProyectosEnCarpeta).filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta_id).delete()
         db.query(DetalleNNAEnCarpeta).filter(DetalleNNAEnCarpeta.carpeta_id == carpeta_id).delete()
+
 
         # Proyectos que se eliminaron
         proyectos_eliminados = proyectos_previos - nuevos_proyectos
@@ -329,6 +418,20 @@ def actualizar_carpeta(
                     estado_nuevo="viable",
                     fecha_hora=datetime.now()
                 ))
+
+
+        
+
+        # NNAs eliminados
+        nnas_eliminados = nnas_previos - nuevos_nnas
+
+        # Actualizar estado de NNAs eliminados
+        for nna_id in nnas_eliminados:
+            nna = db.query(Nna).filter(Nna.nna_id == nna_id).first()
+            if nna:
+                nna.nna_estado = 'disponible'
+
+
 
         # Insertar nuevas asignaciones y cambiar estado a 'en_carpeta'
         for proyecto_id in nuevos_proyectos:
@@ -352,12 +455,16 @@ def actualizar_carpeta(
                 ))
 
 
-
         for nna_id in nuevos_nnas:
             db.add(DetalleNNAEnCarpeta(
                 carpeta_id = carpeta_id,
                 nna_id = nna_id
             ))
+
+            nna = db.query(Nna).filter(Nna.nna_id == nna_id).first()
+            if nna:
+                nna.nna_estado = 'preparando_carpeta'
+
 
         # Actualizar estado de la carpeta según asignaciones
         if not nuevos_proyectos and not nuevos_nnas:
@@ -395,6 +502,7 @@ def actualizar_carpeta(
             "tiempo_mensaje": 8,
             "next_page": "actual"
         }
+
 
 
 @carpetas_router.delete("/{carpeta_id}", response_model=dict,
