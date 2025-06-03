@@ -695,3 +695,67 @@ def actualizar_online(convocatoria_id: int, data: dict = Body(...), db: Session 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+# @convocatoria_router.get("/para-select/para-filtro", response_model=List[dict], 
+#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+# def get_convocatorias_para_filtro(
+#     db: Session = Depends(get_db),
+#     page: int = Query(1, ge=1),
+#     limit: int = Query(30, ge=1, le=100)
+# ):
+#     try:
+#         offset = (page - 1) * limit
+
+#         convocatorias = db.query(Convocatoria)\
+#             .order_by(Convocatoria.convocatoria_fecha_publicacion.desc())\
+#             .offset(offset)\
+#             .limit(limit)\
+#             .all()
+
+#         return [{
+#             "value": c.convocatoria_id,
+#             "label": f"{c.convocatoria_referencia} - {c.convocatoria_llamado} ( {c.convocatoria_fecha_publicacion} )"
+#         } for c in convocatorias]
+
+#     except SQLAlchemyError as e:
+#         raise HTTPException(status_code=500, detail=f"Error al obtener convocatorias para filtro: {str(e)}")
+
+
+from sqlalchemy.orm import aliased
+from sqlalchemy import func
+
+@convocatoria_router.get("/para-select/para-filtro", response_model=List[dict], 
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def get_convocatorias_para_filtro(
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    limit: int = Query(30, ge=1, le=100)
+):
+    try:
+        offset = (page - 1) * limit
+
+        # Subconsulta con cantidad de postulaciones por convocatoria
+        subq = db.query(
+            Postulacion.convocatoria_id,
+            func.count(Postulacion.postulacion_id).label("total_postulantes")
+        ).group_by(Postulacion.convocatoria_id).subquery()
+
+        # Traer convocatorias y unir con subconsulta
+        results = db.query(
+            Convocatoria,
+            func.coalesce(subq.c.total_postulantes, 0).label("total_postulantes")
+        ).outerjoin(subq, Convocatoria.convocatoria_id == subq.c.convocatoria_id)\
+         .order_by(Convocatoria.convocatoria_fecha_publicacion.desc())\
+         .offset(offset)\
+         .limit(limit)\
+         .all()
+
+        return [{
+            "value": c.convocatoria_id,
+            "label": f"{c.convocatoria_referencia} - {c.convocatoria_llamado} \
+                ({c.convocatoria_fecha_publicacion}) - Postulantes: {total_postulantes} "
+        } for c, total_postulantes in results]
+
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener convocatorias para filtro: {str(e)}")

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Request, status, Body, UploadFile, File, Form
 from typing import List, Optional, Literal, Tuple
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session, aliased, joinedload
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import func, case, and_, or_, Integer, literal_column
 import json
@@ -47,36 +47,43 @@ def get_postulaciones(
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
-    search: Optional[str] = Query(None, min_length=2)
+    search: Optional[str] = Query(None),
+    convocatoria_id: Optional[int] = Query(None)
+
 ):
     try:
-        query = db.query(Postulacion).order_by(Postulacion.fecha_postulacion.desc())
+        # query = db.query(Postulacion).order_by(Postulacion.fecha_postulacion.desc())
+        query = db.query(Postulacion).options(joinedload(Postulacion.convocatoria)).order_by(Postulacion.fecha_postulacion.desc())
 
-        if search:
-          palabras = search.strip().split()
-          condiciones = []
+        if search :
+            palabras = search.strip().split()
+            condiciones = []
 
-          for palabra in palabras:
-              like = f"%{palabra}%"
-              condiciones.append(
-                  or_(
-                      Postulacion.nombre.ilike(like),
-                      Postulacion.apellido.ilike(like),
-                      Postulacion.dni.ilike(like),
-                      Postulacion.calle_y_nro.ilike(like),
-                      Postulacion.barrio.ilike(like),
-                      Postulacion.localidad.ilike(like),
-                      Postulacion.provincia.ilike(like),
-                      Postulacion.mail.ilike(like),
-                      Postulacion.ocupacion.ilike(like),
-                      Postulacion.conyuge_nombre.ilike(like),
-                      Postulacion.conyuge_apellido.ilike(like),
-                      Postulacion.conyuge_dni.ilike(like),
-                      Postulacion.conyuge_otros_datos.ilike(like),
-                  )
-              )
+            for palabra in palabras:
+                like = f"%{palabra}%"
+                condiciones.append(
+                    or_(
+                        Postulacion.nombre.ilike(like),
+                        Postulacion.apellido.ilike(like),
+                        Postulacion.dni.ilike(like),
+                        Postulacion.calle_y_nro.ilike(like),
+                        Postulacion.barrio.ilike(like),
+                        Postulacion.localidad.ilike(like),
+                        Postulacion.provincia.ilike(like),
+                        Postulacion.mail.ilike(like),
+                        Postulacion.ocupacion.ilike(like),
+                        Postulacion.conyuge_nombre.ilike(like),
+                        Postulacion.conyuge_apellido.ilike(like),
+                        Postulacion.conyuge_dni.ilike(like),
+                        Postulacion.conyuge_otros_datos.ilike(like),
+                    )
+                )
 
-          query = query.filter(and_(*condiciones))  # todas las palabras deben coincidir en al menos un campo
+            query = query.filter(and_(*condiciones))  # todas las palabras deben coincidir en al menos un campo
+
+        if convocatoria_id:
+            query = query.filter(Postulacion.convocatoria_id == convocatoria_id)
+
 
         total_records = query.count()
         total_pages = ceil(total_records / limit)
@@ -85,6 +92,10 @@ def get_postulaciones(
         datos = [{
             "postulacion_id": p.postulacion_id,
             "convocatoria_id": p.convocatoria_id,
+            "convocatoria": {
+                "convocatoria_referencia": p.convocatoria.convocatoria_referencia if p.convocatoria else None,
+                "convocatoria_llamado": p.convocatoria.convocatoria_llamado if p.convocatoria else None,
+            } if p.convocatoria else None,
             "fecha_postulacion": p.fecha_postulacion,
             "nombre": p.nombre,
             "apellido": p.apellido,
@@ -115,7 +126,12 @@ def get_postulaciones(
                   dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
 def get_postulacion(postulacion_id: int, db: Session = Depends(get_db)):
     try:
-        postulacion = db.query(Postulacion).filter(Postulacion.postulacion_id == postulacion_id).first()
+        # postulacion = db.query(Postulacion).filter(Postulacion.postulacion_id == postulacion_id).first()
+        postulacion = db.query(Postulacion)\
+            .options(joinedload(Postulacion.convocatoria))\
+            .filter(Postulacion.postulacion_id == postulacion_id)\
+            .first()
+        
         if not postulacion:
             raise HTTPException(status_code=404, detail="Postulación no encontrada")
 
@@ -129,6 +145,10 @@ def get_postulacion(postulacion_id: int, db: Session = Depends(get_db)):
         return {
             "postulacion_id": postulacion.postulacion_id,
             "convocatoria_id": postulacion.convocatoria_id,
+            "convocatoria": {
+                "convocatoria_referencia": postulacion.convocatoria.convocatoria_referencia if postulacion.convocatoria else None,
+                "convocatoria_llamado": postulacion.convocatoria.convocatoria_llamado if postulacion.convocatoria else None,
+            } if postulacion.convocatoria else None,
             "fecha_postulacion": postulacion.fecha_postulacion,
             "nombre": postulacion.nombre,
             "apellido": postulacion.apellido,

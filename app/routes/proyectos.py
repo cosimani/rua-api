@@ -134,7 +134,8 @@ def get_proyectos(
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
-    search: Optional[str] = Query(None, min_length=3, description="Búsqueda por al menos 3 dígitos alfanuméricos"),
+    # search: Optional[str] = Query(None, min_length=3, description="Búsqueda por al menos 3 dígitos alfanuméricos"),
+    search: Optional[str] = Query(None, description="..."),
     proyecto_tipo: Optional[Literal["Monoparental", "Matrimonio", "Unión convivencial"]] = Query(
         None, description="Filtrar por tipo de proyecto (Monoparental, Matrimonio, Unión convivencial)"
     ),
@@ -297,8 +298,9 @@ def get_proyectos(
                     query = query.filter(field == "Y")
         
 
-        if search:
-            palabras = search.lower().split()  # divide en palabras
+
+        if search and len(search) >= 3:
+            palabras = search.lower().split()
             condiciones_por_palabra = []
 
             for palabra in palabras:
@@ -315,9 +317,31 @@ def get_proyectos(
                         Proyecto.proyecto_provincia.ilike(f"%{palabra}%")
                     )
                 )
-
             # Todas las palabras deben coincidir en algún campo (AND entre ORs)
             query = query.filter(and_(*condiciones_por_palabra))
+
+
+        # if search:
+        #     palabras = search.lower().split()  # divide en palabras
+        #     condiciones_por_palabra = []
+
+        #     for palabra in palabras:
+        #         condiciones_por_palabra.append(
+        #             or_(
+        #                 func.lower(func.concat(User1.nombre, " ", User1.apellido)).ilike(f"%{palabra}%"),
+        #                 func.lower(func.concat(User2.nombre, " ", User2.apellido)).ilike(f"%{palabra}%"),
+        #                 Proyecto.login_1.ilike(f"%{palabra}%"),
+        #                 Proyecto.login_2.ilike(f"%{palabra}%"),
+        #                 Proyecto.nro_orden_rua.ilike(f"%{palabra}%"),
+        #                 Proyecto.proyecto_calle_y_nro.ilike(f"%{palabra}%"),
+        #                 Proyecto.proyecto_barrio.ilike(f"%{palabra}%"),
+        #                 Proyecto.proyecto_localidad.ilike(f"%{palabra}%"),
+        #                 Proyecto.proyecto_provincia.ilike(f"%{palabra}%")
+        #             )
+        #         )
+
+        #     # Todas las palabras deben coincidir en algún campo (AND entre ORs)
+        #     query = query.filter(and_(*condiciones_por_palabra))
 
 
         # Determina si nro_orden_rua es válido (4 o 5 dígitos numéricos)
