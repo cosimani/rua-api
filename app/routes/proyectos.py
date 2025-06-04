@@ -2372,24 +2372,24 @@ def agendar_entrevista(
                 "next_page": "actual"
             }
 
-        if not indices_actuales or min(indices_actuales) > max_evaluacion_completada + 1:
-            return {
-                "success": False,
-                "tipo_mensaje": "naranja",
-                "mensaje": "Las evaluaciones deben realizarse en orden. No se pueden saltear "
-                           "evaluaciones. Deben completarse en secuencia.",
-                "tiempo_mensaje": 7,
-                "next_page": "actual"
-            }
+        # if not indices_actuales or min(indices_actuales) > max_evaluacion_completada + 1:
+        #     return {
+        #         "success": False,
+        #         "tipo_mensaje": "naranja",
+        #         "mensaje": "Las evaluaciones deben realizarse en orden. No se pueden saltear "
+        #                    "evaluaciones. Deben completarse en secuencia.",
+        #         "tiempo_mensaje": 7,
+        #         "next_page": "actual"
+        #     }
 
-        if sorted(indices_actuales) != list(range(min(indices_actuales), max(indices_actuales)+1)):
-            return {
-                "success": False,
-                "tipo_mensaje": "naranja",
-                "mensaje": "Las evaluaciones seleccionadas deben ser consecutivas y estar en orden.",
-                "tiempo_mensaje": 7,
-                "next_page": "actual"
-            }
+        # if sorted(indices_actuales) != list(range(min(indices_actuales), max(indices_actuales)+1)):
+        #     return {
+        #         "success": False,
+        #         "tipo_mensaje": "naranja",
+        #         "mensaje": "Las evaluaciones seleccionadas deben ser consecutivas y estar en orden.",
+        #         "tiempo_mensaje": 7,
+        #         "next_page": "actual"
+        #     }
 
         # Registrar entrevista
         nueva_agenda = AgendaEntrevistas(
@@ -2751,14 +2751,14 @@ def solicitar_valoracion_final(
 
         faltantes = EVALUACIONES_REQUERIDAS - evaluaciones_realizadas
 
-        if faltantes:
-            return {
-                "success": False,
-                "tipo_mensaje": "naranja",
-                "mensaje": f"Debe completar todas las instancias evaluativas antes de solicitar la valoración final. Faltan: {', '.join(faltantes)}.",
-                "tiempo_mensaje": 8,
-                "next_page": "actual"
-            }
+        # if faltantes:
+        #     return {
+        #         "success": False,
+        #         "tipo_mensaje": "naranja",
+        #         "mensaje": f"Debe completar todas las instancias evaluativas antes de solicitar la valoración final. Faltan: {', '.join(faltantes)}.",
+        #         "tiempo_mensaje": 8,
+        #         "next_page": "actual"
+        #     }
 
 
         # Cambiar estado
@@ -2827,6 +2827,56 @@ def solicitar_valoracion_final(
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
+
+
+
+@proyectos_router.get("/proyecto/{proyecto_id}/fecha-para-valorar", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def obtener_fecha_para_valorar(
+    proyecto_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    📅 Devuelve la fecha y hora en la que un proyecto pasó al estado `para_valorar`.
+
+    🔐 Solo accesible para administrador, supervisora y profesional.
+    """
+    try:
+        historial = db.query(ProyectoHistorialEstado)\
+            .filter(
+                ProyectoHistorialEstado.proyecto_id == proyecto_id,
+                ProyectoHistorialEstado.estado_nuevo == "para_valorar"
+            )\
+            .order_by(ProyectoHistorialEstado.fecha_hora.asc())\
+            .first()
+
+        if not historial:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "No se encontró un cambio al estado 'para_valorar' para este proyecto.",
+                "tiempo_mensaje": 6
+            }
+
+        return {
+            "success": True,
+            "titulo": "Cambio a estado 'para_valorar'",
+            "fecha_hora": historial.fecha_hora,  # datetime sin formatear
+            "comentarios": None,
+            "login_que_agenda": None,
+            "creada_en": None,
+            "evaluaciones": [],
+            "evaluacion_comentarios": None
+        }
+
+    except SQLAlchemyError as e:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al consultar el historial: {str(e)}",
+            "tiempo_mensaje": 6
+        }
+
 
 
         
