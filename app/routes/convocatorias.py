@@ -1,7 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Body
 from typing import List, Optional
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, aliased
 from sqlalchemy.exc import SQLAlchemyError
+
+from sqlalchemy import func
+import re
+
 
 from database.config import get_db
 from security.security import get_current_user, verify_api_key, require_roles
@@ -722,8 +726,6 @@ def actualizar_online(convocatoria_id: int, data: dict = Body(...), db: Session 
 #         raise HTTPException(status_code=500, detail=f"Error al obtener convocatorias para filtro: {str(e)}")
 
 
-from sqlalchemy.orm import aliased
-from sqlalchemy import func
 
 @convocatoria_router.get("/para-select/para-filtro", response_model=List[dict], 
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
@@ -759,3 +761,64 @@ def get_convocatorias_para_filtro(
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener convocatorias para filtro: {str(e)}")
+
+
+
+@convocatoria_router.get("/timeline/{convocatoria_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def obtener_timeline_convocatoria(convocatoria_id: int, db: Session = Depends(get_db)):
+    """
+    📅 Devuelve una línea de tiempo de una convocatoria:
+    - Fecha de publicación de la convocatoria.
+    - Fechas de cada postulación recibida.
+    """
+    try:
+        convocatoria = db.query(Convocatoria).filter(
+            Convocatoria.convocatoria_id == convocatoria_id
+        ).first()
+
+        if not convocatoria:
+            raise HTTPException(status_code=404, detail="Convocatoria no encontrada.")
+
+        timeline = []
+
+        # 📌 Evento de publicación
+        if convocatoria.convocatoria_fecha_publicacion:
+            timeline.append({
+                "fecha": convocatoria.convocatoria_fecha_publicacion,
+                "evento": f"📢 Publicación de convocatoria: {convocatoria.convocatoria_referencia}"
+            })
+
+        # 📝 Postulaciones
+        postulaciones = db.query(Postulacion).filter(
+            Postulacion.convocatoria_id == convocatoria_id
+        ).order_by(Postulacion.fecha_postulacion).all()
+
+        for p in postulaciones:
+            nombre_completo = f"{p.nombre} {p.apellido}".strip()
+            timeline.append({
+                "fecha": p.fecha_postulacion,
+                "evento": f"📝 Postulación recibida de {nombre_completo} (DNI {p.dni})"
+            })
+
+        # Ordenar cronológicamente
+        timeline.sort(
+            key=lambda x: datetime.combine(x["fecha"], datetime.min.time()) if isinstance(x["fecha"], date) else x["fecha"]
+        )
+
+        # Formatear fechas a string YYYY-MM-DD
+        for item in timeline:
+            fecha = item["fecha"]
+            if isinstance(fecha, (datetime, date)):
+                item["fecha"] = fecha.strftime("%Y-%m-%d")
+
+            # Limpiar HTML si hay
+            item["evento"] = re.sub(r"<[^>]*?>", "", item["evento"]).strip()
+
+        return {
+            "success": True,
+            "timeline": timeline
+        }
+
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Error al generar la línea de tiempo: {str(e)}")
