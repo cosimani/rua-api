@@ -9,7 +9,7 @@ import re
 
 from database.config import get_db
 from security.security import get_current_user, verify_api_key, require_roles
-from helpers.utils import normalizar_y_validar_dni
+from helpers.utils import normalizar_y_validar_dni, verificar_recaptcha
 from datetime import datetime
 from models.convocatorias import Postulacion, Convocatoria, DetalleProyectoPostulacion, DetalleNNAEnConvocatoria  
 from models.eventos_y_configs import RuaEvento
@@ -332,7 +332,7 @@ def delete_convocatoria(convocatoria_id: int, db: Session = Depends(get_db)):
 
 
 @convocatoria_router.post("/postulacion", response_model = dict, dependencies = [Depends(verify_api_key)])
-def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_db), ):
+async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_db), ):
     """
     📝 Da de alta una nueva postulación a convocatoria y crea automáticamente el proyecto correspondiente.
 
@@ -389,6 +389,20 @@ def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_db), )
     """
 
     try:
+        
+        recaptcha_token = datos.get("recaptcha_token")
+        if not recaptcha_token or not await verificar_recaptcha(recaptcha_token):
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "<p>Falló la verificación reCAPTCHA. Por favor, intentá de nuevo.</p>",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+        datos.pop("recaptcha_token", None)
+
+
         convocatoria_id = datos.get("convocatoria_id")
 
         if not convocatoria_id:

@@ -27,6 +27,36 @@ from email.utils import formataddr
 
 from models.eventos_y_configs import SecSettings
 
+import httpx
+
+
+
+
+RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY")
+
+async def verificar_recaptcha(token: str, remote_ip: str = "", threshold: float = 0.5) -> bool:
+    """
+    Verifica el token de reCAPTCHA v3 contra la API de Google.
+    """
+    url = "https://www.google.com/recaptcha/api/siteverify"
+    data = {
+        "secret": RECAPTCHA_SECRET_KEY,
+        "response": token,
+        "remoteip": remote_ip,
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, data=data)
+            result = response.json()
+            return result.get("success", False) and result.get("score", 0) >= threshold
+    except Exception as e:
+        print("❌ Error al verificar reCAPTCHA:", e)
+        return False
+
+
+
+
 
 
 def get_setting_value(db: Session, setting_name: str) -> str:

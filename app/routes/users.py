@@ -5,7 +5,7 @@ from math import ceil
 from database.config import SessionLocal
 from helpers.utils import check_consecutive_numbers, get_user_name_by_login, \
         build_subregistro_string, parse_date, calculate_age, validar_correo, generar_codigo_para_link, \
-        normalizar_y_validar_dni, capitalizar_nombre, normalizar_celular
+        normalizar_y_validar_dni, capitalizar_nombre, normalizar_celular, verificar_recaptcha
 
 from helpers.moodle import existe_mail_en_moodle, existe_dni_en_moodle, crear_usuario_en_moodle, get_idcurso, \
     enrolar_usuario, get_idusuario_by_mail, eliminar_usuario_en_moodle, actualizar_usuario_en_moodle, \
@@ -853,9 +853,8 @@ def get_user_by_login(
 
 
 
-
-@users_router.post("/", response_model=dict, dependencies=[Depends( verify_api_key )])
-def create_user(user: dict = Body(...), db: Session = Depends(get_db)):
+@users_router.post("/", response_model=dict, dependencies=[Depends(verify_api_key)])
+async def create_user(request: Request, db: Session = Depends(get_db)):
     """
     📌 **Crea un nuevo usuario y asigna su grupo.**
 
@@ -896,9 +895,33 @@ def create_user(user: dict = Body(...), db: Session = Depends(get_db)):
     }
     """
 
+    body = await request.json()
+    recaptcha_token = body.get("recaptcha_token")
+    if not recaptcha_token:
+        return {
+            "tipo_mensaje": "rojo",
+            "mensaje": (
+                "<p>Debe completar el reCAPTCHA.</p>"
+                "<p>Intentá nuevamente.</p>"
+            ),
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+    if not await verificar_recaptcha(recaptcha_token, request.client.host):
+        return {
+            "tipo_mensaje": "rojo",
+            "mensaje": (
+                "<p>No se pudo verificar que sos humano.</p>"
+                "<p>Intentá nuevamente.</p>"
+            ),
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
     # Extraer datos de entrada
 
-    dni = normalizar_y_validar_dni(user.get("dni")) 
+    dni = normalizar_y_validar_dni(body.get("dni")) 
     if not dni: 
         return {
             "tipo_mensaje": "amarillo",
@@ -909,14 +932,14 @@ def create_user(user: dict = Body(...), db: Session = Depends(get_db)):
             "next_page": "actual"
         }
 
-    clave = user.get("clave", "")
-    confirm_clave = user.get("confirm_clave", "")
-    nombre = capitalizar_nombre(user.get("nombre", ""))
-    apellido = capitalizar_nombre(user.get("apellido", ""))
-    mail = user.get("mail", "").lower()
-    group_description = user.get("group_description", "")
+    clave = body.get("clave", "")
+    confirm_clave = body.get("confirm_clave", "")
+    nombre = capitalizar_nombre(body.get("nombre", ""))
+    apellido = capitalizar_nombre(body.get("apellido", ""))
+    mail = body.get("mail", "").lower()
+    group_description = body.get("group_description", "")
 
-    celular_raw = user.get("celular", "")
+    celular_raw = body.get("celular", "")
     resultado_validacion_celular = normalizar_celular(celular_raw)
 
     if resultado_validacion_celular["valido"]:

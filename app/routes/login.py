@@ -4,7 +4,9 @@ import bcrypt
 from fastapi import APIRouter, HTTPException, Depends, status, Form, Query, Request, Body
 from sqlalchemy.orm import Session
 from database.config import get_db
-from helpers.utils import check_consecutive_numbers, detect_hash_and_verify, generar_codigo_para_link, enviar_mail
+from helpers.utils import check_consecutive_numbers, detect_hash_and_verify, generar_codigo_para_link, enviar_mail, \
+    verificar_recaptcha
+
 from datetime import timedelta, datetime
 from security.security import verify_password, create_access_token, get_password_hash, verify_api_key
 from helpers.moodle import existe_mail_en_moodle, existe_dni_en_moodle, is_curso_aprobado, get_setting_value, \
@@ -25,6 +27,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import hashlib
 import re
 from datetime import datetime
+from typing import Optional
 
 from helpers.utils import check_consecutive_numbers
 
@@ -47,7 +50,7 @@ TIEMPO_BLOQUEO_IP_MINUTOS = 30
 
 
 @login_router.post("/login", response_model = dict)
-def login(
+async def login(    
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
@@ -58,11 +61,26 @@ def login(
     """
 
     ip = request.client.host
+    now = datetime.now()
+
+    # ⚠️ Extraer el form primero
+    form = await request.form()
+    recaptcha_token = form.get("recaptcha_token")
+
+    # ✅ Validar token reCAPTCHA
+    if not recaptcha_token or not await verificar_recaptcha(recaptcha_token, ip):
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "No se pudo verificar que sos humano. Intentá nuevamente.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual",
+        }
+    
 
     # Buscar registro de esa IP
     intento_ip = db.query(LoginIntentoIP).filter_by(ip=ip).first()
-    now = datetime.now()
-    
+   
 
     if intento_ip and intento_ip.bloqueo_hasta and intento_ip.bloqueo_hasta > now:
         minutos_restantes = int((intento_ip.bloqueo_hasta - now).total_seconds() / 60)
@@ -73,6 +91,7 @@ def login(
             "tiempo_mensaje": 8,
             "next_page": "actual",
         }
+
 
     user = db.query(User).filter(User.login == username).first()
 
@@ -526,15 +545,28 @@ def aceptar_invitacion(
 
 
 @login_router.post("/recuperar-clave", response_model = dict)
-def recuperar_clave(
+async def recuperar_clave(
     dni: str = Form(...),
     mail: str = Form(...),
+    recaptcha_token: str = Form(...),
     db: Session = Depends(get_db)
 ):
     """
     📩 Solicita recuperación de contraseña.
     Valida DNI y correo, y envía un mail con un enlace para restablecer la clave.
     """
+
+    # ✅ Verificar reCAPTCHA
+    if not await verificar_recaptcha(recaptcha_token):
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "<p>Falló la verificación reCAPTCHA. Por favor, intentá de nuevo.</p>",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+    
+    
     user = db.query(User).filter(User.login == dni, User.mail == mail).first()
 
     if not user:
@@ -693,14 +725,29 @@ def recuperar_clave(
 
 
 @login_router.post("/reenviar-activacion", response_model=dict)
-def reenviar_activacion(
+async def reenviar_activacion(
     dni: str = Form(...),
     mail: str = Form(...),
+    recaptcha_token: str = Form(...),
     db: Session = Depends(get_db)
 ):
     """
     📩 Reenvía el correo de activación si el usuario existe y aún no activó su cuenta.
     """
+
+    # ✅ Validar reCAPTCHA
+    if not await verificar_recaptcha(recaptcha_token, threshold=0.3):
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": (
+                "<p>No pudimos validar que seas una persona real.</p>"
+                "<p>Por favor, actualizá la página e intentá nuevamente.</p>"
+            ),
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+    
     user = db.query(User).filter(User.login == dni, User.mail == mail).first()
 
     if not user:
@@ -854,15 +901,28 @@ def reenviar_activacion(
 
 
 @login_router.post("/nueva-clave", response_model = dict)
-def establecer_nueva_clave(
+async def establecer_nueva_clave(
     activacion: str = Form(..., description = "Código de recuperación enviado por correo"),
     clave: str = Form(..., description = "Nueva contraseña"),
+    recaptcha_token: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
     """
     ✅ Establece una nueva contraseña usando el código de recuperación.
     Hashea y actualiza la contraseña en la base local y en Moodle si corresponde.
     """
+
+    # 👮‍♂️ Validar reCAPTCHA
+    if not recaptcha_token or not await verificar_recaptcha(recaptcha_token):
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "<p>Error en la validación reCAPTCHA. Por favor intentá de nuevo.</p>",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+    
+
     user = db.query(User).filter(User.recuperacion_code == activacion).first()
 
     if not user:

@@ -14,9 +14,8 @@ passlib
 passlib[bcrypt]
 bcrypt
 fpdf
-
 pillow
 PyMuPDF
-
+httpx
 
 
