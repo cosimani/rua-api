@@ -492,8 +492,6 @@ def get_users(
 
                 "proyectos_ids": proyectos_ids  # Aquí agregamos la lista de proyecto_id
 
-                
-
 
             }
             users_list.append(user_dict)

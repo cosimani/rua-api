@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from database.config import get_db  # Importamos el acceso a la DB
 from models.users import User, Group, UserGroup
 
-
 # Cargar API_KEY desde el entorno
 API_KEY = os.getenv("API_KEY")
 

@@ -2407,6 +2407,11 @@ def agendar_entrevista(
             evento_fecha=datetime.now()
         ))
 
+        # Cambiar el estado del proyecto a "entrevistando" si aún no lo está
+        if proyecto.estado_general == "calendarizando":
+            proyecto.estado_general = "entrevistando"
+            db.add(proyecto)  # No es obligatorio porque ya está en la sesión, pero por claridad está bien
+
         db.commit()
 
 
@@ -4827,6 +4832,181 @@ def agregar_comentario_extra(
 
 
 
+@proyectos_router.post("/solicitar-actualizacion", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["supervisora"]))])
+def solicitar_actualizacion_proyecto(
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    📥 Solicita una actualización de la documentación del proyecto adoptivo.
+
+    ### JSON esperado:
+    {
+      "proyecto_id": 123,
+      "mensaje_html": "<p>Falta completar la documentación del proyecto. Por favor, revise y actualice la información requerida.</p>"
+    }
+    """
+    try:
+        proyecto_id = data.get("proyecto_id")
+        mensaje_html = data.get("mensaje_html")
+
+        if not proyecto_id or not mensaje_html:
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "Debe especificarse el 'proyecto_id' y el 'mensaje_html'",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+        if not proyecto:
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "Proyecto no encontrado",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # Guardar estado anterior
+        estado_anterior = proyecto.estado_general
+
+        # Cambiar estado a "actualizando"
+        proyecto.estado_general = "actualizando"
+        proyecto.ultimo_cambio_de_estado = datetime.now().date()
+
+        # Registrar historial
+        historial = ProyectoHistorialEstado(
+            proyecto_id=proyecto.proyecto_id,
+            estado_anterior=estado_anterior,
+            estado_nuevo="actualizando",
+            fecha_hora=datetime.now()
+        )
+        db.add(historial)
+
+        # Evento general
+        login_supervisora = current_user["user"]["login"]
+        supervisora = db.query(User).filter(User.login == login_supervisora).first()
+        nombre_supervisora = f"{supervisora.nombre} {supervisora.apellido}"
+
+        # Notificación y correo a cada usuario
+        logins_destinatarios = [proyecto.login_1]
+        if proyecto.login_2:
+            logins_destinatarios.append(proyecto.login_2)
+
+        for login_destinatario in logins_destinatarios:
+            user = db.query(User).filter(User.login == login_destinatario).first()
+            if not user:
+                continue
+
+            resultado = crear_notificacion_individual(
+                db=db,
+                login_destinatario=login_destinatario,
+                mensaje=mensaje_html,
+                link="/menu_adoptantes/portada",
+                tipo_mensaje="naranja",
+                enviar_por_whatsapp=False,
+                login_que_notifico=login_supervisora
+            )
+            if not resultado["success"]:
+                raise Exception(resultado["mensaje"])
+
+            db.add(RuaEvento(
+                login=login_supervisora,
+                evento_detalle=(
+                    f"Se solicitó actualización del proyecto adoptivo correspondiente a "
+                    f"{proyecto.login_1}" +
+                    (f" y {proyecto.login_2}" if proyecto.login_2 else "") +
+                    f" por parte de {nombre_supervisora}."
+                ),
+                evento_fecha=datetime.now()
+            ))
+
+
+            if user.mail:
+                try:
+                    cuerpo = f"""
+                    <html>
+                    <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                        <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                        <tr>
+                            <td align="center">
+                            <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                <tr>
+                                <td style="font-size: 24px; color: #fd7e14;">
+                                    <strong>Hola {user.nombre},</strong>
+                                </td>
+                                </tr>
+                                <tr>
+                                <td style="padding-top: 20px; font-size: 17px;">
+                                    {mensaje_html}
+                                </td>
+                                </tr>
+                                <tr>
+                                <td align="center" style="font-size: 17px; padding-top: 30px;">
+                                    <p><strong>Muchas gracias.</strong></p>
+                                </td>
+                                </tr>
+                                <tr>
+                                <td style="padding-top: 30px;">
+                                    <hr style="border: none; border-top: 1px solid #dee2e6;">
+                                    <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
+                                    <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                    </p>
+                                </td>
+                                </tr>
+                            </table>
+                            </td>
+                        </tr>
+                        </table>
+                    </body>
+                    </html>
+                    """
+                    enviar_mail(
+                        destinatario=user.mail,
+                        asunto="Solicitud de actualización del proyecto adoptivo",
+                        cuerpo=cuerpo
+                    )
+                except Exception as e:
+                    db.rollback()
+                    return {
+                        "success": False,
+                        "tipo_mensaje": "naranja",
+                        "mensaje": f"⚠️ Estado actualizado, pero error al enviar correo a {user.nombre}: {str(e)}",
+                        "tiempo_mensaje": 6,
+                        "next_page": "actual"
+                    }
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "naranja",
+            "mensaje": (
+                "<b>Solicitud de actualización registrada correctamente.</b><br>"
+                "Se notificó al/los pretensos para que actualicen la documentación."
+            ),
+            "tiempo_mensaje": 6,
+            "next_page": "menu_supervisoras/detalleProyecto"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al solicitar actualización del proyecto: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+
+
+
+
 @proyectos_router.post("/aprobar-proyecto", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["supervisora"]))])
 def aprobar_proyecto(
@@ -4942,8 +5122,13 @@ def aprobar_proyecto(
 
             # Evento individual
             db.add(RuaEvento(
-                login=login_destinatario,
-                evento_detalle=f"Proyecto aprobado. Notificación enviada a {login_destinatario}.",
+                login=login_supervisora,
+                evento_detalle=(
+                    f"Se aprobó el proyecto adoptivo correspondiente a "
+                    f"{proyecto.login_1}" +
+                    (f" y {proyecto.login_2}" if proyecto.login_2 else "") +
+                    f". Se asignó el N° de orden {nuevo_nro_orden} por parte de {nombre_supervisora}."
+                ),
                 evento_fecha=datetime.now()
             ))
 
