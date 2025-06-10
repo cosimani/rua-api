@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, Enum
+from sqlalchemy import Column, Integer, String, Date, Enum, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
@@ -27,7 +27,7 @@ class Nna(Base):
     # Información adicional
     nna_subregistro_salud = Column(String(50), nullable=True)
     nna_en_convocatoria = Column(String(1), nullable=True, default="N")
-    nna_ficha = Column(String(1024), nullable=True)
+    nna_ficha = Column(Text, nullable=True)
     nna_sentencia = Column(String(1024), nullable=True) 
     nna_archivado = Column(String(1), nullable=False, default="N")
 

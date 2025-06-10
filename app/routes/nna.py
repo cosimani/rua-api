@@ -24,6 +24,11 @@ from dotenv import load_dotenv
 
 from sqlalchemy import select, exists
 
+import json
+
+import zipfile
+import tempfile
+
 
 
 
@@ -539,6 +544,8 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
 
 
 
+
+
 @nna_router.put("/documentos/{nna_id}", response_model=dict,
     dependencies=[Depends(verify_api_key),
                   Depends(require_roles(["administrador", "supervisora", "profesional"]))])
@@ -548,50 +555,160 @@ def update_nna_document_by_id(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """
-    Sube un documento de ficha o sentencia para el NNA identificado por `nna_id`.
-    El archivo se guarda en una carpeta por NNA, con nombre único por fecha y hora.
-    Actualiza la ruta del último archivo subido en la base de datos.
-    """
-
-    # Validación de extensión permitida
     allowed_extensions = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"}
     _, ext = os.path.splitext(file.filename.lower())
+
     if ext not in allowed_extensions:
-        raise HTTPException(status_code=400, detail=f"Extensión de archivo no permitida: {ext}")
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Extensión de archivo no permitida: {ext}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
 
     nna = db.query(Nna).filter(Nna.nna_id == nna_id).first()
     if not nna:
-        raise HTTPException(status_code=404, detail="NNA no encontrado")
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "NNA no encontrado.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
 
-    # Definir nombre base según campo
     nombre_archivo_map = {
         "nna_ficha": "ficha",
         "nna_sentencia": "sentencia"
     }
     nombre_archivo = nombre_archivo_map[campo]
 
-    # Crear carpeta del NNA si no existe
     user_dir = os.path.join(UPLOAD_DIR_DOC_NNAS, str(nna_id))
     os.makedirs(user_dir, exist_ok=True)
 
-    # Generar nombre único con timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     final_filename = f"{nombre_archivo}_{timestamp}{ext}"
     filepath = os.path.join(user_dir, final_filename)
 
     try:
+        # Validar tamaño (máx. 5MB)
+        file.file.seek(0, os.SEEK_END)
+        file_size = file.file.tell()
+        file.file.seek(0)
+
+        if file_size > 5 * 1024 * 1024:
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "El archivo excede el tamaño máximo permitido de 5MB.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
         with open(filepath, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
-        # Actualizar campo correspondiente en DB
-        setattr(nna, campo, filepath)
+        nuevo_archivo = {
+            "ruta": filepath,
+            "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        # Parsear valor actual del campo
+        valor_actual = getattr(nna, campo)
+        try:
+            if valor_actual:
+                if valor_actual.strip().startswith("["):
+                    archivos = json.loads(valor_actual)
+                else:
+                    archivos = [{"ruta": valor_actual, "fecha": "desconocida"}]
+            else:
+                archivos = []
+        except json.JSONDecodeError:
+            archivos = []
+
+        archivos.append(nuevo_archivo)
+        setattr(nna, campo, json.dumps(archivos, ensure_ascii=False))
         db.commit()
 
-        return {"message": f"Documento '{campo}' subido como '{final_filename}'"}
-    except SQLAlchemyError as e:
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": f"Documento '{campo}' subido correctamente.",
+            "tiempo_mensaje": 4,
+            "next_page": "actual"
+        }
+
+    except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al guardar el documento: {str(e)}")
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al guardar el documento: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+
+
+
+@nna_router.get("/documentos/{nna_id}/descargar-todos", response_class=FileResponse,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+def descargar_todos_documentos_nna(
+    nna_id: int,
+    campo: Literal["nna_ficha", "nna_sentencia"] = Query(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Descarga todos los documentos (de ficha o sentencia) asociados a un NNA:
+    - Si hay uno solo, lo devuelve directamente.
+    - Si hay más, los empaqueta en un .zip.
+    También es compatible con el formato anterior (una única ruta como string plano).
+    """
+
+    nna = db.query(Nna).filter(Nna.nna_id == nna_id).first()
+    if not nna:
+        raise HTTPException(status_code=404, detail="NNA no encontrado")
+
+    valor = getattr(nna, campo)
+    try:
+        if valor:
+            if valor.strip().startswith("["):
+                archivos = json.loads(valor)
+            else:
+                # Es una única ruta como string plano (modo anterior)
+                archivos = [{"ruta": valor}]
+        else:
+            archivos = []
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="El campo no contiene JSON válido ni ruta válida")
+
+    if not archivos:
+        raise HTTPException(status_code=404, detail="No hay documentos registrados")
+
+    # Solo un archivo → lo devuelvo directamente
+    if len(archivos) == 1:
+        ruta = archivos[0]["ruta"]
+        if not os.path.exists(ruta):
+            raise HTTPException(status_code=404, detail="Archivo no encontrado en disco")
+        return FileResponse(path=ruta, filename=os.path.basename(ruta), media_type="application/octet-stream")
+
+    # Más de un archivo → crear un ZIP temporal
+    try:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for archivo in archivos:
+                ruta = archivo.get("ruta")
+                if ruta and os.path.exists(ruta):
+                    nombre_en_zip = os.path.basename(ruta)
+                    zipf.write(ruta, arcname=nombre_en_zip)
+        return FileResponse(
+            path=tmp.name,
+            filename=f"{campo}_{nna_id}.zip",
+            media_type="application/zip"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al generar el ZIP: {str(e)}")
+
 
 
 
