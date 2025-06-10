@@ -485,6 +485,55 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
                 "next_page": "actual"
             }
 
+        # Validar si el postulante tiene un proyecto con estado no_viable
+        proyecto_no_viable_postulante = db.query(Proyecto).filter(
+            ((Proyecto.login_1 == dni) | (Proyecto.login_2 == dni)),
+            Proyecto.estado_general == 'no_viable'
+        ).first()
+
+        if proyecto_no_viable_postulante:
+            return {
+                "success": False,
+                "tipo_mensaje": "amarillo",
+                "mensaje": (
+                    f"<p>La persona con DNI {dni} ya forma parte de un proyecto con estado <strong>no viable</strong>. "
+                    f"No puede registrar una nueva postulación.</p>"
+                ),
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # Validar cónyuge solo si convive y se indicó DNI
+        tiene_conyuge = datos.get("conyuge_dni") and datos.get("conyuge_convive") == "Y"
+        if tiene_conyuge:
+            conyuge_dni = normalizar_y_validar_dni(datos.get("conyuge_dni"))
+            if not conyuge_dni:
+                return {
+                    "success": False,
+                    "tipo_mensaje": "amarillo",
+                    "mensaje": "<p>Debe indicar un DNI válido para cónyuge.</p>",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+
+            proyecto_no_viable_conyuge = db.query(Proyecto).filter(
+                ((Proyecto.login_1 == conyuge_dni) | (Proyecto.login_2 == conyuge_dni)),
+                Proyecto.estado_general == 'no_viable'
+            ).first()
+
+            if proyecto_no_viable_conyuge:
+                return {
+                    "success": False,
+                    "tipo_mensaje": "amarillo",
+                    "mensaje": (
+                        f"<p>La persona indicada como conviviente (DNI {conyuge_dni}) ya forma parte de un proyecto con estado "
+                        f"<strong>no viable</strong>. No puede registrar una nueva postulación.</p>"
+                    ),
+                    "tiempo_mensaje": 6,
+                    "next_page": "actual"
+                }
+
+
 
         nueva_postulacion = Postulacion(
             fecha_postulacion = datetime.now(),
@@ -697,6 +746,8 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
             "tiempo_mensaje": 5,
             "next_page": "actual"
         }
+
+
 
 
 @convocatoria_router.put("/{convocatoria_id}/online", response_model=dict, 

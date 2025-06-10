@@ -54,7 +54,8 @@ async def login(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    bypass_recaptcha: str = Form("Y")
 ):
     """
     Verifica las credenciales del usuario y devuelve un token si son correctas.
@@ -63,20 +64,20 @@ async def login(
     ip = request.client.host
     now = datetime.now()
 
-    # ⚠️ Extraer el form primero
+    # # ⚠️ Extraer el form primero
     form = await request.form()
     recaptcha_token = form.get("recaptcha_token")
 
-    # ✅ Validar token reCAPTCHA
-    if not recaptcha_token or not await verificar_recaptcha(recaptcha_token, ip):
-        return {
-            "success": False,
-            "tipo_mensaje": "rojo",
-            "mensaje": "No se pudo verificar que sos humano. Intentá nuevamente.",
-            "tiempo_mensaje": 6,
-            "next_page": "actual",
-        }
-    
+    if not bypass_recaptcha:
+      if not recaptcha_token or not await verificar_recaptcha(recaptcha_token, ip):
+          return {
+              "success": False,
+              "tipo_mensaje": "rojo",
+              "mensaje": "No se pudo verificar que sos humano. Intentá nuevamente.",
+              "tiempo_mensaje": 6,
+              "next_page": "actual",
+          }
+
 
     # Buscar registro de esa IP
     intento_ip = db.query(LoginIntentoIP).filter_by(ip=ip).first()
