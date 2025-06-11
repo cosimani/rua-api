@@ -3,8 +3,6 @@ from typing import List, Optional, Literal, Tuple
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import func, case, and_, or_, Integer, literal_column
-import json
-
 
 from datetime import datetime, date
 from models.proyecto import Proyecto, ProyectoHistorialEstado, DetalleEquipoEnProyecto, AgendaEntrevistas, FechaRevision
@@ -23,13 +21,16 @@ from helpers.utils import get_user_name_by_login, construir_subregistro_string, 
 from models.eventos_y_configs import RuaEvento
 
 from security.security import get_current_user, verify_api_key, require_roles
-import os, shutil
 from dotenv import load_dotenv
 from fastapi.responses import FileResponse
 
 import fitz  # PyMuPDF
 from PIL import Image
 import subprocess
+
+import os, json, shutil
+import tempfile
+import zipfile
 
 
 from helpers.notificaciones_utils import crear_notificacion_masiva_por_rol, crear_notificacion_individual
@@ -62,6 +63,65 @@ os.makedirs(DIR_PDF_GENERADOS, exist_ok=True)
 
 
 proyectos_router = APIRouter()
+
+
+
+
+
+# helpers internos (pueden ir arriba o en utils.py)
+def _save_historial_upload(
+    proyecto, campo:str, file:UploadFile, UPLOAD_DIR_DOC_PROYECTOS:str
+):
+    """Valida, guarda en disco y anexa al JSON histórico."""
+    ext = os.path.splitext(file.filename.lower())[1]
+    if ext not in {".pdf",".doc",".docx",".jpg",".jpeg",".png"}:
+        return {"success":False, "tipo_mensaje":"rojo", "mensaje":f"Extensión no permitida: {ext}", "tiempo_mensaje":6, "next_page":"actual"}
+    file.file.seek(0, os.SEEK_END)
+    if file.file.tell()>5*1024*1024:
+        return {"success":False, "tipo_mensaje":"rojo","mensaje":"Máximo 5MB","tiempo_mensaje":6,"next_page":"actual"}
+    file.file.seek(0)
+    proyecto_dir = os.path.join(UPLOAD_DIR_DOC_PROYECTOS, str(proyecto.proyecto_id))
+    os.makedirs(proyecto_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fn = f"{campo}_{ts}{ext}"
+    path = os.path.join(proyecto_dir, fn)
+    with open(path,"wb") as f: shutil.copyfileobj(file.file, f)
+    # construir historico
+    raw = getattr(proyecto, campo) or ""
+    try:
+        arr = json.loads(raw) if raw.strip().startswith("[") else ([{"ruta":raw,"fecha":"desconocida"}] if raw else [])
+    except:
+        arr=[]
+    arr.append({"ruta":path,"fecha":datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    setattr(proyecto, campo, json.dumps(arr, ensure_ascii=False))
+    proyecto.session.commit()
+    return {"success":True,"tipo_mensaje":"verde","mensaje":f"Subido '{fn}'","tiempo_mensaje":4,"next_page":"actual"}
+
+
+
+def _download_all(raw:str, proyecto_id:int, zipname:str):
+    """Si solo hay uno lo devuelve; si hay varios, arma ZIP."""
+    try:
+        arr = json.loads(raw) if raw.strip().startswith("[") else ([{"ruta":raw}] if raw else [])
+    except:
+        raise HTTPException(500,"JSON inválido")
+    if not arr:
+        raise HTTPException(404,"No hay documentos")
+    if len(arr)==1:
+        r=arr[0]["ruta"]
+        if not os.path.exists(r): raise HTTPException(404,"No existe")
+        return FileResponse(r, filename=os.path.basename(r))
+    tmp = tempfile.NamedTemporaryFile(delete=False,suffix=".zip")
+    with zipfile.ZipFile(tmp.name,"w",zipfile.ZIP_DEFLATED) as z:
+        for e in arr:
+            ruta=e.get("ruta")
+            if ruta and os.path.exists(ruta):
+                z.write(ruta, arcname=os.path.basename(ruta))
+    return FileResponse(tmp.name, filename=f"{zipname}_{proyecto_id}.zip", media_type="application/zip")
+
+
+
+
 
 
 @proyectos_router.delete("/{proyecto_id}", response_model = dict,
@@ -2563,54 +2623,110 @@ def subir_informe_profesionales(
     ✔️ Formatos permitidos:
     - `.pdf`, `.doc`, `.docx`, `.jpg`, `.jpeg`, `.png`
     """
-    # Validar extensión del archivo
-    allowed_extensions = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"}
+
+    # 1️⃣ Validar extensión
+    allowed_ext = {".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png"}
     _, ext = os.path.splitext(file.filename.lower())
-    if ext not in allowed_extensions:
-        raise HTTPException(status_code = 400, detail = f"Extensión de archivo no permitida: {ext}")
+    if ext not in allowed_ext:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Extensión no permitida: {ext}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
 
-    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    
+    # proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    proyecto = db.query(Proyecto).get(proyecto_id)
     if not proyecto:
-        raise HTTPException(status_code = 404, detail = "Proyecto no encontrado")
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "Proyecto no encontrado.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
 
-    # Crear carpeta si no existe
+    # 2️⃣ Crear carpeta si no existe
     proyecto_dir = os.path.join(UPLOAD_DIR_DOC_PROYECTOS, str(proyecto_id))
-    os.makedirs(proyecto_dir, exist_ok = True)
+    os.makedirs(proyecto_dir, exist_ok=True)
 
-    # Guardar con nombre único
+    # 3️⃣ Validar tamaño (máx. 5 MB)
+    file.file.seek(0, os.SEEK_END)
+    size = file.file.tell()
+    file.file.seek(0)
+    if size > 5 * 1024 * 1024:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "El archivo excede el tamaño máximo de 5 MB.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+    # 4️⃣ Preparar nombre y ruta
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    final_filename = f"informe_profesionales_{timestamp}{ext}"
-    filepath = os.path.join(proyecto_dir, final_filename)
+    final_name = f"informe_profesionales_{timestamp}{ext}"
+    filepath = os.path.join(proyecto_dir, final_name)
+
 
     try:
+        # 5️⃣ Guardar en disco
         with open(filepath, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
-        # Actualizar campo en la base
-        proyecto.informe_profesionales = filepath
+        # 6️⃣ Construir nuevo objeto de historial
+        nuevo_archivo = {
+            "ruta": filepath,
+            "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
 
-        # 🔎 Obtener login del usuario actual
-        login_actual = current_user["user"]["login"]
+        # 7️⃣ Leer y parsear el JSON actual
+        raw = proyecto.informe_profesionales or ""
+        try:
+            if raw.strip().startswith("["):
+                arr = json.loads(raw)
+            elif raw.strip():
+                arr = [{"ruta": raw, "fecha": "desconocida"}]
+            else:
+                arr = []
+        except json.JSONDecodeError:
+            arr = []
 
-        # Registrar evento RuaEvento
+        # 8️⃣ Añadir el nuevo y guardar
+        arr.append(nuevo_archivo)
+        proyecto.informe_profesionales = json.dumps(arr, ensure_ascii=False)
+        db.commit()
+
+        # 9️⃣ Registrar evento RuaEvento
+        login = current_user["user"]["login"]
         evento = RuaEvento(
-            login = login_actual,
-            evento_detalle = f"Subió el informe profesional al proyecto #{proyecto_id}",
-            evento_fecha = datetime.now()
+            login=login,
+            evento_detalle=f"Subió informe profesional al proyecto #{proyecto_id}",
+            evento_fecha=datetime.now()
         )
         db.add(evento)
-
         db.commit()
 
         return {
             "success": True,
-            "message": f"Informe profesional subido correctamente como '{final_filename}'.",
-            "path": filepath
+            "tipo_mensaje": "verde",
+            "mensaje": f"Informe subido como '{final_name}'.",
+            "tiempo_mensaje": 4,
+            "next_page": "actual"
         }
 
     except SQLAlchemyError as e:
         db.rollback()
-        raise HTTPException(status_code = 500, detail = f"Error al guardar el archivo: {str(e)}")
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al guardar el archivo: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+    
 
 
 
@@ -3264,34 +3380,220 @@ def valorar_proyecto_final(
 
 
 
-@proyectos_router.get("/entrevista/informe/{proyecto_id}/descargar", response_class = FileResponse,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
-def descargar_informe_profesionales(
+# @proyectos_router.get("/entrevista/informe/{proyecto_id}/descargar", response_class = FileResponse,
+#     dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+# def descargar_informe_profesionales(
+#     proyecto_id: int,
+#     campo: Literal["informe_profesionales", "doc_informe_vinculacion", "doc_informe_seguimiento_guarda"] = Query(...),
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     📄 Descarga el informe profesional del proyecto identificado por `proyecto_id`.
+
+#     ⚠️ El campo debe haber sido cargado previamente mediante el endpoint de subida.
+#     """
+
+#     proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+#     if not proyecto:
+#         raise HTTPException(status_code = 404, detail = "Proyecto no encontrado")
+
+#     # Obtener ruta del informe
+#     filepath = getattr(proyecto, campo)
+
+#     if not filepath or not os.path.exists(filepath):
+#         raise HTTPException(status_code = 404, detail = "Informe no encontrado")
+
+#     return FileResponse(
+#         path = filepath,
+#         filename = os.path.basename(filepath),
+#         media_type = "application/octet-stream"
+#     )
+
+@proyectos_router.get(
+    "/proyectos/entrevista/informe/{proyecto_id}/descargar",
+    response_class=FileResponse,
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(require_roles(["administrador", "profesional", "supervisora"]))
+    ]
+)
+def descargar_informe_valoracion(
     proyecto_id: int,
-    campo: Literal["informe_profesionales", "doc_informe_vinculacion", "doc_informe_seguimiento_guarda"] = Query(...),
     db: Session = Depends(get_db)
 ):
     """
-    📄 Descarga el informe profesional del proyecto identificado por `proyecto_id`.
-
-    ⚠️ El campo debe haber sido cargado previamente mediante el endpoint de subida.
+    📄 Descarga el Informe de Valoración (informe_profesionales) asociado al proyecto.
     """
-
-    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    proyecto = db.query(Proyecto).get(proyecto_id)
     if not proyecto:
-        raise HTTPException(status_code = 404, detail = "Proyecto no encontrado")
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
-    # Obtener ruta del informe
-    filepath = getattr(proyecto, campo)
-
+    filepath = proyecto.informe_profesionales
     if not filepath or not os.path.exists(filepath):
-        raise HTTPException(status_code = 404, detail = "Informe no encontrado")
+        raise HTTPException(status_code=404, detail="Informe de valoración no encontrado")
 
     return FileResponse(
-        path = filepath,
-        filename = os.path.basename(filepath),
-        media_type = "application/octet-stream"
+        path=filepath,
+        filename=os.path.basename(filepath),
+        media_type="application/octet-stream"
     )
+
+
+
+
+# 1) Informe de valoración
+@proyectos_router.put(
+    "/entrevista/informe/{proyecto_id}",
+    response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional"]))]
+)
+def subir_informe_valoracion(
+    proyecto_id:int,
+    file:UploadFile=File(...),
+    db:Session=Depends(get_db)
+):
+    proyecto=db.query(Proyecto).get(proyecto_id)
+    if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
+    return _save_historial_upload(proyecto,"informe_profesionales",file,UPLOAD_DIR_DOC_PROYECTOS)
+
+@proyectos_router.get(
+    "/entrevista/informe/{proyecto_id}/descargar-todos",
+    response_class=FileResponse,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervisora"]))]
+)
+def descargar_todos_valoracion(
+    proyecto_id:int, db:Session=Depends(get_db)
+):
+    proyecto=db.query(Proyecto).get(proyecto_id)
+    if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
+    return _download_all(proyecto.informe_profesionales or "","informes_valoracion",proyecto_id)
+
+
+# 2) Informe de vinculación
+@proyectos_router.put(
+    "/informe-vinculacion/{proyecto_id}",
+    response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervisora"]))]
+)
+def subir_informe_vinculacion(
+    proyecto_id:int,
+    observacion:str=Form(...),
+    file:UploadFile=File(...),
+    db:Session=Depends(get_db)
+):
+    proyecto=db.query(Proyecto).get(proyecto_id)
+    if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
+    # opcional: guardar observacion en ObservacionesProyectos…
+    return _save_historial_upload(proyecto,"doc_informe_vinculacion",file,UPLOAD_DIR_DOC_PROYECTOS)
+
+@proyectos_router.get(
+    "/informe-vinculacion/{proyecto_id}/descargar-todos",
+    response_class=FileResponse,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervisora"]))]
+)
+def descargar_todos_vinculacion(
+    proyecto_id:int, db:Session=Depends(get_db)
+):
+    proyecto=db.query(Proyecto).get(proyecto_id)
+    if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
+    return _download_all(proyecto.doc_informe_vinculacion or "","informes_vinculacion",proyecto_id)
+
+
+# 3) Informe seguimiento de guarda
+@proyectos_router.put(
+    "/informe-seguimiento-guarda/{proyecto_id}",
+    response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervisora"]))]
+)
+def subir_informe_guarda(
+    proyecto_id:int,
+    observacion:str=Form(...),
+    file:UploadFile=File(...),
+    db:Session=Depends(get_db)
+):
+    proyecto=db.query(Proyecto).get(proyecto_id)
+    if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
+    return _save_historial_upload(proyecto,"doc_informe_seguimiento_guarda",file,UPLOAD_DIR_DOC_PROYECTOS)
+
+@proyectos_router.get(
+    "/informe-seguimiento-guarda/{proyecto_id}/descargar-todos",
+    response_class=FileResponse,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervisora"]))]
+)
+def descargar_todos_guarda(
+    proyecto_id:int, db:Session=Depends(get_db)
+):
+    proyecto=db.query(Proyecto).get(proyecto_id)
+    if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
+    return _download_all(proyecto.doc_informe_seguimiento_guarda or "","informes_guarda",proyecto_id)
+
+    
+
+
+@proyectos_router.get(
+    "/proyectos/entrevista/informe/{proyecto_id}/descargar-todos",
+    response_class=FileResponse,
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(require_roles(["administrador", "profesional", "supervisora"]))
+    ]
+)
+def descargar_todos_informes_valoracion(
+    proyecto_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Descarga todos los informes de valoración asociados a un proyecto:
+    - Si hay uno solo, lo devuelve directamente.
+    - Si hay varios, los empaqueta en un .zip.
+    """
+    # 1️⃣ Obtener proyecto
+    proyecto = db.query(Proyecto).get(proyecto_id)
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # 2️⃣ Leer JSON de informes
+    raw = proyecto.informe_profesionales or ""
+    try:
+        if raw.strip().startswith("["):
+            archivos = json.loads(raw)
+        elif raw.strip():
+            archivos = [{"ruta": raw}]
+        else:
+            archivos = []
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="JSON inválido en informe_profesionales")
+
+    if not archivos:
+        raise HTTPException(status_code=404, detail="No hay informes registrados")
+
+    # 3️⃣ Si solo hay uno, descargar directamente
+    if len(archivos) == 1:
+        ruta = archivos[0].get("ruta")
+        if not ruta or not os.path.exists(ruta):
+            raise HTTPException(status_code=404, detail="Archivo no encontrado en disco")
+        return FileResponse(
+            path=ruta,
+            filename=os.path.basename(ruta),
+            media_type="application/octet-stream"
+        )
+
+    # 4️⃣ Si hay más, crear ZIP
+    try:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for entry in archivos:
+                ruta = entry.get("ruta")
+                if ruta and os.path.exists(ruta):
+                    zipf.write(ruta, arcname=os.path.basename(ruta))
+        return FileResponse(
+            path=tmp.name,
+            filename=f"informes_valoracion_{proyecto_id}.zip",
+            media_type="application/zip"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al generar ZIP: {e}")    
+
 
 
 @proyectos_router.get("/documento/{proyecto_id}/{tipo_documento}/descargar", response_class = FileResponse,

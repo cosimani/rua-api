@@ -67,13 +67,17 @@ class Proyecto(Base):
 
     ingreso_por = Column(Enum( 'rua', 'oficio', 'convocatoria' ), nullable=True)         
 
-    informe_profesionales = Column(String(1024), nullable=True)
+    informe_profesionales      = Column(Text, nullable=True)
     
     doc_dictamen = Column(String(1024), nullable=True)
-    doc_informe_vinculacion = Column(String(1024), nullable=True)
-    doc_informe_seguimiento_guarda = Column(String(1024), nullable=True)
+    doc_informe_vinculacion    = Column(Text, nullable=True)
+    doc_informe_seguimiento_guarda = Column(Text, nullable=True)
+
     doc_sentencia_guarda = Column(String(1024), nullable=True)
     doc_sentencia_adopcion = Column(String(1024), nullable=True)
+
+
+    
     
 
     # Campos nuevos ############
