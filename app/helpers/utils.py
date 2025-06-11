@@ -790,18 +790,33 @@ def calcular_estadisticas_generales(db: Session) -> dict:
     
 
 
+# def check_consecutive_numbers(password: str) -> bool:
+#     """
+#     Verifica si la contraseña contiene más de dos números consecutivos.
+#     Retorna True si hay números consecutivos, de lo contrario False.
+#     """
+#     for i in range(len(password) - 2):
+#         if (
+#             int(password[i + 1]) == int(password[i]) + 1
+#             and int(password[i + 2]) == int(password[i + 1]) + 1
+#         ):
+#             return True
+#     return False
+
 def check_consecutive_numbers(password: str) -> bool:
     """
     Verifica si la contraseña contiene más de dos números consecutivos.
     Retorna True si hay números consecutivos, de lo contrario False.
     """
     for i in range(len(password) - 2):
-        if (
-            int(password[i + 1]) == int(password[i]) + 1
-            and int(password[i + 2]) == int(password[i + 1]) + 1
-        ):
-            return True
+        a, b, c = password[i], password[i+1], password[i+2]
+        # Solo seguimos si los tres son dígitos
+        if a.isdigit() and b.isdigit() and c.isdigit():
+            if int(b) == int(a) + 1 and int(c) == int(b) + 1:
+                return True
     return False
+
+
 
 def get_user_name_by_login(db: Session, login: str):
     """

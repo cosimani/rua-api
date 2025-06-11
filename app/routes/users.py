@@ -996,29 +996,58 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
         }
     
 
-    # Validar la contraseña
-    if not clave.isdigit() or len(clave) < 6:
+    
+    # —— Validación de política de contraseñas ——
+    # 1) Al menos 6 dígitos en cualquier posición
+    dígitos = [c for c in clave if c.isdigit()]
+    if len(dígitos) < 6:
         return {
             "tipo_mensaje": "amarillo",
             "mensaje": (
-                "<p>La contraseña debe tener al menos 6 dígitos y solo números.</p>"
+                "<p>La contraseña debe contener al menos 6 dígitos numéricos.</p>"
                 "<p>Por favor, intente nuevamente.</p>"
             ),
             "tiempo_mensaje": 5,
             "next_page": "actual"
         }
-    
+
+    # 2) Sin secuencias de 3 dígitos consecutivos
     if check_consecutive_numbers(clave):
         return {
             "tipo_mensaje": "amarillo",
             "mensaje": (
-                "<p>La contraseña no puede tener números consecutivos.</p>"
+                "<p>La contraseña no puede contener secuencias numéricas consecutivas "
+                "(por ejemplo “1234” o “4321”).</p>"
                 "<p>Por favor, intente nuevamente.</p>"
             ),
             "tiempo_mensaje": 5,
             "next_page": "actual"
         }
-    
+
+    # 3) Al menos una letra mayúscula
+    if not any(c.isupper() for c in clave):
+        return {
+            "tipo_mensaje": "amarillo",
+            "mensaje": (
+                "<p>La contraseña debe incluir al menos una letra mayúscula.</p>"
+                "<p>Por favor, intente nuevamente.</p>"
+            ),
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    # 4) Al menos una letra minúscula
+    if not any(c.islower() for c in clave):
+        return {
+            "tipo_mensaje": "amarillo",
+            "mensaje": (
+                "<p>La contraseña debe incluir al menos una letra minúscula.</p>"
+                "<p>Por favor, intente nuevamente.</p>"
+            ),
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+    # ——————————————————————————————
 
     # Validar formato de correo
     if not validar_correo(mail):
@@ -2502,23 +2531,51 @@ def cambiar_clave_usuario(
                 "next_page": "actual"
             }
 
-        if not nueva_clave.isdigit() or len(nueva_clave) < 6:
+        # —— Validación de política de contraseñas ——
+        # a) Al menos 6 dígitos numéricos en cualquier posición
+        dígitos = [c for c in nueva_clave if c.isdigit()]
+        if len(dígitos) < 6:
             return {
                 "success": False,
                 "tipo_mensaje": "amarillo",
-                "mensaje": "La nueva clave debe tener al menos 6 dígitos y ser numérica.",
+                "mensaje": "La contraseña debe contener al menos 6 dígitos numéricos.",
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
             }
 
+        # b) Sin secuencias de 3 dígitos consecutivos
         if check_consecutive_numbers(nueva_clave):
             return {
                 "success": False,
                 "tipo_mensaje": "amarillo",
-                "mensaje": "La nueva clave no puede tener números consecutivos.",
+                "mensaje": (
+                    "La contraseña no puede contener secuencias numéricas consecutivas "
+                    "(p.ej. “1234” o “4321”)."
+                ),
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
             }
+
+        # c) Al menos una letra mayúscula
+        if not any(c.isupper() for c in nueva_clave):
+            return {
+                "success": False,
+                "tipo_mensaje": "amarillo",
+                "mensaje": "La contraseña debe incluir al menos una letra mayúscula.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+        # d) Al menos una letra minúscula
+        if not any(c.islower() for c in nueva_clave):
+            return {
+                "success": False,
+                "tipo_mensaje": "amarillo",
+                "mensaje": "La contraseña debe incluir al menos una letra minúscula.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+        # ——————————————————————————————
 
         # 🔄 Moodle
         actualizar_clave_en_moodle(mail, nueva_clave, db)

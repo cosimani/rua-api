@@ -23,6 +23,7 @@ from models.proyecto import Proyecto
 from models.eventos_y_configs import RuaEvento, LoginIntentoIP
 from sqlalchemy.exc import SQLAlchemyError
 
+import html
 
 import hashlib
 import re
@@ -30,6 +31,10 @@ from datetime import datetime
 from typing import Optional
 
 from helpers.utils import check_consecutive_numbers
+
+
+# # Importa el limiter que definiste en main.py
+from main import limiter   
 
 
 
@@ -48,8 +53,8 @@ TIEMPO_BLOQUEO_IP_MINUTOS = 30
 
 
 
-
 @login_router.post("/login", response_model = dict)
+@limiter.limit("5/minute")
 async def login(    
     request: Request,
     username: str = Form(...),
@@ -73,7 +78,7 @@ async def login(
           return {
               "success": False,
               "tipo_mensaje": "rojo",
-              "mensaje": "No se pudo verificar que sos humano. Intentá nuevamente.",
+              "mensaje": "No se pudo verificar que sos humano.",
               "tiempo_mensaje": 6,
               "next_page": "actual",
           }
@@ -126,7 +131,8 @@ async def login(
         return {
             "success": False,
             "tipo_mensaje": "rojo",
-            "mensaje": "Usuario no encontrado.",
+            # "mensaje": "Usuario no encontrado.",
+            "mensaje": "Credenciales inválidas.",
             "tiempo_mensaje": 6,
             "next_page": "actual",
         }
@@ -169,7 +175,8 @@ async def login(
         return {
             "success": False,
             "tipo_mensaje": "rojo",
-            "mensaje": "Tu contraseña ha vencido. Debes recuperarla para asignar una nueva.",
+            # "mensaje": "Tu contraseña ha vencido. Debes recuperarla para asignar una nueva.",
+            "mensaje": "Credenciales inválidas.",
             "tiempo_mensaje": 8,
             "next_page": "actual",  # o la ruta que uses
         }
@@ -195,7 +202,8 @@ async def login(
         return {
             "success": False,
             "tipo_mensaje": "rojo",
-            "mensaje": f"Contraseña incorrecta. Intento {user.intentos_login} de {MAX_INTENTOS}.",
+            # "mensaje": f"Contraseña incorrecta. Intento {user.intentos_login} de {MAX_INTENTOS}.",
+            "mensaje": f"Credenciales inválidas. Intento {user.intentos_login} de {MAX_INTENTOS}.",
             "tiempo_mensaje": 6,
             "next_page": "actual",
         }
@@ -288,12 +296,37 @@ def change_password(
     # Verificar que las contraseñas nuevas coincidan
     if new_password != confirm_new_password:
         raise HTTPException(status_code=400, detail="Las contraseñas nuevas no coinciden.")
+    
+    # ——— Validación de política de contraseñas ———
+    # 1) Al menos 6 dígitos numéricos
+    dígitos = [c for c in new_password if c.isdigit()]
+    if len(dígitos) < 6:
+        raise HTTPException(
+            status_code=400,
+            detail="La contraseña debe contener al menos 6 dígitos numéricos."
+        )
 
-    # Validar requisitos de la contraseña
-    if not new_password.isdigit() or len(new_password) < 6:
-        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 6 dígitos y solo números.")
+    # 2) Sin secuencias de 3 dígitos consecutivos
     if check_consecutive_numbers(new_password):
-        raise HTTPException(status_code=400, detail="La contraseña no puede tener números consecutivos.")
+        raise HTTPException(
+            status_code=400,
+            detail="La contraseña no puede contener secuencias numéricas consecutivas (p.ej. “1234” o “4321”)."
+        )
+
+    # 3) Al menos una letra mayúscula
+    if not any(c.isupper() for c in new_password):
+        raise HTTPException(
+            status_code=400,
+            detail="La contraseña debe incluir al menos una letra mayúscula."
+        )
+
+    # 4) Al menos una letra minúscula
+    if not any(c.islower() for c in new_password):
+        raise HTTPException(
+            status_code=400,
+            detail="La contraseña debe incluir al menos una letra minúscula."
+        )
+    # ——————————————————————————————————————————
 
     # Guardar la nueva contraseña en bcrypt (migración de MD5 a bcrypt)
     hashed_new_password = get_password_hash(new_password)

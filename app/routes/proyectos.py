@@ -70,36 +70,43 @@ proyectos_router = APIRouter()
 
 # helpers internos (pueden ir arriba o en utils.py)
 def _save_historial_upload(
-    proyecto, campo:str, file:UploadFile, UPLOAD_DIR_DOC_PROYECTOS:str
+    proyecto, 
+    campo: str, 
+    file: UploadFile, 
+    UPLOAD_DIR_DOC_PROYECTOS: str,
+    db: Session,                # <— añadimos la sesión aquí
 ):
     """Valida, guarda en disco y anexa al JSON histórico."""
     ext = os.path.splitext(file.filename.lower())[1]
-    if ext not in {".pdf",".doc",".docx",".jpg",".jpeg",".png"}:
-        return {"success":False, "tipo_mensaje":"rojo", "mensaje":f"Extensión no permitida: {ext}", "tiempo_mensaje":6, "next_page":"actual"}
+    if ext not in {".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png"}:
+        return {"success": False, "tipo_mensaje": "rojo", "mensaje": f"Extensión no permitida: {ext}", "tiempo_mensaje": 6, "next_page": "actual"}
     file.file.seek(0, os.SEEK_END)
-    if file.file.tell()>5*1024*1024:
-        return {"success":False, "tipo_mensaje":"rojo","mensaje":"Máximo 5MB","tiempo_mensaje":6,"next_page":"actual"}
+    if file.file.tell() > 5 * 1024 * 1024:
+        return {"success": False, "tipo_mensaje": "rojo", "mensaje": "Máximo 5MB", "tiempo_mensaje": 6, "next_page": "actual"}
     file.file.seek(0)
     proyecto_dir = os.path.join(UPLOAD_DIR_DOC_PROYECTOS, str(proyecto.proyecto_id))
     os.makedirs(proyecto_dir, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     fn = f"{campo}_{ts}{ext}"
     path = os.path.join(proyecto_dir, fn)
-    with open(path,"wb") as f: shutil.copyfileobj(file.file, f)
-    # construir historico
+    with open(path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    # construir histórico
     raw = getattr(proyecto, campo) or ""
     try:
-        arr = json.loads(raw) if raw.strip().startswith("[") else ([{"ruta":raw,"fecha":"desconocida"}] if raw else [])
+        arr = json.loads(raw) if raw.strip().startswith("[") else ([{"ruta": raw, "fecha": "desconocida"}] if raw else [])
     except:
-        arr=[]
-    arr.append({"ruta":path,"fecha":datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        arr = []
+    arr.append({"ruta": path, "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
     setattr(proyecto, campo, json.dumps(arr, ensure_ascii=False))
-    proyecto.session.commit()
-    return {"success":True,"tipo_mensaje":"verde","mensaje":f"Subido '{fn}'","tiempo_mensaje":4,"next_page":"actual"}
+
+    db.commit()   # <- usamos la sesión aquí
+    return {"success": True, "tipo_mensaje": "verde", "mensaje": f"Subido '{fn}'", "tiempo_mensaje": 4, "next_page": "actual"}
 
 
 
-def _download_all(raw:str, proyecto_id:int, zipname:str):
+def _download_all(raw:str, zipname:str, proyecto_id:int):
     """Si solo hay uno lo devuelve; si hay varios, arma ZIP."""
     try:
         arr = json.loads(raw) if raw.strip().startswith("[") else ([{"ruta":raw}] if raw else [])
@@ -2951,6 +2958,219 @@ def solicitar_valoracion_final(
 
 
 
+
+
+@proyectos_router.post("/entrevista/entregar-informe-vinculacion", response_model = dict,
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
+def entregar_informe_vinculacion(
+    data: dict = Body(..., example = { "proyecto_id": 123 }),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+
+    proyecto_id = data.get("proyecto_id")
+    if not proyecto_id:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "Debe especificarse el 'proyecto_id'",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "Proyecto no encontrado",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+    # Validar que el informe de vinculacion esté presente, al menos uno
+    if not proyecto.doc_informe_vinculacion:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Debe cargarse el informe de vinculación antes de presentar.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+    if proyecto.estado_general != "vinculacion":
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Este proyecto no se encuentra en vinculación. No se puede presentar este informe.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+    try:
+
+        # Registrar evento
+        login_autor = current_user["user"]["login"]
+        evento = RuaEvento(
+            login = login_autor,
+            evento_detalle = f"Se entregó el informe de vinculación para el proyecto #{proyecto_id}",
+            evento_fecha = datetime.now()
+        )
+        db.add(evento)
+
+        # Notificar a supervisoras
+        supervisoras = db.query(User).join(UserGroup, User.login == UserGroup.login)\
+            .join(Group, Group.group_id == UserGroup.group_id)\
+            .filter(Group.description == "supervisora").all()
+
+        for supervisora in supervisoras:
+            resultado = crear_notificacion_individual(
+                db = db,
+                login_destinatario = supervisora.login,
+                mensaje = "📄 Un informe de vinculacion fue enviado a supervisión.",
+                link = "/menu_supervisoras/detalleProyecto",
+                data_json = { "proyecto_id": proyecto_id },
+                tipo_mensaje = "naranja"
+            )
+            if not resultado["success"]:
+                db.rollback()
+                return {
+                    "success": False,
+                    "tipo_mensaje": "rojo",
+                    "mensaje": f"Error al notificar a la supervisora {supervisora.login}",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "📨 Informe de vinculación enviado correctamente.",
+            "tiempo_mensaje": 4,
+            "next_page": "menu_profesionales/portada"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Ocurrió un error: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+
+
+
+@proyectos_router.post("/entrevista/entregar-informe-seguimiento-guarda", response_model = dict,
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
+def entregar_informe_vinculacion(
+    data: dict = Body(..., example = { "proyecto_id": 123 }),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+
+    proyecto_id = data.get("proyecto_id")
+    if not proyecto_id:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "Debe especificarse el 'proyecto_id'",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "Proyecto no encontrado",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+    # Validar que el informe de vinculacion esté presente, al menos uno
+    if not proyecto.doc_informe_seguimiento_guarda:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Debe cargarse el informe de seguimiento de guarda antes de presentar.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+    if proyecto.estado_general != "guarda":
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Este proyecto no se encuentra en guarda. No se puede presentar este informe.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+    try:
+
+        # Registrar evento
+        login_autor = current_user["user"]["login"]
+        evento = RuaEvento(
+            login = login_autor,
+            evento_detalle = f"Se entregó el informe de seguimiento de guarda para el proyecto #{proyecto_id}",
+            evento_fecha = datetime.now()
+        )
+        db.add(evento)
+
+        # Notificar a supervisoras
+        supervisoras = db.query(User).join(UserGroup, User.login == UserGroup.login)\
+            .join(Group, Group.group_id == UserGroup.group_id)\
+            .filter(Group.description == "supervisora").all()
+
+        for supervisora in supervisoras:
+            resultado = crear_notificacion_individual(
+                db = db,
+                login_destinatario = supervisora.login,
+                mensaje = "📄 Un informe de seguimiento de guarda fue enviado a supervisión.",
+                link = "/menu_supervisoras/detalleProyecto",
+                data_json = { "proyecto_id": proyecto_id },
+                tipo_mensaje = "naranja"
+            )
+            if not resultado["success"]:
+                db.rollback()
+                return {
+                    "success": False,
+                    "tipo_mensaje": "rojo",
+                    "mensaje": f"Error al notificar a la supervisora {supervisora.login}",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "📨 Informe de seguimiento de guarda enviado correctamente.",
+            "tiempo_mensaje": 4,
+            "next_page": "menu_profesionales/portada"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Ocurrió un error: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+
+
+
+
 @proyectos_router.get("/proyecto/{proyecto_id}/fecha-para-valorar", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
 def obtener_fecha_para_valorar(
@@ -3442,9 +3662,7 @@ def descargar_informe_valoracion(
 
 
 # 1) Informe de valoración
-@proyectos_router.put(
-    "/entrevista/informe/{proyecto_id}",
-    response_model=dict,
+@proyectos_router.put( "/entrevista/informe/{proyecto_id}", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional"]))]
 )
 def subir_informe_valoracion(
@@ -3454,7 +3672,9 @@ def subir_informe_valoracion(
 ):
     proyecto=db.query(Proyecto).get(proyecto_id)
     if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
-    return _save_historial_upload(proyecto,"informe_profesionales",file,UPLOAD_DIR_DOC_PROYECTOS)
+    return _save_historial_upload(proyecto,"informe_profesionales",file,UPLOAD_DIR_DOC_PROYECTOS, db)
+
+
 
 @proyectos_router.get(
     "/entrevista/informe/{proyecto_id}/descargar-todos",
@@ -3466,25 +3686,23 @@ def descargar_todos_valoracion(
 ):
     proyecto=db.query(Proyecto).get(proyecto_id)
     if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
-    return _download_all(proyecto.informe_profesionales or "","informes_valoracion",proyecto_id)
+    return _download_all(proyecto.informe_profesionales or "","informes_valoracion", proyecto_id)
 
 
 # 2) Informe de vinculación
-@proyectos_router.put(
-    "/informe-vinculacion/{proyecto_id}",
-    response_model=dict,
+@proyectos_router.put( "/informe-vinculacion/{proyecto_id}", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervisora"]))]
 )
 def subir_informe_vinculacion(
-    proyecto_id:int,
-    observacion:str=Form(...),
-    file:UploadFile=File(...),
-    db:Session=Depends(get_db)
+    proyecto_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
 ):
-    proyecto=db.query(Proyecto).get(proyecto_id)
-    if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
-    # opcional: guardar observacion en ObservacionesProyectos…
-    return _save_historial_upload(proyecto,"doc_informe_vinculacion",file,UPLOAD_DIR_DOC_PROYECTOS)
+    proyecto = db.query(Proyecto).get(proyecto_id)
+    if not proyecto:
+        raise HTTPException(404, "Proyecto no encontrado")
+    return _save_historial_upload( proyecto, "doc_informe_vinculacion", file, UPLOAD_DIR_DOC_PROYECTOS, db )
+
 
 @proyectos_router.get(
     "/informe-vinculacion/{proyecto_id}/descargar-todos",
@@ -3499,21 +3717,20 @@ def descargar_todos_vinculacion(
     return _download_all(proyecto.doc_informe_vinculacion or "","informes_vinculacion",proyecto_id)
 
 
+
 # 3) Informe seguimiento de guarda
-@proyectos_router.put(
-    "/informe-seguimiento-guarda/{proyecto_id}",
-    response_model=dict,
+@proyectos_router.put( "/informe-seguimiento-guarda/{proyecto_id}", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervisora"]))]
 )
 def subir_informe_guarda(
     proyecto_id:int,
-    observacion:str=Form(...),
     file:UploadFile=File(...),
     db:Session=Depends(get_db)
 ):
     proyecto=db.query(Proyecto).get(proyecto_id)
     if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
-    return _save_historial_upload(proyecto,"doc_informe_seguimiento_guarda",file,UPLOAD_DIR_DOC_PROYECTOS)
+    return _save_historial_upload(proyecto,"doc_informe_seguimiento_guarda",file,UPLOAD_DIR_DOC_PROYECTOS, db)
+
 
 @proyectos_router.get(
     "/informe-seguimiento-guarda/{proyecto_id}/descargar-todos",

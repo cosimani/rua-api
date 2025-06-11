@@ -17,5 +17,7 @@ fpdf
 pillow
 PyMuPDF
 httpx
+slowapi
+redis
 
 
