@@ -119,7 +119,7 @@ async def login(
                 intento_ip.usuarios = ""
 
                 evento_bloqueo_ip = RuaEvento(
-                    login = "IP",
+                    login = None,
                     evento_detalle = f"⚠️ La IP {ip} fue bloqueada por intentos fallidos con múltiples usuarios.",
                     evento_fecha = now
                 )
