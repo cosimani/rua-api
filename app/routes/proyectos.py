@@ -1949,12 +1949,36 @@ def subir_documento_proyecto(
     Guarda el archivo en una carpeta específica del proyecto y actualiza el campo correspondiente.
     """
 
+    # ——— Validación de MIME type ———
+    allowed_mime_types = {
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    }
+    if file.content_type not in allowed_mime_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tipo de archivo no permitido: {file.content_type}"
+        )
+
     # Validar extensión
     allowed_extensions = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"}
     _, ext = os.path.splitext(file.filename.lower())
     if ext not in allowed_extensions:
         raise HTTPException(status_code=400, detail=f"Extensión de archivo no permitida: {ext}")
 
+    # ——— Validación de tamaño (5 MB) ———
+    file.file.seek(0, os.SEEK_END)
+    size = file.file.tell()
+    if size > 5 * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail="El archivo excede el tamaño máximo permitido (5 MB)."
+        )
+    file.file.seek(0)
+    
     proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
     if not proyecto:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")

@@ -1484,11 +1484,36 @@ def update_user_document_by_login(
     pero actualiza la ruta del más reciente en la base de datos.
     """
 
+    # ——— Validación de MIME type ———
+    allowed_mime_types = {
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    }
+    if file.content_type not in allowed_mime_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tipo de archivo no permitido: {file.content_type}"
+        )
+
     # Validar extensión
     allowed_extensions = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"}
     _, ext = os.path.splitext(file.filename.lower())
     if ext not in allowed_extensions:
         raise HTTPException(status_code=400, detail=f"Extensión de archivo no permitida: {ext}")
+
+    # ——— Validación de tamaño (5 MB) ———
+    file.file.seek(0, os.SEEK_END)   # Ir al final del archivo
+    size = file.file.tell()          # Obtener posición (bytes)
+    if size > 5 * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail="El archivo excede el tamaño máximo permitido (5 MB)."
+        )
+    file.file.seek(0)  # Volver al inicio para la lectura
+    
 
     usuario = db.query(User).filter(User.login == login).first()
     if not usuario:
