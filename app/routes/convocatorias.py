@@ -496,7 +496,7 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
                 "success": False,
                 "tipo_mensaje": "amarillo",
                 "mensaje": (
-                    f"<p>La persona con DNI {dni} ya forma parte de un proyecto con estado <strong>no viable</strong>. "
+                    f"<p>La persona con este DNI forma parte de un proyecto con estado <strong>no viable</strong>. "
                     f"No puede registrar una nueva postulación.</p>"
                 ),
                 "tiempo_mensaje": 6,
@@ -526,7 +526,7 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
                     "success": False,
                     "tipo_mensaje": "amarillo",
                     "mensaje": (
-                        f"<p>La persona indicada como conviviente (DNI {conyuge_dni}) ya forma parte de un proyecto con estado "
+                        f"<p>El DNI de la persona indicada como conviviente ya forma parte de un proyecto con estado "
                         f"<strong>no viable</strong>. No puede registrar una nueva postulación.</p>"
                     ),
                     "tiempo_mensaje": 6,
