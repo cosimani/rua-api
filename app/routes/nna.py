@@ -70,15 +70,6 @@ def get_nnas(
     try:
         query = db.query(Nna)
 
-        # if search:
-        #     pattern = f"%{search}%"
-        #     query = query.filter(
-        #         (Nna.nna_nombre.ilike(pattern)) |
-        #         (Nna.nna_apellido.ilike(pattern)) |
-        #         (Nna.nna_dni.ilike(pattern)) |
-        #         (Nna.nna_localidad.ilike(pattern)) 
-        #     )
-
         if search:
             palabras = search.strip().split()
 
@@ -136,8 +127,18 @@ def get_nnas(
                 query = query.filter(or_(*filtros_salud))
 
         # Filtrar por estado directamente en base de datos
+        # if estado_filtro:
+        #     query = query.filter(Nna.nna_estado.in_(estado_filtro))
+
+        # —— Filtrado por estado —— 
         if estado_filtro:
+            # Si me piden explícitamente 'no_disponible', lo incluyo junto a los que haya en la lista
             query = query.filter(Nna.nna_estado.in_(estado_filtro))
+        else:
+            # Por defecto oculto los no_disponible
+            query = query.filter(Nna.nna_estado != "no_disponible")
+
+
 
         # 👇 Ordenar por apellido y luego por nombre
         query = query.order_by(Nna.nna_apellido.asc(), Nna.nna_nombre.asc())
@@ -193,7 +194,7 @@ def get_nnas(
                 "nna_sentencia": nna.nna_sentencia,
                 "nna_archivado": nna.nna_archivado,
                 "estado": nna.nna_estado,
-                "comentarios_estado": comentarios_estado
+                "comentarios_estado": comentarios_estado,
             })
 
         return {
@@ -296,6 +297,26 @@ def get_nna_by_id(nna_id: int, db: Session = Depends(get_db)):
             estado = "Disponible"
             comentarios_estado = ""
 
+        # raw_estado es el valor que viene de la columna nna_estado
+        raw_estado = nna.nna_estado
+
+        # Aquí el mapeo de los códigos a texto legible
+        estado_map = {
+            "no_disponible": "No disponible",
+            "disponible": "Disponible",
+            "sin_ficha_sin_sentencia": "Sin ficha ni sentencia de adopción",
+            "con_ficha_sin_sentencia": "Sin sentencia de adopción",
+            "sin_ficha_con_sentencia": "Sin ficha",
+        }
+
+        # Si el código raw_estado está en el mapa, lo uso;
+        # si no, uso el texto que ya calculaste en la lógica anterior (variable `estado`)
+        estado_legible = estado_map.get(raw_estado, estado)
+
+        # Determinar el flag nna_no_disponible según el estado crudo
+        nna_no_disponible = "Y" if raw_estado == "no_disponible" else "N"
+
+
         return {
             "nna_id": nna.nna_id,
             "nna_nombre": nna.nna_nombre,
@@ -316,8 +337,14 @@ def get_nna_by_id(nna_id: int, db: Session = Depends(get_db)):
             "nna_sentencia": nna.nna_sentencia,
             "nna_archivado": nna.nna_archivado,
             "nna_disponible": esta_disponible,
-            "estado": estado,
-            "comentarios_estado": comentarios_estado
+            
+            "estado": estado_legible,
+            "comentarios_estado": comentarios_estado,
+            "nna_no_disponible": nna_no_disponible,
+
+            # "estado": estado,
+            # "comentarios_estado": comentarios_estado,
+            # "nna_no_disponible": nna_no_disponible,
         }
 
     except SQLAlchemyError as e:
@@ -491,19 +518,42 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
 
         # Buscar si existe
         nna_existente = db.query(Nna).filter(Nna.nna_dni == dni).first()
+        
 
         campos = [
             "nna_nombre", "nna_apellido", "nna_fecha_nacimiento", "nna_calle_y_nro",
             "nna_depto_etc", "nna_barrio", "nna_localidad", "nna_provincia",
             "nna_subregistro_salud", "nna_en_convocatoria", "nna_archivado",
-            "nna_5A", "nna_5B",
+            "nna_5A", "nna_5B", "nna_no_disponible"
         ]
 
         if nna_existente:
-            # Actualizar campos
+            # 1) Si viene el flag `nna_no_disponible`…
+            flag = nna_data.get("nna_no_disponible")
+            if flag == "Y":
+                # sólo permitimos pasar a no_disponible si viene de disponible o ya está en no_disponible
+                if nna_existente.nna_estado in ("disponible", "no_disponible"):
+                    nna_existente.nna_estado = "no_disponible"
+                else:
+                    return {
+                        "success": False,
+                        "tipo_mensaje": "rojo",
+                        "mensaje": "Sólo se puede marcar como no disponible a NNA en estado 'disponible'.",
+                        "tiempo_mensaje": 6,
+                        "next_page": "actual"
+                    }
+            elif flag == "N":
+                # Si el payload dice 'N', lo forzamos a 'disponible'
+                nna_existente.nna_estado = "disponible"
+
+
+            # 2) Actualizar el resto de campos habituales
             for campo in campos:
+                if campo in ("nna_no_disponible",):  # ya lo manejamos arriba
+                    continue
                 if campo in nna_data:
                     setattr(nna_existente, campo, nna_data[campo])
+
             db.commit()
             db.refresh(nna_existente)
             return {
@@ -515,14 +565,19 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
                 "nna_id": nna_existente.nna_id
             }
 
-        # Crear nuevo NNA
+        # —————— CREAR NUEVO NNA SI NO EXISTE ——————
+        # Ignoramos nna_no_disponible y forzamos estado "disponible"
         nuevo_nna = Nna(
-            **{campo: nna_data.get(campo) for campo in campos},
-            nna_dni = dni
+            nna_dni=dni,
+            nna_estado="disponible",   # <- siempre disponible al crear
+            **{campo: nna_data.get(campo)
+               for campo in campos
+               if campo not in ("nna_no_disponible",)}
         )
         db.add(nuevo_nna)
         db.commit()
         db.refresh(nuevo_nna)
+        
         return {
             "success": True,
             "tipo_mensaje": "verde",

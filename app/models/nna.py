@@ -37,8 +37,9 @@ class Nna(Base):
     nna_estado = Column(Enum( 'sin_ficha_sin_sentencia', 'con_ficha_sin_sentencia', 'sin_ficha_con_sentencia', 
                               'disponible', 'preparando_carpeta', 'enviada_a_juzgado', 'proyecto_seleccionado', 
                               'vinculacion', 'guarda', 'adopcion_definitiva', 'interrupcion', 
-                              'mayor_sin_adopcion', 'en_convocatoria' ), nullable=True)             
+                              'mayor_sin_adopcion', 'en_convocatoria', 'no_disponible' ), nullable=True)
     
+   
     # # Relación con otra tabla (si existe)
     detalle_nna = relationship("DetalleNNAEnCarpeta", back_populates="nna", lazy="joined")
     detalle_convocatorias = relationship("DetalleNNAEnConvocatoria", back_populates="nna", lazy="joined")
