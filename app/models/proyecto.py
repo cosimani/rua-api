@@ -70,7 +70,7 @@ class Proyecto(Base):
     informe_profesionales      = Column(Text, nullable=True)
     
     doc_dictamen = Column(String(1024), nullable=True)
-    doc_informe_vinculacion    = Column(Text, nullable=True)
+    doc_informe_vinculacion = Column(Text, nullable=True)
     doc_informe_seguimiento_guarda = Column(Text, nullable=True)
 
     doc_sentencia_guarda = Column(String(1024), nullable=True)
