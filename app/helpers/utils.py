@@ -80,8 +80,8 @@ def enviar_mail(destinatario: str, asunto: str, cuerpo: str):
     # Crear el mensaje
     msg = MIMEMultipart()
     msg["From"] = formataddr((nombre_remitente, remitente))  # Ej: "RUA <sistemarua@...>"
-    # msg["To"] = destinatario
-    msg["To"] = "cesarosimani@gmail.com"
+    msg["To"] = destinatario
+    # msg["To"] = "cesarosimani@gmail.com"
     msg["Subject"] = asunto
     msg.attach(MIMEText(cuerpo, "html")) 
 
@@ -140,45 +140,6 @@ class EstadisticasPDF(FPDF):
         self.set_font("Arial", "I", 8)
         self.set_text_color(100, 100, 100)
         self.cell(0, 10, "Informe generado automáticamente - RUA", 0, 0, "C")
-
-
-# class EstadisticasPDF(FPDF):
-
-#     def header(self):
-#         self.set_font("Arial", "B", 12)
-#         self.cell(0, 10, "SERVICIO DE GUARDA Y ADOPCIÓN", ln=True, align="C")
-#         self.set_font("Arial", "B", 11)
-#         self.cell(0, 10, "REGISTRO ÚNICO DE ADOPCIONES Y EQUIPO TÉCNICO DE ADOPCIONES", ln=True, align="C")
-#         self.set_font("Arial", "I", 9)
-#         self.cell(0, 10, "INFORME DE ESTADÍSTICAS GENERALES", ln=True, align="C")
-#         self.ln(4)
-
-
-#     def section_title(self, title):
-#         self.set_font("Arial", "B", 12)
-#         self.set_fill_color(230, 230, 230)
-#         self.cell(0, 8, title, ln=True, fill=True)
-#         self.ln(2)
-
-
-#     def add_table(self, data, col_widths=None):
-#         if not col_widths:
-#             col_widths = [190 // len(data[0])] * len(data[0])
-#         self.set_font("Arial", "B", 9)
-#         for i, header in enumerate(data[0]):
-#             self.cell(col_widths[i], 7, header, border=1, align="C")
-#         self.ln()
-#         self.set_font("Arial", "", 9)
-#         for row in data[1:]:
-#             for i, datum in enumerate(row):
-#                 self.cell(col_widths[i], 7, str(datum), border=1, align="C")
-#             self.ln()
-#         self.ln(3)
-
-#     def footer(self):
-#         self.set_y(-15)
-#         self.set_font("Arial", "I", 8)
-#         self.cell(0, 10, "Informe generado automáticamente - RUA", 0, 0, "C")
 
 
 
@@ -876,59 +837,6 @@ def construir_subregistro_string(row):
             resultado.append(campo.replace("subreg_", ""))
 
     return " ; ".join(resultado)
-
-
-
-
-# def construir_subregistro_string(row):
-#     subregistro_field_map = {
-#         "1": "subregistro_1",
-#         "2": "subregistro_2",
-#         "3": "subregistro_3",
-#         "4": "subregistro_4",
-#         "FE1": "flex_edad_1",
-#         "FE2": "flex_edad_2",
-#         "FE3": "flex_edad_3",
-#         "FE4": "flex_edad_4",
-#         "FET": "flex_edad_todos",
-#         "5A1": "discapacidad_1",
-#         "5A2": "discapacidad_2",
-#         "5A1E1": "edad_discapacidad_0",
-#         "5A1E2": "edad_discapacidad_1",
-#         "5A1E3": "edad_discapacidad_2",
-#         "5A1E4": "edad_discapacidad_3",
-#         "5A1ET": "edad_discapacidad_4",
-#         "F5S": "flex_condiciones_salud",
-#         "F5E1": "flex_salud_edad_0",
-#         "F5E2": "flex_salud_edad_1",
-#         "F5E3": "flex_salud_edad_2",
-#         "F5E4": "flex_salud_edad_3",
-#         "F5ET": "flex_salud_edad_4",
-#         "61": "hermanos_comp_1",
-#         "62": "hermanos_comp_2",
-#         "63": "hermanos_comp_3",
-#         "61E1": "hermanos_edad_0",
-#         "61E2": "hermanos_edad_1",
-#         "61E3": "hermanos_edad_2",
-#         "61ET": "hermanos_edad_3",
-#         "FQ1": "flex_hermanos_comp_1",
-#         "FQ2": "flex_hermanos_comp_2",
-#         "FQ3": "flex_hermanos_comp_3",
-#         "F6E1": "flex_hermanos_edad_0",
-#         "F6E2": "flex_hermanos_edad_1",
-#         "F6E3": "flex_hermanos_edad_2",
-#         "F6E4": "flex_hermanos_edad_3",
-#         "F6ET": "flex_hermanos_edad_3",
-#     }
-
-#     resultado = []
-#     for clave, campo in subregistro_field_map.items():
-#         valor = getattr(row, campo, None)
-#         if valor and str(valor).upper() == "Y":
-#             resultado.append(clave)
-
-#     return " ; ".join(resultado)
-
 
 
 

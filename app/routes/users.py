@@ -924,7 +924,7 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
     dni = normalizar_y_validar_dni(body.get("dni")) 
     if not dni: 
         return {
-            "tipo_mensaje": "amarillo",
+            "tipo_mensaje": "naranja",
             "mensaje": (
                 "<p>Debe indicar un DNI válido.</p>"
             ),
@@ -946,7 +946,7 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
         celular = resultado_validacion_celular["celular"]
     else:
         return {
-            "tipo_mensaje": "amarillo",
+            "tipo_mensaje": "naranja",
             "mensaje": (
                 "<p>Ingrese un número de celular válido.</p>"
                 "<p>Por favor, intente nuevamente.</p>"
@@ -966,7 +966,7 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
             "tipo_mensaje": "naranja",
             "mensaje": (
                 "<p>Ya existe un usuario con ese DNI en el Sistema RUA.</p>"
-                "<p>Por favor, comunicarse con supervisión.</p>"
+                "<p>Por favor, comunicarse con personal del RUA.</p>"
             ),
             "tiempo_mensaje": 5,
             "next_page": "actual"
@@ -977,7 +977,7 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
             "tipo_mensaje": "naranja",
             "mensaje": (
                 "<p>Ya existe un usuario con ese mail en el Sistema RUA.</p>"
-                "<p>Por favor, comunicarse con supervisión.</p>"
+                "<p>Por favor, comunicarse con personal del RUA.</p>"
             ),
             "tiempo_mensaje": 5,
             "next_page": "actual"
@@ -986,7 +986,7 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
     # Verificar que las contraseñas coincidan
     if clave != confirm_clave:
         return {
-            "tipo_mensaje": "amarillo",
+            "tipo_mensaje": "naranja",
             "mensaje": (
                 "<p>Las contraseñas no coinciden.</p>"
                 "<p>Por favor, intente nuevamente.</p>"
@@ -1002,9 +1002,9 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
     dígitos = [c for c in clave if c.isdigit()]
     if len(dígitos) < 6:
         return {
-            "tipo_mensaje": "amarillo",
+            "tipo_mensaje": "naranja",
             "mensaje": (
-                "<p>La contraseña debe contener al menos 6 dígitos numéricos.</p>"
+                "<p>La contraseña debe tener al menos 6 números no consecutivos, una mayúscula y una minúscula.</p>"
                 "<p>Por favor, intente nuevamente.</p>"
             ),
             "tiempo_mensaje": 5,
@@ -1014,7 +1014,7 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
     # 2) Sin secuencias de 3 dígitos consecutivos
     if check_consecutive_numbers(clave):
         return {
-            "tipo_mensaje": "amarillo",
+            "tipo_mensaje": "naranja",
             "mensaje": (
                 "<p>La contraseña no puede contener secuencias numéricas consecutivas "
                 "(por ejemplo “1234” o “4321”).</p>"
@@ -1027,9 +1027,9 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
     # 3) Al menos una letra mayúscula
     if not any(c.isupper() for c in clave):
         return {
-            "tipo_mensaje": "amarillo",
+            "tipo_mensaje": "naranja",
             "mensaje": (
-                "<p>La contraseña debe incluir al menos una letra mayúscula.</p>"
+                "<p>La contraseña debe tener al menos 6 números no consecutivos, una mayúscula y una minúscula.</p>"
                 "<p>Por favor, intente nuevamente.</p>"
             ),
             "tiempo_mensaje": 5,
@@ -1039,9 +1039,9 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
     # 4) Al menos una letra minúscula
     if not any(c.islower() for c in clave):
         return {
-            "tipo_mensaje": "amarillo",
+            "tipo_mensaje": "naranja",
             "mensaje": (
-                "<p>La contraseña debe incluir al menos una letra minúscula.</p>"
+                "<p>La contraseña debe tener al menos 6 números no consecutivos, una mayúscula y una minúscula.</p>"
                 "<p>Por favor, intente nuevamente.</p>"
             ),
             "tiempo_mensaje": 5,
@@ -1052,7 +1052,7 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
     # Validar formato de correo
     if not validar_correo(mail):
         return {
-            "tipo_mensaje": "amarillo",
+            "tipo_mensaje": "naranja",
             "mensaje": (
                 "<p>El correo electrónico no tiene un formato válido.</p>"
                 "<p>Por favor, intente nuevamente.</p>"
@@ -1080,7 +1080,7 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
                 return {
                     "tipo_mensaje": "naranja",
                     "mensaje": (
-                        "<p>Ya existe un usuario con ese mail en nuestro sistema de capacitación.</p>"
+                        "<p>Ya existe un usuario con ese mail en nuestro sistema de capacitación (Moodle).</p>"
                         "<p>Por favor, comunicarse con personal del RUA.</p>"
                     ),
                     "tiempo_mensaje": 5,
@@ -1091,7 +1091,7 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
                 return {
                     "tipo_mensaje": "naranja",
                     "mensaje": (
-                        "<p>Ya existe un usuario con ese DNI en nuestro sistema de capacitación.</p>"
+                        "<p>Ya existe un usuario con ese DNI en nuestro sistema de capacitación (Moodle).</p>"
                         "<p>Por favor, comunicarse con personal del RUA.</p>"
                     ),
                     "tiempo_mensaje": 5,
@@ -1123,8 +1123,12 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
     # Generar código de activación aleatorio
     activation_code = generar_codigo_para_link(16)
 
+    print( 'activation_code', activation_code )
+
      # Aplicar hash a la contraseña
     hashed_password = get_password_hash(clave)
+
+    print( 'hashed_password', hashed_password )
 
     # Crear el nuevo usuario
     new_user = User(
@@ -1148,32 +1152,44 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
     )
 
     try:
+        # Agregar todos los objetos
         db.add(new_user)
         db.add(new_user_group)
-        db.commit()
+        db.commit()              # 👈 commit primero el user y grupo
         db.refresh(new_user)
 
-        # **Registrar el evento en rua_evento**
+        print( '111111' )
+
         nuevo_evento = RuaEvento(
             login=dni,
             evento_detalle="Nuevo usuario registrado.",
             evento_fecha=datetime.now()
         )
         db.add(nuevo_evento)
+
+        print( '222222' )
+
+        # Un solo commit
         db.commit()
+
+        print( '333333' )
+
     
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
         db.rollback()
+        print("⚠️ Error al hacer commit:", str(e))
+
         return {
             "tipo_mensaje": "rojo",
             "mensaje": (
                 "<p>Ocurrió un error al registrar el usuario.</p>"
-                "<p>Por favor, intente nuevamente.</p>"
+                "<p>Por favor, intente nuevamente o comuníquese con personal del RUA.</p>"
             ),
             "tiempo_mensaje": 5,
             "next_page": "actual"
         }
  
+
 
     try:
 
@@ -1209,14 +1225,13 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
                     <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
                         <tr>
                         <td style="font-size: 24px; color: #007bff;">
-                            <strong>¡Hola!</strong>
+                            <strong>¡Hola {nombre}!</strong>
                         </td>
                         </tr>
                         <tr>
                         <td style="padding-top: 20px; font-size: 17px;">
-                            <p>El Sistema ha creado tu cuenta en el sistema <strong>RUA</strong> para que presentes tu <strong>Proyecto Adoptivo</strong>.</p>
-                            <p>También se creó tu cuenta en el <strong>Campus Virtual del Poder Judicial</strong>, donde realizarás el curso de sensibilización.</p>
-                            <p>Solo hacé clic en el botón para continuar:</p>
+                            <p>¡Bienvenido a la plataforma virtual del <strong>Registro Único de Adopciones de Córdoba</strong>!</p>
+                             <p>Para iniciar el proceso de inscripción hace clic en el siguiente botón y completa el curso informativo obligatorio:</p>
                         </td>
                         </tr>
                         <tr>
@@ -1228,7 +1243,7 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
                                 <a href="{link_activacion}"
                                     target="_blank"
                                     style="display: inline-block; padding: 12px 25px; font-size: 16px; color: #ffffff; background-color: #0d6efd; text-decoration: none; border-radius: 8px; font-weight: bold;">
-                                    Confirmo mi registro en el sistema RUA
+                                    Confirmo mi registro en el sistema
                                 </a>
                                 </td>
                             </tr>
@@ -1244,7 +1259,7 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
                         <td style="padding-top: 30px;">
                             <hr style="border: none; border-top: 1px solid #dee2e6;">
                             <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                            <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                            <strong>Registro Único de Adopciones de Córdoba</strong>
                             </p>
                         </td>
                         </tr>
@@ -1279,12 +1294,11 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
         "tipo_mensaje": "verde",
         "mensaje": (
             "<p>El usuario fue creado correctamente.</p>"
-            "<p>Se ha registrado en el sistema y podrá acceder una vez activado.</p>"
+            "<p>Se ha registrado en el sistema y podrá acceder una vez activado, revise su correo electrónico.</p>"
         ),
         "tiempo_mensaje": 8,
         "next_page": "/login"
     }
-
 
 
 

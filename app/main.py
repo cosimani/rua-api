@@ -67,16 +67,16 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
 
     # 2) Content Security Policy
-    nonce = secrets.token_urlsafe(16)
-    response.headers["Content-Security-Policy"] = (
-        f"default-src 'self'; "
-        f"script-src 'self' 'nonce-{nonce}'; "
-        f"style-src 'self'; "
-        f"img-src 'self' data:; "
-        f"object-src 'none'; "
-        f"frame-ancestors 'none'; "
-        f"report-uri /csp-report"
-    )
+    # nonce = secrets.token_urlsafe(16)
+    # response.headers["Content-Security-Policy"] = (
+    #     f"default-src 'self'; "
+    #     f"script-src 'self' 'nonce-{nonce}'; "
+    #     f"style-src 'self'; "
+    #     f"img-src 'self' data:; "
+    #     f"object-src 'none'; "
+    #     f"frame-ancestors 'none'; "
+    #     f"report-uri /csp-report"
+    # )
     # Si sirves HTML, debes inyectar este mismo `nonce` en tus <script nonce="...">
 
     # 3) HSTS
