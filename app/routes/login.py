@@ -298,36 +298,47 @@ def change_password(
     if new_password != confirm_new_password:
         raise HTTPException(status_code=400, detail="Las contraseñas nuevas no coinciden.")
     
+
     # ——— Validación de política de contraseñas ———
-    # 1) Al menos 6 dígitos numéricos
+
+    # 1) Al menos 6 dígitos en cualquier posición
     dígitos = [c for c in new_password if c.isdigit()]
     if len(dígitos) < 6:
         raise HTTPException(
             status_code=400,
-            detail="La contraseña debe contener al menos 6 dígitos numéricos."
+            detail=(
+                "La contraseña debe tener al menos 6 números no consecutivos, una mayúscula y una minúscula."
+            )
         )
 
     # 2) Sin secuencias de 3 dígitos consecutivos
     if check_consecutive_numbers(new_password):
         raise HTTPException(
             status_code=400,
-            detail="La contraseña no puede contener secuencias numéricas consecutivas (p.ej. “1234” o “4321”)."
+            detail=(
+                "La contraseña no puede contener secuencias numéricas consecutivas (por ejemplo “1234” o “4321”)."
+            )
         )
 
     # 3) Al menos una letra mayúscula
     if not any(c.isupper() for c in new_password):
         raise HTTPException(
             status_code=400,
-            detail="La contraseña debe incluir al menos una letra mayúscula."
+            detail=(
+                "La contraseña debe tener al menos 6 números no consecutivos, una mayúscula y una minúscula."
+            )
         )
 
     # 4) Al menos una letra minúscula
     if not any(c.islower() for c in new_password):
         raise HTTPException(
             status_code=400,
-            detail="La contraseña debe incluir al menos una letra minúscula."
+            detail=(
+                "La contraseña debe tener al menos 6 números no consecutivos, una mayúscula y una minúscula."
+            )
         )
-    # ——————————————————————————————————————————
+
+    # ————————————————————————————————————————————
 
     # Guardar la nueva contraseña en bcrypt (migración de MD5 a bcrypt)
     hashed_new_password = get_password_hash(new_password)
@@ -985,26 +996,60 @@ async def establecer_nueva_clave(
         }
 
     try:
-        # 🔒 Validación básica
-        if not clave.isdigit() or len(clave) < 6:
+        # ——— Validación de política de contraseñas ———
+
+        # 1) Al menos 6 dígitos en cualquier posición
+        dígitos = [c for c in clave if c.isdigit()]
+        if len(dígitos) < 6:
             return {
                 "success": False,
                 "tipo_mensaje": "naranja",
                 "mensaje": (
-                    "<p>La contraseña debe tener al menos 6 dígitos y estar compuesta solo por números.</p>"
+                    "<p>La contraseña debe tener al menos 6 números no consecutivos, una mayúscula y una minúscula.</p>"
                 ),
                 "tiempo_mensaje": 6,
                 "next_page": "actual"
             }
 
+        # 2) Sin secuencias de 3 dígitos consecutivos
         if check_consecutive_numbers(clave):
             return {
                 "success": False,
                 "tipo_mensaje": "naranja",
-                "mensaje": "<p>La contraseña no puede tener números consecutivos (como 123456 o 654321).</p>",
+                "mensaje": (
+                    "<p>La contraseña no puede contener secuencias numéricas consecutivas "
+                    "(por ejemplo “1234” o “4321”).</p>"
+                ),
                 "tiempo_mensaje": 6,
                 "next_page": "actual"
             }
+
+        # 3) Al menos una letra mayúscula
+        if not any(c.isupper() for c in clave):
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": (
+                    "<p>La contraseña debe tener al menos 6 números no consecutivos, una mayúscula y una minúscula.</p>"
+                ),
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # 4) Al menos una letra minúscula
+        if not any(c.islower() for c in clave):
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": (
+                    "<p>La contraseña debe tener al menos 6 números no consecutivos, una mayúscula y una minúscula.</p>"
+                ),
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # ————————————————————————————————————————————
+
 
         # 🔐 Guardar nueva contraseña (bcrypt)
         user.clave = get_password_hash(clave)
