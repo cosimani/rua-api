@@ -54,7 +54,7 @@ TIEMPO_BLOQUEO_IP_MINUTOS = 30
 
 
 @login_router.post("/login", response_model = dict)
-@limiter.limit("5/minute")
+# @limiter.limit("5/minute")
 async def login(    
     request: Request,
     username: str = Form(...),
@@ -84,49 +84,49 @@ async def login(
           }
 
 
-    # Buscar registro de esa IP
-    intento_ip = db.query(LoginIntentoIP).filter_by(ip=ip).first()
+    # # Buscar registro de esa IP
+    # intento_ip = db.query(LoginIntentoIP).filter_by(ip=ip).first()
    
 
-    if intento_ip and intento_ip.bloqueo_hasta and intento_ip.bloqueo_hasta > now:
-        minutos_restantes = int((intento_ip.bloqueo_hasta - now).total_seconds() / 60)
-        return {
-            "success": False,
-            "tipo_mensaje": "rojo",
-            "mensaje": f"IP bloqueada por múltiples intentos fallidos. Intente nuevamente en {minutos_restantes} minutos.",
-            "tiempo_mensaje": 8,
-            "next_page": "actual",
-        }
+    # if intento_ip and intento_ip.bloqueo_hasta and intento_ip.bloqueo_hasta > now:
+    #     minutos_restantes = int((intento_ip.bloqueo_hasta - now).total_seconds() / 60)
+    #     return {
+    #         "success": False,
+    #         "tipo_mensaje": "rojo",
+    #         "mensaje": f"IP bloqueada por múltiples intentos fallidos. Intente nuevamente en {minutos_restantes} minutos.",
+    #         "tiempo_mensaje": 8,
+    #         "next_page": "actual",
+    #     }
 
 
     user = db.query(User).filter(User.login == username).first()
 
 
     if not user:
-        if not intento_ip:
-            intento_ip = LoginIntentoIP(ip=ip, usuarios=username, ultimo_intento=now)
-            db.add(intento_ip)
-        else:
-            # Agregar el username a la lista de usuarios si no estaba
-            usuarios_actuales = set(intento_ip.usuarios.split(",")) if intento_ip.usuarios else set()
-            usuarios_actuales.add(username)
-            intento_ip.usuarios = ",".join(usuarios_actuales)
+        # if not intento_ip:
+        #     intento_ip = LoginIntentoIP(ip=ip, usuarios=username, ultimo_intento=now)
+        #     db.add(intento_ip)
+        # else:
+        #     # Agregar el username a la lista de usuarios si no estaba
+        #     usuarios_actuales = set(intento_ip.usuarios.split(",")) if intento_ip.usuarios else set()
+        #     usuarios_actuales.add(username)
+        #     intento_ip.usuarios = ",".join(usuarios_actuales)
 
-            intento_ip.ultimo_intento = now
+        #     intento_ip.ultimo_intento = now
 
-            if len(usuarios_actuales) >= CANTIDAD_USUARIOS_DISTINTOS_PARA_BLOQUEAR_IP:
-                intento_ip.bloqueo_hasta = now + timedelta(minutes=30)
-                intento_ip.usuarios = ""
+        #     if len(usuarios_actuales) >= CANTIDAD_USUARIOS_DISTINTOS_PARA_BLOQUEAR_IP:
+        #         intento_ip.bloqueo_hasta = now + timedelta(minutes=30)
+        #         intento_ip.usuarios = ""
 
-                evento_bloqueo_ip = RuaEvento(
-                    login = None,
-                    evento_detalle = f"⚠️ La IP {ip} fue bloqueada por intentos fallidos con múltiples usuarios.",
-                    evento_fecha = now
-                )
-                db.add(evento_bloqueo_ip)
+        #         evento_bloqueo_ip = RuaEvento(
+        #             login = None,
+        #             evento_detalle = f"⚠️ La IP {ip} fue bloqueada por intentos fallidos con múltiples usuarios.",
+        #             evento_fecha = now
+        #         )
+        #         db.add(evento_bloqueo_ip)
 
 
-        db.commit()
+        # db.commit()
 
         return {
             "success": False,
