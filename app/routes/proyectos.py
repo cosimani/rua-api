@@ -3571,7 +3571,7 @@ def valorar_proyecto_final(
                                     <td style="padding-top: 30px;">
                                         <hr style="border: none; border-top: 1px solid #dee2e6;">
                                         <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                                        <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                        <strong>Registro Único de Adopciones de Córdoba</strong>
                                         </p>
                                     </td>
                                     </tr>
@@ -4824,7 +4824,7 @@ def crear_proyecto_completo(
                                 <td style="padding-top: 30px;">
                                     <hr style="border: none; border-top: 1px solid #dee2e6;">
                                     <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                                    <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                    <strong>Registro Único de Adopciones de Córdoba</strong>
                                     </p>
                                 </td>
                                 </tr>
@@ -5035,7 +5035,7 @@ def notificar_proyecto_mensaje(
                                 <td style="padding-top: 30px;">
                                     <hr style="border: none; border-top: 1px solid #dee2e6;">
                                     <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                                    <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                    <strong>Registro Único de Adopciones de Córdoba</strong>
                                     </p>
                                 </td>
                                 </tr>
@@ -5497,7 +5497,7 @@ def solicitar_actualizacion_proyecto(
                                 <td style="padding-top: 30px;">
                                     <hr style="border: none; border-top: 1px solid #dee2e6;">
                                     <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                                    <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                    <strong>Registro Único de Adopciones de Córdoba</strong>
                                     </p>
                                 </td>
                                 </tr>
@@ -5711,7 +5711,7 @@ def aprobar_proyecto(
                                 <td style="padding-top: 30px;">
                                     <hr style="border: none; border-top: 1px solid #dee2e6;">
                                     <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                                    <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                    <strong>Registro Único de Adopciones de Córdoba</strong>
                                     </p>
                                 </td>
                                 </tr>
