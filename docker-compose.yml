@@ -1,7 +1,10 @@
 services:
   rua_api:
     container_name: rua_api
-    restart: no
+    restart: always
+    cpus: "0.8"
+    mem_limit: 600m
+    mem_reservation: 300m
     build:
       context: .
       dockerfile: Dockerfile
@@ -28,14 +31,6 @@ services:
     # command: python3 -m main
     command: >
       uvicorn main:app --host 0.0.0.0 --port 8000 --reload 
-    deploy:
-      resources:
-        limits:
-          cpus: "0.8"  # Máximo 80% de un núcleo
-          memory: "600M"  # Máximo 600MB de RAM
-        reservations:
-          cpus: "0.4"  # Reserva 40% de un núcleo
-          memory: "300M"  # Reserva 300MB de RAM
 
 networks:
   app-network:
