@@ -3271,8 +3271,9 @@ def notificar_pretenso_mensaje(
                     </div>
                     """
                 else:
+
                     cuerpo_mensaje_html = f"""
-                    <p>Recibiste una notificación del <strong>RUA</strong>:</p>
+                    <p>Te informamos que recibiste el siguiente mensaje en la plataforma:</p>
                     <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
                         <em>{mensaje}</em>
                     </div>
@@ -3304,7 +3305,7 @@ def notificar_pretenso_mensaje(
                             <td style="padding-top: 30px;">
                                 <hr style="border: none; border-top: 1px solid #dee2e6;">
                                 <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                                <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                <strong>Registro Único de Adopciones de Córdoba</strong>
                                 </p>
                             </td>
                             </tr>

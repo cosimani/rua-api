@@ -538,7 +538,7 @@ def aceptar_invitacion(
                             <td style="padding-top: 30px;">
                                 <hr style="border: none; border-top: 1px solid #dee2e6;">
                                 <p style="font-size: 14px; color: #6c757d; margin-top: 20px;">
-                                <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                                <strong>Registro Único de Adopciones de Córdoba</strong>
                                 </p>
                             </td>
                             </tr>
@@ -710,7 +710,7 @@ async def recuperar_clave(
                         <td>
                             <hr style="border: none; border-top: 1px solid #dee2e6; margin: 40px 0;">
                             <p style="font-size: 15px; color: #6c757d;">
-                            <strong>Registro Único de Adopción (RUA) de Córdoba</strong>
+                            <strong>Registro Único de Adopciones de Córdoba</strong>
                             </p>
                         </td>
                         </tr>
@@ -884,7 +884,7 @@ async def reenviar_activacion(
                         <td>
                             <hr style="border: none; border-top: 1px solid #dee2e6; margin: 40px 0;">
                             <p style="font-size: 15px; color: #6c757d;">
-                            <strong>Registro Único de Adopción (RUA) - Poder Judicial de Córdoba</strong>
+                            <strong>Registro Único de Adopciones de Córdoba</strong>
                             </p>
                         </td>
                         </tr>

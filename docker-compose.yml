@@ -20,6 +20,8 @@ services:
       TZ: America/Argentina/Cordoba
     env_file:
       - .env  # Cargar variables de entorno desde un archivo .env
+    extra_hosts:
+      - "campusvirtual2.justiciacordoba.gob.ar:${MOODLE_IP}"
     networks:
       - app-network
     working_dir: /app  # Definimos el directorio de trabajo dentro del contenedor
