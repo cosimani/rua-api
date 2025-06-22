@@ -20,7 +20,8 @@ import re
 from models.users import User, Group, UserGroup 
 from models.ddjj import DDJJ
 from models.proyecto import Proyecto
-from models.eventos_y_configs import RuaEvento, LoginIntentoIP
+from models.eventos_y_configs import RuaEvento
+# from models.eventos_y_configs import LoginIntentoIP
 from sqlalchemy.exc import SQLAlchemyError
 
 import html
@@ -34,7 +35,7 @@ from helpers.utils import check_consecutive_numbers
 
 
 # # Importa el limiter que definiste en main.py
-from main import limiter   
+# from main import limiter   
 
 
 
@@ -47,9 +48,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60)) 
 MAX_INTENTOS = 5
 TIEMPO_BLOQUEO_MINUTOS = 30
 
-MAX_INTENTOS_IP = 3
-CANTIDAD_USUARIOS_DISTINTOS_PARA_BLOQUEAR_IP = 3
-TIEMPO_BLOQUEO_IP_MINUTOS = 30
+# MAX_INTENTOS_IP = 3
+# CANTIDAD_USUARIOS_DISTINTOS_PARA_BLOQUEAR_IP = 3
+# TIEMPO_BLOQUEO_IP_MINUTOS = 30
 
 
 

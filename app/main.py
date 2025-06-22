@@ -5,11 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.responses import Response
 
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-from slowapi.middleware import SlowAPIMiddleware
-from slowapi.errors import RateLimitExceeded
-from slowapi import _rate_limit_exceeded_handler
+# from slowapi import Limiter
+# from slowapi.util import get_remote_address
+# from slowapi.middleware import SlowAPIMiddleware
+# from slowapi.errors import RateLimitExceeded
+# from slowapi import _rate_limit_exceeded_handler
 
 from dotenv import load_dotenv
 
@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 # Creamos y exponemos el limiter ANTES de importar routers
 # Limiter global (usa IP remota para la key)
-limiter = Limiter(key_func=get_remote_address)
+# limiter = Limiter(key_func=get_remote_address)
 
 
 
@@ -31,14 +31,14 @@ app = FastAPI(
 )
 
 
-#  ——— Configuración de slowapi ——————————————————————————————
-# Exponer el limiter en el estado de la app
-app.state.limiter = limiter
-# Middleware para inyectar la lógica de rate-limit
-app.add_middleware(SlowAPIMiddleware)
-# Excepciones de límite excedido devuelven 429 JSON
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-# ———————————————————————————————————————————————————————————
+# #  ——— Configuración de slowapi ——————————————————————————————
+# # Exponer el limiter en el estado de la app
+# app.state.limiter = limiter
+# # Middleware para inyectar la lógica de rate-limit
+# app.add_middleware(SlowAPIMiddleware)
+# # Excepciones de límite excedido devuelven 429 JSON
+# app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# # ———————————————————————————————————————————————————————————
 
 
 
