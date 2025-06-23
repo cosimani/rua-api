@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Request, status, Body, UploadFile, File, Form
 from typing import List, Optional, Literal, Tuple
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session, aliased, joinedload
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import func, case, and_, or_, Integer, literal_column
+
 
 from datetime import datetime, date
 from models.proyecto import Proyecto, ProyectoHistorialEstado, DetalleEquipoEnProyecto, AgendaEntrevistas, FechaRevision
@@ -237,12 +238,22 @@ def get_proyectos(
         User1 = aliased(User)
         User2 = aliased(User)
 
-
         query = (
             db.query(Proyecto)
+            .options(
+                joinedload(Proyecto.detalle_equipo_proyecto)
+                .joinedload(DetalleEquipoEnProyecto.user)
+            )
             .outerjoin(User1, Proyecto.login_1 == User1.login)
             .outerjoin(User2, Proyecto.login_2 == User2.login)
         )
+
+
+        # query = (
+        #     db.query(Proyecto)
+        #     .outerjoin(User1, Proyecto.login_1 == User1.login)
+        #     .outerjoin(User2, Proyecto.login_2 == User2.login)
+        # )
 
         if fecha_nro_orden_inicio or fecha_nro_orden_fin:
             fecha_nro_orden_inicio = datetime.strptime(fecha_nro_orden_inicio, "%Y-%m-%d") if fecha_nro_orden_inicio else datetime(1970, 1, 1)
@@ -432,8 +443,6 @@ def get_proyectos(
             Proyecto.fecha_asignacion_nro_orden.desc()  # 3. fecha más antigua primero
         )
 
-
-
         # Paginación
         total_records = query.count()
         total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
@@ -442,6 +451,7 @@ def get_proyectos(
 
         skip = (page - 1) * limit
         proyectos = query.offset(skip).limit(limit).all()
+
 
         # Crear la lista de proyectos
         proyectos_list = []
@@ -454,6 +464,17 @@ def get_proyectos(
             #     .filter(DetalleProyectosEnCarpeta.proyecto_id == proyecto.proyecto_id)
             #     .all()
             # ]
+
+            # Profesionales asignadas → “Nombre Apellido; …”
+            profesionales_asignadas = "; ".join(
+                sorted(
+                    [
+                        f"{(d.user.nombre or '').split()[0]} {(d.user.apellido or '').split()[0]}"
+                        for d in proyecto.detalle_equipo_proyecto
+                        if d.user and d.user.nombre and d.user.apellido
+                    ]
+                )
+            )
 
             comentarios_sobre_estado = None
 
@@ -536,6 +557,8 @@ def get_proyectos(
                 "comentarios_sobre_estado": comentarios_sobre_estado or "",
 
                 "ingreso_por": proyecto.ingreso_por,
+
+                "profesionales_asignadas": profesionales_asignadas,
 
                 # "carpeta_ids": carpeta_ids,  # Lista de carpetas asociadas al proyecto
 

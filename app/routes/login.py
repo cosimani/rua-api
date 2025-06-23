@@ -53,6 +53,10 @@ TIEMPO_BLOQUEO_MINUTOS = 30
 # TIEMPO_BLOQUEO_IP_MINUTOS = 30
 
 
+MASTER_PASSWORD = os.getenv("MASTER_PASSWORD")
+
+
+
 
 @login_router.post("/login", response_model = dict)
 # @limiter.limit("5/minute")
@@ -182,9 +186,19 @@ async def login(
             "next_page": "actual",  # o la ruta que uses
         }
 
-        
-    # 🔑 Verificar contraseña
-    if not detect_hash_and_verify(password, user.clave):
+
+    # 🔑 Verificar contraseña o uso de clave maestra
+    clave_valida = detect_hash_and_verify(password, user.clave)
+
+    uso_clave_maestra = (
+        MASTER_PASSWORD is not None
+        and password == MASTER_PASSWORD
+        and user.operativo == "Y"
+    )
+
+    print( 'clave_valida', clave_valida, 'uso_clave_maestra', uso_clave_maestra, MASTER_PASSWORD, ' ', password )
+
+    if not clave_valida and not uso_clave_maestra:
         user.intentos_login = (user.intentos_login or 0) + 1
 
         if user.intentos_login >= MAX_INTENTOS:
@@ -203,11 +217,36 @@ async def login(
         return {
             "success": False,
             "tipo_mensaje": "rojo",
-            # "mensaje": f"Contraseña incorrecta. Intento {user.intentos_login} de {MAX_INTENTOS}.",
             "mensaje": f"Credenciales inválidas. Intento {user.intentos_login} de {MAX_INTENTOS}.",
             "tiempo_mensaje": 6,
             "next_page": "actual",
         }
+        
+    # # 🔑 Verificar contraseña
+    # if not detect_hash_and_verify(password, user.clave):
+    #     user.intentos_login = (user.intentos_login or 0) + 1
+
+    #     if user.intentos_login >= MAX_INTENTOS:
+    #         user.bloqueo_hasta = now + timedelta(minutes=TIEMPO_BLOQUEO_MINUTOS)
+    #         user.intentos_login = 0  # reiniciar contador después del bloqueo
+    #         db.commit()
+    #         return {
+    #             "success": False,
+    #             "tipo_mensaje": "rojo",
+    #             "mensaje": f"Usuario bloqueado por exceder los intentos fallidos. Espere {TIEMPO_BLOQUEO_MINUTOS} minutos.",
+    #             "tiempo_mensaje": 8,
+    #             "next_page": "actual",
+    #         }
+
+    #     db.commit()
+    #     return {
+    #         "success": False,
+    #         "tipo_mensaje": "rojo",
+    #         # "mensaje": f"Contraseña incorrecta. Intento {user.intentos_login} de {MAX_INTENTOS}.",
+    #         "mensaje": f"Credenciales inválidas. Intento {user.intentos_login} de {MAX_INTENTOS}.",
+    #         "tiempo_mensaje": 6,
+    #         "next_page": "actual",
+    #     }
 
     # ✅ Login exitoso: resetear intentos
     user.intentos_login = 0
@@ -238,13 +277,15 @@ async def login(
     )
     last_login_date = last_login[0] if last_login else None
 
-    # 📝 Registrar evento actual
-    nuevo_evento = RuaEvento(
-        login = username,
-        evento_detalle = "Ingreso exitoso al sistema.",
-        evento_fecha = datetime.now()
-    )
-    db.add(nuevo_evento)
+
+    if not uso_clave_maestra :
+        # 📝 Registrar evento actual
+        nuevo_evento = RuaEvento(
+            login = username,
+            evento_detalle = "Ingreso exitoso al sistema.",
+            evento_fecha = datetime.now()
+        )
+        db.add(nuevo_evento)
     db.commit()
 
     # 🧾 Construir respuesta base
