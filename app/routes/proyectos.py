@@ -2660,6 +2660,115 @@ def obtener_entrevistas_de_proyecto(
 
 
 
+@proyectos_router.post("/reasignar-profesionales/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["supervisora"]))])
+async def reasignar_profesionales(
+    proyecto_id: int,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    🔁 Reasigna los profesionales de un proyecto ya calendarizado.
+
+    JSON esperado:
+    {
+        "logins": ["login1", "login2"],
+        "observacion": "Texto opcional"
+    }
+    """
+    try:
+        logins = payload.get("logins", [])
+        observacion = payload.get("observacion")
+
+        if not isinstance(logins, list):
+            return {"success": False, "mensaje": "'logins' debe ser una lista"}
+
+        if not (1 <= len(logins) <= 3):
+            return {"success": False, "mensaje": "Debe haber entre 1 y 3 profesionales asignadas"}
+
+        proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+        if not proyecto:
+            return {"success": False, "mensaje": "Proyecto no encontrado"}
+
+        # Validar profesionales
+        for login in logins:
+            user = db.query(User).filter(User.login == login).first()
+            if not user:
+                return {"success": False, "mensaje": f"El usuario '{login}' no existe"}
+
+            roles = db.query(UserGroup).filter(UserGroup.login == login).all()
+            es_profesional = any(
+                db.query(Group).filter(Group.group_id == r.group_id, Group.description == "profesional").first()
+                for r in roles
+            )
+            if not es_profesional:
+                return {"success": False, "mensaje": f"El usuario '{login}' no es profesional"}
+
+        # 🧹 Borrar asignaciones anteriores
+        db.query(DetalleEquipoEnProyecto).filter(
+            DetalleEquipoEnProyecto.proyecto_id == proyecto_id
+        ).delete()
+
+        # ➕ Agregar nuevas asignaciones
+        for login in logins:
+            nueva = DetalleEquipoEnProyecto(
+                proyecto_id=proyecto_id,
+                login=login,
+                fecha_asignacion=datetime.now().date()
+            )
+            db.add(nueva)
+
+        # 🧾 Registrar observación si hay
+        if observacion:
+            db.add(ObservacionesProyectos(
+                observacion_a_cual_proyecto=proyecto_id,
+                observacion=observacion,
+                login_que_observo=current_user["user"]["login"],
+                observacion_fecha=datetime.now()
+            ))
+
+        # 📅 Evento
+        nombre_supervisora = f"{current_user['user']['nombre']} {current_user['user']['apellido']}"
+        evento = RuaEvento(
+            login=current_user["user"]["login"],
+            evento_detalle=f"Se reasignaron las profesionales {', '.join(logins)} al proyecto.",
+            evento_fecha=datetime.now()
+        )
+        db.add(evento)
+
+        # 🔔 Notificaciones
+        for login in logins:
+            crear_notificacion_individual(
+                db=db,
+                login_destinatario=login,
+                mensaje=f"Fuiste reasignada a un proyecto por {nombre_supervisora}.",
+                link="/menu_profesionales/detalleEntrevista",
+                data_json={"proyecto_id": proyecto_id},
+                tipo_mensaje="naranja"
+            )
+
+        db.commit()
+
+        return {
+            "success": True,
+            "mensaje": "Profesionales reasignadas correctamente",
+            "tipo_mensaje": "verde",
+            "tiempo_mensaje": 3,
+            "next_page": "actual"
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "mensaje": f"Error al reasignar profesionales: {str(e)}",
+            "tipo_mensaje": "rojo",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+
 
 @proyectos_router.put("/entrevista/informe/{proyecto_id}", response_model = dict,
     dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
