@@ -872,7 +872,10 @@ def get_user_by_login(
 
 
 @users_router.post("/", response_model=dict, dependencies=[Depends(verify_api_key)])
-async def create_user(request: Request, db: Session = Depends(get_db)):
+async def create_user(
+    request: Request, 
+    db: Session = Depends(get_db)    
+):
     """
     📌 **Crea un nuevo usuario y asigna su grupo.**
 
@@ -1141,12 +1144,8 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
     # Generar código de activación aleatorio
     activation_code = generar_codigo_para_link(16)
 
-    print( 'activation_code', activation_code )
-
      # Aplicar hash a la contraseña
     hashed_password = get_password_hash(clave)
-
-    print( 'hashed_password', hashed_password )
 
     # Crear el nuevo usuario
     new_user = User(
@@ -1176,7 +1175,6 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
         db.commit()              # 👈 commit primero el user y grupo
         db.refresh(new_user)
 
-        print( '111111' )
 
         nuevo_evento = RuaEvento(
             login=dni,
@@ -1185,12 +1183,8 @@ async def create_user(request: Request, db: Session = Depends(get_db)):
         )
         db.add(nuevo_evento)
 
-        print( '222222' )
-
         # Un solo commit
         db.commit()
-
-        print( '333333' )
 
     
     except SQLAlchemyError as e:
