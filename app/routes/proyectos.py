@@ -3785,14 +3785,8 @@ def valorar_proyecto_final(
 #         media_type = "application/octet-stream"
 #     )
 
-@proyectos_router.get(
-    "/proyectos/entrevista/informe/{proyecto_id}/descargar",
-    response_class=FileResponse,
-    dependencies=[
-        Depends(verify_api_key),
-        Depends(require_roles(["administrador", "profesional", "supervisora"]))
-    ]
-)
+@proyectos_router.get( "/proyectos/entrevista/informe/{proyecto_id}/descargar", response_class=FileResponse,
+    dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"])) ] )
 def descargar_informe_valoracion(
     proyecto_id: int,
     db: Session = Depends(get_db)
@@ -4716,7 +4710,7 @@ def crear_proyecto_completo(
             return {
                 "success": False,
                 "tipo_mensaje": "naranja",
-                "mensaje": f"El usuario '{login_1}' no tiene el rol 'adoptante'.",
+                "mensaje": f"El usuario no tiene el rol 'adoptante'.",
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
             }
@@ -4740,7 +4734,7 @@ def crear_proyecto_completo(
                 return {
                     "success": False,
                     "tipo_mensaje": "naranja",
-                    "mensaje": f"El DNI de la peraja debe ser distinto a {login_1}.",
+                    "mensaje": f"El DNI de la pareja debe ser distinto al suyo.",
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
@@ -4750,7 +4744,7 @@ def crear_proyecto_completo(
                 return {
                     "success": False,
                     "tipo_mensaje": "naranja",
-                    "mensaje": f"El usuario con DNI {login_2} no exite.",
+                    "mensaje": f"El DNI de su pareja no corresponde a un usuario en el sistema.",
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
@@ -4761,7 +4755,7 @@ def crear_proyecto_completo(
                 return {
                     "success": False,
                     "tipo_mensaje": "naranja",
-                    "mensaje": f"El usuario con DNI {login_2} no tiene el rol 'adoptante'.",
+                    "mensaje": f"El usuario de su pareja no tiene el rol 'adoptante'.",
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
@@ -4771,18 +4765,21 @@ def crear_proyecto_completo(
             estado = "invitacion_pendiente"
 
             # Verificar que login_2 no tenga proyecto activo
+            # if db.query(Proyecto).filter(Proyecto.login_2 == login_2,
+            #     Proyecto.estado_general.in_(["creado", "confeccionando", "en_revision", "actualizando", "aprobado", 
+            #                                  "calendarizando", "entrevistando", "para_valorar", "viable", 
+            #                                  "en_suspenso", "en_carpeta", "vinculacion", "guarda"])).first():
             if db.query(Proyecto).filter(Proyecto.login_2 == login_2,
-                Proyecto.estado_general.in_(["creado", "confeccionando", "en_revision", "actualizando", "aprobado", 
+                Proyecto.estado_general.in_(["en_revision", "actualizando", "aprobado", 
                                              "calendarizando", "entrevistando", "para_valorar", "viable", 
                                              "en_suspenso", "en_carpeta", "vinculacion", "guarda"])).first():
                 return {
                     "success": False,
                     "tipo_mensaje": "naranja",
-                    "mensaje": f"El usuario con DNI {login_2} ya forma parte de un proyecto activo.",
+                    "mensaje": f"El usuario de su pareja ya forma parte de un proyecto activo.",
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
-                }
-            
+                }            
 
             doc_adoptante_curso_aprobado = (getattr(login_2_user, "doc_adoptante_curso_aprobado", "N") == "Y")
 
@@ -4810,7 +4807,66 @@ def crear_proyecto_completo(
         # Crea un dict con los campos
         subreg_data = {campo: subreg(campo) for campo in subregistros_definitivos}
 
-        
+
+        # 🔍 1) ¿existe un proyecto activo confeccionando/aprobado/actualizando?
+        proyecto_existente = (
+            db.query(Proyecto)
+              .filter(
+                  Proyecto.login_1 == login_1,
+                  Proyecto.ingreso_por == "rua",
+                  Proyecto.estado_general.in_(["aprobado", "confeccionando", "actualizando"])
+              )
+              .first()
+        )
+
+        if proyecto_existente:
+
+            # ── actualizar campos básicos ─────────────────────────────
+            proyecto_existente.proyecto_tipo        = tipo
+            proyecto_existente.login_2              = login_2
+            proyecto_existente.proyecto_calle_y_nro = data.get("proyecto_calle_y_nro")
+            proyecto_existente.proyecto_depto_etc   = data.get("proyecto_depto_etc")
+            proyecto_existente.proyecto_barrio      = data.get("proyecto_barrio")
+            proyecto_existente.proyecto_localidad   = data.get("proyecto_localidad")
+            proyecto_existente.proyecto_provincia   = provincia
+
+            proyecto_existente.aceptado="N" if aceptado_code else None
+            proyecto_existente.aceptado_code=aceptado_code
+            proyecto_existente.operativo="Y"
+            proyecto_existente.estado_general=estado
+
+
+            # subregistros
+            for campo, valor in subreg_data.items():
+                setattr(proyecto_existente, campo, valor)
+
+            estado_anterior = proyecto_existente.estado_general  # <-- guardar antes de cambiar
+            proyecto_existente.estado_general = estado           # <-- luego actualizar
+
+            # registrar el cambio
+            db.add(
+                ProyectoHistorialEstado(
+                    proyecto_id     = proyecto_existente.proyecto_id,
+                    estado_anterior = estado_anterior,
+                    estado_nuevo    = estado,
+                    fecha_hora      = datetime.now()
+                )
+            )
+
+
+            db.commit()
+            db.refresh(proyecto_existente)
+
+            return {
+                "success": True,
+                "tipo_mensaje": "verde",
+                "mensaje": "Proyecto actualizado correctamente.",
+                "tiempo_mensaje": 4,
+                "next_page": "menu_adoptantes/proyecto",
+            }
+
+
+        # 2) si **no** existía, se crea uno nuevo
 
         nuevo = Proyecto(
             login_1=login_1,
@@ -4823,62 +4879,6 @@ def crear_proyecto_completo(
             proyecto_localidad=data.get("proyecto_localidad"),
             proyecto_provincia=provincia,
             ingreso_por="rua",
-
-            # subregistro_1=subreg("subregistro_1"),
-            # subregistro_2=subreg("subregistro_2"),
-            # subregistro_3=subreg("subregistro_3"),
-            # subregistro_4=subreg("subregistro_4"),
-            
-            # # Flexibilidad edad
-            # flex_edad_1=subreg("flex_edad_1"),
-            # flex_edad_2=subreg("flex_edad_2"),
-            # flex_edad_3=subreg("flex_edad_3"),
-            # flex_edad_4=subreg("flex_edad_4"),
-            # flex_edad_todos=subreg("flex_edad_todos"),
-
-            # # Discapacidad
-            # discapacidad_1=subreg("discapacidad_1"),
-            # discapacidad_2=subreg("discapacidad_2"),
-            # edad_discapacidad_0=subreg("edad_discapacidad_0"),
-            # edad_discapacidad_1=subreg("edad_discapacidad_1"),
-            # edad_discapacidad_2=subreg("edad_discapacidad_2"),
-            # edad_discapacidad_3=subreg("edad_discapacidad_3"),
-            # edad_discapacidad_4=subreg("edad_discapacidad_4"),
-
-            # # Enfermedades
-            # enfermedad_1=subreg("enfermedad_1"),
-            # enfermedad_2=subreg("enfermedad_2"),
-            # enfermedad_3=subreg("enfermedad_3"),
-            # edad_enfermedad_0=subreg("edad_enfermedad_0"),
-            # edad_enfermedad_1=subreg("edad_enfermedad_1"),
-            # edad_enfermedad_2=subreg("edad_enfermedad_2"),
-            # edad_enfermedad_3=subreg("edad_enfermedad_3"),
-            # edad_enfermedad_4=subreg("edad_enfermedad_4"),
-
-            # # Flexibilidad salud
-            # flex_condiciones_salud=subreg("flex_condiciones_salud"),
-            # flex_salud_edad_0=subreg("flex_salud_edad_0"),
-            # flex_salud_edad_1=subreg("flex_salud_edad_1"),
-            # flex_salud_edad_2=subreg("flex_salud_edad_2"),
-            # flex_salud_edad_3=subreg("flex_salud_edad_3"),
-            # flex_salud_edad_4=subreg("flex_salud_edad_4"),
-
-            # # Grupo de hermanos
-            # hermanos_comp_1=subreg("hermanos_comp_1"),
-            # hermanos_comp_2=subreg("hermanos_comp_2"),
-            # hermanos_comp_3=subreg("hermanos_comp_3"),
-            # hermanos_edad_0=subreg("hermanos_edad_0"),
-            # hermanos_edad_1=subreg("hermanos_edad_1"),
-            # hermanos_edad_2=subreg("hermanos_edad_2"),
-            # hermanos_edad_3=subreg("hermanos_edad_3"),
-            # flex_hermanos_comp_1=subreg("flex_hermanos_comp_1"),
-            # flex_hermanos_comp_2=subreg("flex_hermanos_comp_2"),
-            # flex_hermanos_comp_3=subreg("flex_hermanos_comp_3"),
-            # flex_hermanos_edad_0=subreg("flex_hermanos_edad_0"),
-            # flex_hermanos_edad_1=subreg("flex_hermanos_edad_1"),
-            # flex_hermanos_edad_2=subreg("flex_hermanos_edad_2"),
-            # flex_hermanos_edad_3=subreg("flex_hermanos_edad_3"),
-
 
             aceptado="N" if aceptado_code else None,
             aceptado_code=aceptado_code,
@@ -5017,7 +5017,6 @@ def crear_proyecto_completo(
         db.add(historial)
 
         db.commit()
-
 
         return {
             "success": True,

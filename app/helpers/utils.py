@@ -77,13 +77,19 @@ def enviar_mail(destinatario: str, asunto: str, cuerpo: str):
     smtp_server = os.getenv("MAIL_SERVER", "smtp.office365.com")
     smtp_port = int(os.getenv("MAIL_PORT", 587))
 
-    # Crear el mensaje
+    # ─────────── Lógica de destino ───────────
+    # Si la variable no existe, tomamos "Y" como valor por defecto
+    mail_solo_a_cesar = os.getenv("MAIL_SOLO_A_CESAR", "Y").strip().upper()
+
+    enviar_a_cesar = mail_solo_a_cesar != "N"      # True → mandar solo a César
+    destino_final  = "cesarosimani@gmail.com" if enviar_a_cesar else destinatario
+
+    # ─────────── Construcción del mensaje ───────────
     msg = MIMEMultipart()
-    msg["From"] = formataddr((nombre_remitente, remitente))  # Ej: "RUA <sistemarua@...>"
-    msg["To"] = destinatario
-    # msg["To"] = "cesarosimani@gmail.com"
+    msg["From"]    = formataddr((nombre_remitente, remitente))  # Ej: "RUA <sistemarua@...>"
+    msg["To"]      = destino_final
     msg["Subject"] = asunto
-    msg.attach(MIMEText(cuerpo, "html")) 
+    msg.attach(MIMEText(cuerpo, "html"))
 
     # Enviar el correo
     try:

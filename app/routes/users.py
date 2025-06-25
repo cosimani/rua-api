@@ -2889,9 +2889,9 @@ def get_estado_usuario(
             estado = proyecto.estado_general
             estados_mensajes = {
                 "confeccionando": (
-                    "Documentación personal pendiente",
-                    "Usted ya firmó su Declaración Jurada.",
-                    "Complete la documentación personal <a href='/menu_adoptantes/personales'>desde aquí</a>."
+                    "Documentación personal aprobada",
+                    "Puede presetar su proyecto adoptivo.",
+                    "Presente su proyecto adoptivo <a href='/menu_adoptantes/proyecto'>desde aquí</a>."
                 ),
                 "invitacion_pendiente": (
                     "Invitación pendiente",
