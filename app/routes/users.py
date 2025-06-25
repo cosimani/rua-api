@@ -91,6 +91,17 @@ def get_users(
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
+
+    operativo: Optional[Literal["Y", "N"]] = Query(
+        None,
+        description=(
+            "Filtrar por el campo **operativo** de `sec_users`.\n"
+            "- `Y` → usuarios operativos\n"
+            "- `N` → usuarios NO operativos\n"
+            "Si no se especifica, se asume `Y`."
+        ),
+    ),
+
     group_description: Literal["adoptante", "profesional", "supervisora", "administrador"] = Query(
         None, description="Grupo o rol del usuario"),   
 
@@ -271,6 +282,12 @@ def get_users(
         # Filtro por nro de orden
         if nro_orden_rua:
             query = query.filter(Proyecto.nro_orden_rua == nro_orden_rua)    
+
+        # ——— Filtro por campo operativo ——————————————————————————
+        if operativo is None:          # el cliente no mandó el parámetro
+            operativo = "Y"            # asumimos solo operativos
+        query = query.filter(User.operativo == operativo)
+        # ——————————————————————————————————————————————————————————
 
     
         if search and len(search.strip()) >= 3:
