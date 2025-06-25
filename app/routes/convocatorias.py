@@ -3,13 +3,15 @@ from typing import List, Optional
 from sqlalchemy.orm import Session, joinedload, aliased
 from sqlalchemy.exc import SQLAlchemyError
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 import re
 
 
 from database.config import get_db
 from security.security import get_current_user, verify_api_key, require_roles
-from helpers.utils import normalizar_y_validar_dni, verificar_recaptcha
+
+from helpers.utils import normalizar_y_validar_dni, verificar_recaptcha, validar_correo, capitalizar_nombre
+
 from datetime import datetime
 from models.convocatorias import Postulacion, Convocatoria, DetalleProyectoPostulacion, DetalleNNAEnConvocatoria  
 from models.eventos_y_configs import RuaEvento
@@ -410,7 +412,7 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
                 "success": False,
                 "tipo_mensaje": "rojo",
                 "mensaje": (
-                    "<p>Falta el campo obligatorio 'convocatoria_id'.</p>"
+                    "<p>Falta un campo obligatorio que identifica la convocatoria.</p>"
                 ),
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
@@ -422,11 +424,13 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
                 "success": False,
                 "tipo_mensaje": "rojo",
                 "mensaje": (
-                    f"<p>No se encontró la convocatoria con ID {convocatoria_id}.</p>"
+                    f"<p>No se encontró la convocatoria.</p>"
                 ),
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
             }
+
+        
 
        # Diccionario de nombres amigables
         nombres_amigables = {
@@ -437,6 +441,7 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
             "estado_civil": "Estado civil",
             "calle_y_nro": "Calle y número",
             "localidad": "Localidad",
+            "provincia": "Provincia",
             "telefono_contacto": "Teléfono de contacto",
             "mail": "Correo electrónico",
             "ocupacion": "Ocupación / profesión",
@@ -448,7 +453,7 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
         # Validar campos obligatorios
         campos_obligatorios = [
             "nombre", "apellido", "fecha_nacimiento", "nacionalidad", "estado_civil",
-            "calle_y_nro", "localidad", "telefono_contacto", "mail", "ocupacion"
+            "calle_y_nro", "localidad", "provincia", "telefono_contacto", "mail", "ocupacion"
         ]
 
         campos_faltantes = [campo for campo in campos_obligatorios if not datos.get(campo)]
@@ -484,29 +489,26 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
             }
-
-        # Validar si el postulante tiene un proyecto con estado no_viable
-        proyecto_no_viable_postulante = db.query(Proyecto).filter(
-            ((Proyecto.login_1 == dni) | (Proyecto.login_2 == dni)),
-            Proyecto.estado_general == 'no_viable'
-        ).first()
-
-        if proyecto_no_viable_postulante:
+      
+    
+        # Validar formato de correo
+        if not validar_correo(datos.get("mail", "").lower()):
             return {
-                "success": False,
-                "tipo_mensaje": "amarillo",
+                "tipo_mensaje": "naranja",
                 "mensaje": (
-                    f"<p>La persona con este DNI forma parte de un proyecto con estado <strong>no viable</strong>. "
-                    f"No puede registrar una nueva postulación.</p>"
+                    "<p>El correo electrónico no tiene un formato válido.</p>"
+                    "<p>Por favor, intente nuevamente.</p>"
                 ),
-                "tiempo_mensaje": 6,
+                "tiempo_mensaje": 5,
                 "next_page": "actual"
             }
 
-        # Validar cónyuge solo si convive y se indicó DNI
-        tiene_conyuge = datos.get("conyuge_dni") and datos.get("conyuge_convive") == "Y"
+
+        # ───── 1. Detectar y validar DNI del cónyuge lo más temprano posible ─────
+        tiene_conyuge = datos.get("conyuge_convive") == "Y" and datos.get("conyuge_dni")
+        conyuge_dni = None
         if tiene_conyuge:
-            conyuge_dni = normalizar_y_validar_dni(datos.get("conyuge_dni"))
+            conyuge_dni = normalizar_y_validar_dni(datos["conyuge_dni"])
             if not conyuge_dni:
                 return {
                     "success": False,
@@ -516,18 +518,89 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
                     "next_page": "actual"
                 }
 
-            proyecto_no_viable_conyuge = db.query(Proyecto).filter(
-                ((Proyecto.login_1 == conyuge_dni) | (Proyecto.login_2 == conyuge_dni)),
-                Proyecto.estado_general == 'no_viable'
-            ).first()
+        # ───── 2. Un solo query: proyectos “no viable” que involucren a alguno ─────
+        dni_busqueda = [dni] + ([conyuge_dni] if conyuge_dni else [])
 
-            if proyecto_no_viable_conyuge:
+        proyectos_no_viables = (
+            db.query(Proyecto)
+            .filter(
+                Proyecto.estado_general == "no_viable",
+                or_(
+                    Proyecto.login_1.in_(dni_busqueda),
+                    Proyecto.login_2.in_(dni_busqueda)
+                )
+            )
+            .all()
+        )
+
+        # ───── 3. Construir mensaje según quién esté involucrado ─────
+        involucra_titular  = any(p.login_1 == dni or p.login_2 == dni          for p in proyectos_no_viables)
+        involucra_conyuge = any(
+            conyuge_dni and (p.login_1 == conyuge_dni or p.login_2 == conyuge_dni)
+            for p in proyectos_no_viables
+        )
+
+        if involucra_titular or involucra_conyuge:
+            if involucra_titular and involucra_conyuge:
+                msj = ("<p>Tanto vos como la persona indicada como conviviente "
+                      "forman parte de un proyecto con estado <strong>no viable</strong>. "
+                      "No pueden registrar una nueva postulación.</p>")
+            elif involucra_titular:
+                msj = ("<p>Vos ya formás parte de un proyecto con estado "
+                      "<strong>no viable</strong>. No podés registrar una nueva postulación.</p>")
+            else:  # solo cónyuge
+                msj = ("<p>La persona indicada como conviviente ya forma parte de un proyecto "
+                      "con estado <strong>no viable</strong>. No pueden registrar una nueva postulación.</p>")
+
+            return {
+                "success": False,
+                "tipo_mensaje": "amarillo",
+                "mensaje": msj,
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+
+        # ─── Verificar si ya hay una postulación del mismo DNI a esta convocatoria ───
+        postulacion_existente = (
+            db.query(Postulacion)
+            .filter(
+                Postulacion.convocatoria_id == convocatoria_id,
+                Postulacion.dni == dni
+            )
+            .first()
+        )
+        if postulacion_existente:
+            return {
+                "success": False,
+                "tipo_mensaje": "amarillo",
+                "mensaje": (
+                    f"<p>Ya existe una postulación con tu DNI para esta "
+                    f"convocatoria. No es posible registrar otra.</p>"
+                ),
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # ─── Validar que el/la cónyuge no se haya postulado ya a esta convocatoria ───
+        if tiene_conyuge:
+            postulacion_conyuge_existente = (
+                db.query(Postulacion)
+                .filter(
+                    Postulacion.convocatoria_id == convocatoria_id,
+                    Postulacion.dni == conyuge_dni
+                )
+                .first()
+            )
+            
+            if postulacion_conyuge_existente:
                 return {
                     "success": False,
                     "tipo_mensaje": "amarillo",
                     "mensaje": (
-                        f"<p>El DNI de la persona indicada como conviviente ya forma parte de un proyecto con estado "
-                        f"<strong>no viable</strong>. No puede registrar una nueva postulación.</p>"
+                        f"<p>La persona indicada como conviviente "
+                        f"ya se ha postulado a esta convocatoria. No es posible "
+                        f"registrar la postulación.</p>"
                     ),
                     "tiempo_mensaje": 6,
                     "next_page": "actual"
@@ -535,11 +608,12 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
 
 
 
+
         nueva_postulacion = Postulacion(
             fecha_postulacion = datetime.now(),
             convocatoria_id = convocatoria_id,
-            nombre = datos.get("nombre"),
-            apellido = datos.get("apellido"),
+            nombre = capitalizar_nombre(datos.get("nombre", "")),  # datos.get("nombre"),
+            apellido = capitalizar_nombre(datos.get("apellido", "")),  # datos.get("apellido"),
             dni = dni,
             fecha_nacimiento = datos.get("fecha_nacimiento"),
             nacionalidad = datos.get("nacionalidad"),
@@ -553,7 +627,7 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
             provincia = datos.get("provincia"),
             telefono_contacto = datos.get("telefono_contacto"),
             videollamada = datos.get("videollamada"),
-            mail = datos.get("mail"),
+            mail = datos.get("mail", "").lower(),
             movilidad_propia = datos.get("movilidad_propia"),
             obra_social = datos.get("obra_social"),
             ocupacion = datos.get("ocupacion"),
@@ -593,11 +667,15 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
                 mail_1 = None
             nuevo_usuario_1 = User(
                 login = dni,
-                nombre = datos.get("nombre"),
-                apellido = datos.get("apellido"),
+                nombre = capitalizar_nombre(datos.get("nombre", "")),  # datos.get("nombre"),
+                apellido = capitalizar_nombre(datos.get("apellido", "")),  # datos.get("apellido"),
                 celular = datos.get("telefono_contacto"),
                 mail = mail_1,
                 profesion = datos.get("ocupacion", "")[:60],
+                calle_y_nro = datos.get("calle_y_nro"),
+                depto_etc = datos.get("depto"),
+                barrio = datos.get("barrio"),
+                localidad = datos.get("localidad"),
                 provincia = datos.get("provincia", "")[:50],
                 active = "Y",
                 operativo = "Y",
@@ -640,9 +718,14 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
             if not usuario_2:
                 nuevo_usuario_2 = User(
                     login = conyuge_dni,
-                    nombre = datos.get("conyuge_nombre"),
-                    apellido = datos.get("conyuge_apellido"),
+                    nombre = capitalizar_nombre(datos.get("conyuge_nombre", "")),  # datos.get("conyuge_nombre"),
+                    apellido = capitalizar_nombre(datos.get("conyuge_apellido", "")),  # datos.get("conyuge_apellido"),
                     mail = None,
+                    calle_y_nro = datos.get("calle_y_nro"),
+                    depto_etc = datos.get("depto"),
+                    barrio = datos.get("barrio"),
+                    localidad = datos.get("localidad"),
+                    provincia = datos.get("provincia", "")[:50],
                     active = "Y",
                     operativo = "Y",
                     doc_adoptante_curso_aprobado = "Y",
@@ -764,31 +847,6 @@ def actualizar_online(convocatoria_id: int, data: dict = Body(...), db: Session 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-
-# @convocatoria_router.get("/para-select/para-filtro", response_model=List[dict], 
-#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
-# def get_convocatorias_para_filtro(
-#     db: Session = Depends(get_db),
-#     page: int = Query(1, ge=1),
-#     limit: int = Query(30, ge=1, le=100)
-# ):
-#     try:
-#         offset = (page - 1) * limit
-
-#         convocatorias = db.query(Convocatoria)\
-#             .order_by(Convocatoria.convocatoria_fecha_publicacion.desc())\
-#             .offset(offset)\
-#             .limit(limit)\
-#             .all()
-
-#         return [{
-#             "value": c.convocatoria_id,
-#             "label": f"{c.convocatoria_referencia} - {c.convocatoria_llamado} ( {c.convocatoria_fecha_publicacion} )"
-#         } for c in convocatorias]
-
-#     except SQLAlchemyError as e:
-#         raise HTTPException(status_code=500, detail=f"Error al obtener convocatorias para filtro: {str(e)}")
 
 
 
