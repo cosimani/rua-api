@@ -94,7 +94,8 @@ def get_users(
     group_description: Literal["adoptante", "profesional", "supervisora", "administrador"] = Query(
         None, description="Grupo o rol del usuario"),   
 
-    search: Optional[str] = Query(None, min_length=3, description="Búsqueda por al menos 3 dígitos alfanuméricos"),
+    search: Optional[str] = Query(None, description="Búsqueda por al menos 3 caracteres alfanuméricos"),
+
     proyecto_tipo: Optional[Literal["Monoparental", "Matrimonio", "Unión convivencial"]] = Query(
         None, description="Filtrar por tipo de proyecto (Monoparental, Matrimonio, Unión convivencial)" ),
     curso_aprobado: Optional[bool] = Query(None, description="Filtrar por curso aprobado"),
@@ -272,7 +273,7 @@ def get_users(
             query = query.filter(Proyecto.nro_orden_rua == nro_orden_rua)    
 
     
-        if search:
+        if search and len(search.strip()) >= 3:
             palabras = search.lower().split()  # divide en palabras
             condiciones_por_palabra = []
 
