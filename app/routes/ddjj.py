@@ -581,6 +581,7 @@ def get_ddjj_by_login(
 
             "grupo_familiar_hijos": [
                 {
+                    "tiene": getattr(ddjj, f"ddjj_hijo{i}_tiene"),
                     "nombre": getattr(ddjj, f"ddjj_hijo{i}_nombre_completo"),
                     "estado_civil": getattr(ddjj, f"ddjj_hijo{i}_estado_civil"),
                     "dni": getattr(ddjj, f"ddjj_hijo{i}_dni"),
@@ -592,6 +593,7 @@ def get_ddjj_by_login(
                 }
                 for i in range(1, 6)
                 if any([
+                    getattr(ddjj, f"ddjj_hijo{i}_tiene"),
                     getattr(ddjj, f"ddjj_hijo{i}_nombre_completo"),
                     getattr(ddjj, f"ddjj_hijo{i}_estado_civil"),
                     getattr(ddjj, f"ddjj_hijo{i}_dni"),
