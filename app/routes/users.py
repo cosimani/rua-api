@@ -1673,7 +1673,7 @@ def solicitar_revision_documentos(
             "success": True,
             "tipo_mensaje": "verde",
             "mensaje": (
-                "<p>La solicitud de revisión de su documentación personal fue enviada correctamente a la supervisión.</p>"
+                "<p>La solicitud de revisión de su documentación personal fue enviada correctamente.</p>"
             ),
             "tiempo_mensaje": 8,
             "next_page": "menu_adoptantes/portada"
@@ -2886,14 +2886,14 @@ def get_estado_usuario(
                 user.doc_adoptante_estado in ( 'pedido_revision' ) :
             mensaje_para_portada = """
                 <h4>Documentación en revisión</h4>
-                <h5>Aguarde la revisión de su documentación.</h5>
+                <h5>Aguarde la revisión de su documentación personal.</h5>
                 <h6>¡Muchas gracias!</h6>
             """ 
         elif ddjj and user.doc_adoptante_ddjj_firmada == "Y" and \
                 user.doc_adoptante_estado in ( 'aprobado' ) and not proyecto :
             mensaje_para_portada = """
                 <h4>Documentación aprobada</h4>
-                <h5>Puede presetar su proyecto adoptivo.</h5>
+                <h5>Puede presentar su proyecto adoptivo.</h5>
                 <h6>¡Muchas gracias!</h6>
             """ 
 
@@ -2902,7 +2902,7 @@ def get_estado_usuario(
             estados_mensajes = {
                 "confeccionando": (
                     "Documentación personal aprobada",
-                    "Puede presetar su proyecto adoptivo.",
+                    "Puede presentar su proyecto adoptivo.",
                     "Presente su proyecto adoptivo <a href='/menu_adoptantes/proyecto'>desde aquí</a>."
                 ),
                 "invitacion_pendiente": (
@@ -2910,9 +2910,14 @@ def get_estado_usuario(
                     "Revise su correo o acceda al proyecto desde el menú principal.",
                     ""
                 ),
+                "actualizando": (
+                    "Proyecto pendiente de actualización",
+                    "Desde el RUA se le ha pedido la actualización del proyecto adoptivo.",
+                    ""
+                ),
                 "en_revision": (
                     "Proyecto en revisión",
-                    "Aguarde la revisión de su proyecto adoptivo por parte de la Supervisión del RUA.",
+                    "Aguarde la revisión de su proyecto adoptivo.",
                     ""
                 ),
                 "aprobado": (

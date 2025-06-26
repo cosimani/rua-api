@@ -660,6 +660,9 @@ def get_proyecto_por_id(
                 Proyecto.login_1.label("login_1"),
                 Proyecto.login_2.label("login_2"),
                 
+                Proyecto.aceptado.label("aceptado"),
+                Proyecto.aceptado_code.label("aceptado_code"),
+
                 Proyecto.doc_proyecto_convivencia_o_estado_civil.label("doc_proyecto_convivencia_o_estado_civil"),
                 Proyecto.informe_profesionales.label("informe_profesionales"),
                 Proyecto.doc_dictamen.label("doc_dictamen"),
@@ -885,7 +888,10 @@ def get_proyecto_por_id(
             "login_2_dni": proyecto.login_2,
             "login_2_name": login_2_nombre_completo,
             "login_2_telefono": login_2_telefono,
-            "login_2_mail": login_2_mail,            
+            "login_2_mail": login_2_mail,
+
+            "aceptado": proyecto.aceptado,
+            "aceptado_code": proyecto.aceptado_code,
 
             "fecha_asignacion_nro_orden": parse_date(proyecto.fecha_asignacion_nro_orden),
             "ultimo_cambio_de_estado": parse_date(proyecto.ultimo_cambio_de_estado),
@@ -1935,7 +1941,7 @@ def solicitar_revision_proyecto(
             "success": True,
             "tipo_mensaje": "verde",
             "mensaje": (
-                "<p>La solicitud de revisión del proyecto fue enviada correctamente a la supervisión.</p>"
+                "<p>La solicitud de revisión del proyecto fue enviada correctamente.</p>"
             ),
             "tiempo_mensaje": 8,
             "next_page": "menu_adoptantes/proyecto"
@@ -4656,6 +4662,7 @@ def crear_proyecto_completo(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    
     try:
         login_1 = current_user["user"]["login"]
         nombre_1 = current_user["user"]["nombre"]
@@ -4663,6 +4670,11 @@ def crear_proyecto_completo(
 
         tipo = data.get("proyecto_tipo")
         login_2 = data.get("login_2")
+
+        proyecto_barrio = data.get("proyecto_barrio")
+        proyecto_calle_y_nro = data.get("proyecto_calle_y_nro")
+        proyecto_depto_etc = data.get("proyecto_depto_etc")
+        proyecto_localidad = data.get("proyecto_localidad")
         provincia = data.get("proyecto_provincia")
 
         if tipo not in ["Monoparental", "Matrimonio", "Unión convivencial"]:
@@ -4673,6 +4685,8 @@ def crear_proyecto_completo(
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
             }
+
+        print( '1', login_1, login_2 )
 
         user1_roles = db.query(UserGroup).filter(UserGroup.login == login_1).all()
         if not any(db.query(Group).filter(Group.group_id == r.group_id, Group.description == "adoptante").first() for r in user1_roles):
@@ -4685,11 +4699,7 @@ def crear_proyecto_completo(
             }
 
 
-        aceptado_code = None
-        login_2_user = None
-        doc_adoptante_curso_aprobado = True
-        estado = "en_revision"
-
+        # Todas estas son validaciones para los proyectos en pareja
         if tipo != "Monoparental":
             if not login_2:
                 return {
@@ -4718,7 +4728,6 @@ def crear_proyecto_completo(
                     "next_page": "actual"
                 }
             
-
             login_2_roles = db.query(UserGroup).filter(UserGroup.login == login_2).all()
             if not any(db.query(Group).filter(Group.group_id == r.group_id, Group.description == "adoptante").first() for r in login_2_roles):
                 return {
@@ -4728,32 +4737,49 @@ def crear_proyecto_completo(
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
+
+            print( '2', login_2_user, login_2_roles )
             
+            # # ❌ No permitir si login_2 ya tiene otro proyecto como titular o pareja
+            # proyecto_pareja_activo = db.query(Proyecto).filter(
+            #     or_(
+            #         Proyecto.login_1 == login_2,
+            #         Proyecto.login_2 == login_2
+            #     ),
+            #     Proyecto.estado_general.in_([
+            #         "en_revision", "actualizando", "aprobado", "calendarizando", "entrevistando",
+            #         "para_valorar", "viable", "en_suspenso", "en_carpeta", "vinculacion", "guarda"
+            #     ])
+            # ).first()
 
-            aceptado_code = generar_codigo_para_link(16)
-            estado = "invitacion_pendiente"
+            # print( '3', proyecto_pareja_activo )
 
-            # Verificar que login_2 no tenga proyecto activo
-            # if db.query(Proyecto).filter(Proyecto.login_2 == login_2,
-            #     Proyecto.estado_general.in_(["creado", "confeccionando", "en_revision", "actualizando", "aprobado", 
-            #                                  "calendarizando", "entrevistando", "para_valorar", "viable", 
-            #                                  "en_suspenso", "en_carpeta", "vinculacion", "guarda"])).first():
-            if db.query(Proyecto).filter(Proyecto.login_2 == login_2,
-                Proyecto.estado_general.in_(["en_revision", "actualizando", "aprobado", 
-                                             "calendarizando", "entrevistando", "para_valorar", "viable", 
-                                             "en_suspenso", "en_carpeta", "vinculacion", "guarda"])).first():
-                return {
-                    "success": False,
-                    "tipo_mensaje": "naranja",
-                    "mensaje": f"El usuario de su pareja ya forma parte de un proyecto activo.",
-                    "tiempo_mensaje": 5,
-                    "next_page": "actual"
-                }            
+            # if proyecto_pareja_activo:
+            #     return {
+            #         "success": False,
+            #         "tipo_mensaje": "naranja",
+            #         "mensaje": f"Su pareja ya forma parte de otro proyecto activo. No se puede continuar.",
+            #         "tiempo_mensaje": 5,
+            #         "next_page": "actual"
+            #     }
 
-            doc_adoptante_curso_aprobado = (getattr(login_2_user, "doc_adoptante_curso_aprobado", "N") == "Y")
 
-        def subreg(k):
-            return "Y" if data.get(k) == "Y" else "N"
+
+        # 🔍 1) ¿existe un proyecto activo confeccionando/aprobado/actualizando?. 
+        proyecto_existente = (
+            db.query(Proyecto)
+            .filter(
+                Proyecto.login_1 == login_1,
+                Proyecto.ingreso_por == "rua",
+                Proyecto.estado_general.in_(["confeccionando", "actualizando"]),
+                Proyecto.login_2 == login_2,
+                Proyecto.proyecto_tipo == tipo
+            )
+            .first()
+        )
+        
+
+        print( '6', proyecto_existente )
 
 
         # 🔁 Automatiza la carga de subregistros
@@ -4773,51 +4799,37 @@ def crear_proyecto_completo(
             "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET",
         ]
 
-        # Crea un dict con los campos
+        def subreg(k):
+            return "Y" if data.get(k) == "Y" else "N"
+
         subreg_data = {campo: subreg(campo) for campo in subregistros_definitivos}
 
 
-        # 🔍 1) ¿existe un proyecto activo confeccionando/aprobado/actualizando?
-        proyecto_existente = (
-            db.query(Proyecto)
-              .filter(
-                  Proyecto.login_1 == login_1,
-                  Proyecto.ingreso_por == "rua",
-                  Proyecto.estado_general.in_(["aprobado", "confeccionando", "actualizando"])
-              )
-              .first()
-        )
 
-        if proyecto_existente:
+        if proyecto_existente:            
 
             # ── actualizar campos básicos ─────────────────────────────
-            proyecto_existente.proyecto_tipo        = tipo
-            proyecto_existente.login_2              = login_2
-            proyecto_existente.proyecto_calle_y_nro = data.get("proyecto_calle_y_nro")
-            proyecto_existente.proyecto_depto_etc   = data.get("proyecto_depto_etc")
-            proyecto_existente.proyecto_barrio      = data.get("proyecto_barrio")
-            proyecto_existente.proyecto_localidad   = data.get("proyecto_localidad")
+            proyecto_existente.proyecto_calle_y_nro = proyecto_calle_y_nro
+            proyecto_existente.proyecto_depto_etc   = proyecto_depto_etc
+            proyecto_existente.proyecto_barrio      = proyecto_barrio
+            proyecto_existente.proyecto_localidad   = proyecto_localidad
             proyecto_existente.proyecto_provincia   = provincia
 
-            proyecto_existente.aceptado="N" if aceptado_code else None
-            proyecto_existente.aceptado_code=aceptado_code
-            proyecto_existente.operativo="Y"
-            proyecto_existente.estado_general=estado
-
-
+            
             # subregistros
             for campo, valor in subreg_data.items():
                 setattr(proyecto_existente, campo, valor)
 
+            estado_nuevo = "en_revision"
             estado_anterior = proyecto_existente.estado_general  # <-- guardar antes de cambiar
-            proyecto_existente.estado_general = estado           # <-- luego actualizar
+            proyecto_existente.estado_general = estado_nuevo           # <-- luego actualizar
 
             # registrar el cambio
             db.add(
                 ProyectoHistorialEstado(
                     proyecto_id     = proyecto_existente.proyecto_id,
                     estado_anterior = estado_anterior,
-                    estado_nuevo    = estado,
+                    estado_nuevo    = estado_nuevo,
                     fecha_hora      = datetime.now()
                 )
             )
@@ -4829,171 +4841,199 @@ def crear_proyecto_completo(
             return {
                 "success": True,
                 "tipo_mensaje": "verde",
-                "mensaje": "Proyecto actualizado correctamente.",
+                "mensaje": "Solicitud de revisión enviada correctamente.",
                 "tiempo_mensaje": 4,
                 "next_page": "menu_adoptantes/proyecto",
             }
+        
+        
+        # Sigue por este else cuando el proeycto no existe todavía
+        else :
+
+            if tipo != "Monoparental":
+
+                aceptado_code = generar_codigo_para_link(16)
+                aceptado = "N"
+                estado = "invitacion_pendiente"
+
+            else :
+
+                aceptado_code = None
+                aceptado = "Y"
+                estado = "en_revision"
+                login_2 = None
 
 
-        # 2) si **no** existía, se crea uno nuevo
+            nuevo = Proyecto(
+                login_1=login_1,
+                login_2=login_2,
+                
+                proyecto_tipo=tipo,
 
-        nuevo = Proyecto(
-            login_1=login_1,
-            login_2=login_2,
-            
-            proyecto_tipo=tipo,
-            proyecto_calle_y_nro=data.get("proyecto_calle_y_nro"),
-            proyecto_depto_etc=data.get("proyecto_depto_etc"),
-            proyecto_barrio=data.get("proyecto_barrio"),
-            proyecto_localidad=data.get("proyecto_localidad"),
-            proyecto_provincia=provincia,
-            ingreso_por="rua",
+                proyecto_calle_y_nro = proyecto_calle_y_nro,
+                proyecto_depto_etc = proyecto_depto_etc,
+                proyecto_barrio = proyecto_barrio,
+                proyecto_localidad = proyecto_localidad,
+                proyecto_provincia = provincia,
+                ingreso_por="rua",
 
-            aceptado="N" if aceptado_code else None,
-            aceptado_code=aceptado_code,
-            operativo="Y",
-            estado_general=estado,
-            **subreg_data  # ✅ Desempaqueta todos los subreg_... con "Y"/"N"
-        )
+                aceptado = aceptado,
+                aceptado_code = aceptado_code,
+                operativo = "Y",
+                estado_general = estado,
+                **subreg_data  # ✅ Desempaqueta todos los subreg_... con "Y"/"N"
+            )
 
-        db.add(nuevo)
-        db.commit()
-        db.refresh(nuevo)
+            db.add(nuevo)
+            db.commit()
+            db.refresh(nuevo)
 
-        if aceptado_code:
-            try:
-                protocolo = get_setting_value(db, "protocolo")
-                host = get_setting_value(db, "donde_esta_alojado")
-                puerto = get_setting_value(db, "puerto_tcp")
-                endpoint = get_setting_value(db, "endpoint_aceptar_invitacion")
-                if endpoint and not endpoint.startswith("/"):
-                    endpoint = "/" + endpoint
+            print( '8', aceptado_code )
 
-                puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
-                host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
+            # Hay aceptado_code cuando es biparental
+            if tipo != "Monoparental" :
+                try:
+                    protocolo = get_setting_value(db, "protocolo")
+                    host = get_setting_value(db, "donde_esta_alojado")
+                    puerto = get_setting_value(db, "puerto_tcp")
+                    endpoint = get_setting_value(db, "endpoint_aceptar_invitacion")
+                    if endpoint and not endpoint.startswith("/"):
+                        endpoint = "/" + endpoint
 
-                link_aceptar = f"{protocolo}://{host_con_puerto}{endpoint}?invitacion={aceptado_code}&respuesta=Y"
-                link_rechazar = f"{protocolo}://{host_con_puerto}{endpoint}?invitacion={aceptado_code}&respuesta=N"
+                    puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
+                    host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
 
-                cuerpo = f"""
-                    <html>
-                    <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-                        <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-                        <tr>
-                            <td align="center">
-                            <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-                                <tr>
-                                <td style="font-size: 24px; color: #007bff;">
-                                    <strong>Invitación a Proyecto Adoptivo</strong>
-                                </td>
-                                </tr>
-                                <tr>
-                                <td style="padding-top: 20px; font-size: 17px;">
-                                    <p>Has sido invitado/a a conformar un proyecto adoptivo junto a <strong>{nombre_1} {apellido_1}</strong> (DNI: {login_1}).</p>
-                                    {"<p style='color: red;'><strong>⚠️ Para aceptar la invitación, debés tener aprobado el Curso Obligatorio.</strong></p>" if not doc_adoptante_curso_aprobado else ""}
-                                    <p>Por favor, confirmá tu participación haciendo clic en uno de los siguientes botones:</p>
-                                </td>
-                                </tr>
-                                <tr>
-                                <td align="center" style="padding: 30px 0;">
-                                    <table cellpadding="0" cellspacing="0" style="text-align: center;">
+                    link_aceptar = f"{protocolo}://{host_con_puerto}{endpoint}?invitacion={aceptado_code}&respuesta=Y"
+                    link_rechazar = f"{protocolo}://{host_con_puerto}{endpoint}?invitacion={aceptado_code}&respuesta=N"
+
+                    print( '9', link_aceptar )
+
+                    cuerpo = f"""
+                        <html>
+                        <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                            <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                            <tr>
+                                <td align="center">
+                                <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
                                     <tr>
-                                        <td style="padding-bottom: 10px;">
-                                        <a href="{link_aceptar}"
-                                            style="display: inline-block; padding: 12px 20px; background-color: #28a745; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
-                                            ✅ Acepto la invitación
-                                        </a>
-                                        </td>
+                                    <td style="font-size: 24px; color: #007bff;">
+                                        <strong>Invitación a Proyecto Adoptivo</strong>
+                                    </td>
                                     </tr>
                                     <tr>
-                                        <td>
-                                        <a href="{link_rechazar}"
-                                            style="display: inline-block; padding: 12px 20px; background-color: #dc3545; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
-                                            ❌ Rechazo la invitación
-                                        </a>
-                                        </td>
+                                    <td style="padding-top: 20px; font-size: 17px;">
+                                        <p>Has sido invitado/a a conformar un proyecto adoptivo junto a <strong>{nombre_1} {apellido_1}</strong> (DNI: {login_1}).</p>
+                                        {"<p style='color: red;'><strong>⚠️ Para aceptar la invitación, debés tener aprobado el Curso Obligatorio.</strong></p>" if not doc_adoptante_curso_aprobado else ""}
+                                        <p>Por favor, confirmá tu participación haciendo clic en uno de los siguientes botones:</p>
+                                    </td>
                                     </tr>
-                                    </table>
+                                    <tr>
+                                    <td align="center" style="padding: 30px 0;">
+                                        <table cellpadding="0" cellspacing="0" style="text-align: center;">
+                                        <tr>
+                                            <td style="padding-bottom: 10px;">
+                                            <a href="{link_aceptar}"
+                                                style="display: inline-block; padding: 12px 20px; background-color: #28a745; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+                                                ✅ Acepto la invitación
+                                            </a>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td>
+                                            <a href="{link_rechazar}"
+                                                style="display: inline-block; padding: 12px 20px; background-color: #dc3545; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+                                                ❌ Rechazo la invitación
+                                            </a>
+                                            </td>
+                                        </tr>
+                                        </table>
+                                    </td>
+                                    </tr>
+                                    <tr>
+                                    <td align="center" style="font-size: 17px;">
+                                        <p><strong>Muchas gracias</strong></p>
+                                    </td>
+                                    </tr>
+                                    <tr>
+                                    <td style="padding-top: 30px;">
+                                        <hr style="border: none; border-top: 1px solid #dee2e6;">
+                                        <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
+                                        <strong>Registro Único de Adopciones de Córdoba</strong>
+                                        </p>
+                                    </td>
+                                    </tr>
+                                </table>
                                 </td>
-                                </tr>
-                                <tr>
-                                <td align="center" style="font-size: 17px;">
-                                    <p><strong>Muchas gracias</strong></p>
-                                </td>
-                                </tr>
-                                <tr>
-                                <td style="padding-top: 30px;">
-                                    <hr style="border: none; border-top: 1px solid #dee2e6;">
-                                    <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                                    <strong>Registro Único de Adopciones de Córdoba</strong>
-                                    </p>
-                                </td>
-                                </tr>
+                            </tr>
                             </table>
-                            </td>
-                        </tr>
-                        </table>
-                    </body>
-                    </html>
-                    """
+                        </body>
+                        </html>
+                        """
 
 
-                enviar_mail(destinatario=login_2_user.mail, asunto="Invitación a proyecto adoptivo - RUA", cuerpo=cuerpo)
+                    enviar_mail(destinatario=login_2_user.mail, asunto="Invitación a proyecto adoptivo - RUA", cuerpo=cuerpo)
 
+                    print( '10', login_2_user.mail )
+
+                    evento = RuaEvento(
+                        login=login_1,
+                        evento_detalle=f"Se envío invitación a {login_2} para sumarse al proyecto.",
+                        evento_fecha=datetime.now()
+                    )
+                    db.add(evento)
+                    db.commit()
+
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "tipo_mensaje": "naranja",
+                        "mensaje": f"⚠️ Error al enviar correo de invitación: {str(e)}",
+                        "tiempo_mensaje": 5,
+                        "next_page": "actual"
+                    }
+
+            print( '11' )
+
+            # Registrar RuaEvento si es monoparental
+            if tipo == "Monoparental":
                 evento = RuaEvento(
                     login=login_1,
-                    evento_detalle=f"Se envío invitación a {login_2} para sumarse al proyecto.",
+                    evento_detalle="Se creó proyecto adoptivo monoparental.",
                     evento_fecha=datetime.now()
                 )
                 db.add(evento)
-                db.commit()
-            except Exception as e:
-                return {
-                    "success": False,
-                    "tipo_mensaje": "naranja",
-                    "mensaje": f"⚠️ Error al enviar correo de invitación: {str(e)}",
-                    "tiempo_mensaje": 5,
-                    "next_page": "actual"
-                }
 
-        # Registrar RuaEvento si es monoparental
-        if tipo == "Monoparental":
-            evento = RuaEvento(
-                login=login_1,
-                evento_detalle="Se creó proyecto adoptivo monoparental.",
-                evento_fecha=datetime.now()
+                # 🔔 Notificar a todas las supervisoras
+                crear_notificacion_masiva_por_rol(
+                    db=db,
+                    rol="supervisora",
+                    mensaje=f"El usuario {login_1} solicitó revisión del proyecto.",
+                    link="/menu_supervisoras/detalleProyecto",
+                    data_json={"proyecto_id": nuevo.proyecto_id},
+                    tipo_mensaje="azul"
+                )
+
+                print( '12', nuevo.proyecto_id )
+
+
+            # Registrar historial de estado
+            historial = ProyectoHistorialEstado(
+                proyecto_id=nuevo.proyecto_id,
+                estado_anterior=None,
+                estado_nuevo=estado,
+                fecha_hora=datetime.now()
             )
-            db.add(evento)
+            db.add(historial)
 
-            # 🔔 Notificar a todas las supervisoras
-            crear_notificacion_masiva_por_rol(
-                db=db,
-                rol="supervisora",
-                mensaje=f"El usuario {login_1} solicitó revisión del proyecto.",
-                link="/menu_supervisoras/detalleProyecto",
-                data_json={"proyecto_id": nuevo.proyecto_id},
-                tipo_mensaje="azul"
-            )
+            db.commit()
 
-
-        # Registrar historial de estado
-        historial = ProyectoHistorialEstado(
-            proyecto_id=nuevo.proyecto_id,
-            estado_anterior=None,
-            estado_nuevo=estado,
-            fecha_hora=datetime.now()
-        )
-        db.add(historial)
-
-        db.commit()
-
-        return {
-            "success": True,
-            "tipo_mensaje": "verde",
-            "mensaje": "Proyecto creado correctamente.",
-            "tiempo_mensaje": 4,
-            "next_page": "menu_adoptantes/proyecto"
-        }
+            return {
+                "success": True,
+                "tipo_mensaje": "verde",
+                "mensaje": "Proyecto creado correctamente.",
+                "tiempo_mensaje": 4,
+                "next_page": "menu_adoptantes/proyecto"
+            }
 
     except SQLAlchemyError as e:
         db.rollback()
