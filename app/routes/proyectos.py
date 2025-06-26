@@ -6383,3 +6383,85 @@ def get_nnas_por_proyecto(proyecto_id: int, db: Session = Depends(get_db)):
         }
 
     return list(nna_vistos.values())
+
+
+
+
+@proyectos_router.post("/estado-por-atajo/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "supervisora"]))])
+def actualizar_estado_proyecto(
+    proyecto_id: int,
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Cambia `estado_general` de un proyecto y deja registro
+    en historial + observaciones.
+    """
+    nuevo_estado   = data.get("nuevo_estado")
+    observacion    = (data.get("observacion") or "").strip()
+    subregistros   = data.get("subregistros")      # list | None
+    fecha_suspenso = data.get("fecha_suspenso")    # "YYYY-MM-DD" | None
+
+    estados_validos = {"aprobado", "viable", "en_suspenso",
+                       "no_viable", "baja_anulacion"}
+    if nuevo_estado not in estados_validos or not observacion:
+        raise HTTPException(status_code=400, detail="Datos inválidos")
+
+    proyecto = db.query(Proyecto).get(proyecto_id)
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    estado_anterior = proyecto.estado_general
+
+    # ───────── lógica específica por estado ──────────────────────────
+    if nuevo_estado == "viable":
+        # Esperamos una lista de subregistros válidos en subregistros[]
+        if not subregistros or not isinstance(subregistros, list):
+            raise HTTPException(status_code=400,
+                                detail="Se requiere lista de subregistros")
+        # Limpio todos a "N" y marco los elegidos a "Y"
+        pref = "subreg_"          # ej. subreg_1, subreg_FE1…
+        for col in [c.name for c in Proyecto.__table__.columns
+                    if c.name.startswith(pref)]:
+            setattr(proyecto, col, "Y" if col.replace(pref, "") in subregistros else "N")
+
+    elif nuevo_estado == "en_suspenso":
+        if not fecha_suspenso:
+            raise HTTPException(status_code=400,
+                                detail="Debe indicar fecha_suspenso")
+        proyecto.fecha_suspenso = fecha_suspenso      # asegúrate de tener la col.
+
+    # (otros estados no necesitan datos extra)
+
+    proyecto.estado_general         = nuevo_estado
+    proyecto.ultimo_cambio_de_estado = datetime.now().date()
+
+    # ───────── historial de estados ─────────
+    db.add(ProyectoHistorialEstado(
+        proyecto_id     = proyecto_id,
+        estado_anterior = estado_anterior,
+        estado_nuevo    = nuevo_estado,
+        fecha_hora      = datetime.now()
+    ))
+
+    # ───────── observación interna ──────────
+    login_obs = current_user["user"]["login"]
+    db.add(ObservacionesProyectos(
+        observacion_fecha           = datetime.now(),
+        observacion                 = observacion,
+        login_que_observo           = login_obs,
+        observacion_a_cual_proyecto = proyecto_id
+    ))
+
+    db.commit()
+
+    return {
+        "success"      : True,
+        "tipo_mensaje" : "verde",
+        "mensaje"      : "Estado actualizado correctamente.",
+        "tiempo_mensaje": 4,
+        "next_page"    : "actual"
+    }
