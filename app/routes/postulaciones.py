@@ -6,6 +6,7 @@ from sqlalchemy import func, case, and_, or_, Integer, literal_column
 import json
 from sqlalchemy import or_, and_
 
+
 from datetime import datetime, date
 from models.proyecto import Proyecto, ProyectoHistorialEstado, DetalleEquipoEnProyecto, AgendaEntrevistas, FechaRevision
 from models.carpeta import Carpeta, DetalleProyectosEnCarpeta, DetalleNNAEnCarpeta
@@ -15,7 +16,7 @@ from models.ddjj import DDJJ
 from models.nna import Nna
 
 
-from models.convocatorias import Postulacion
+from models.convocatorias import Postulacion, Convocatoria, DetalleNNAEnConvocatoria
 from models.users import User, Group, UserGroup 
 from database.config import get_db
 from helpers.utils import get_user_name_by_login, construir_subregistro_string, parse_date, generar_codigo_para_link, \
@@ -41,6 +42,7 @@ from helpers.notificaciones_utils import crear_notificacion_masiva_por_rol, crea
 postulaciones_router = APIRouter()
 
 
+
 @postulaciones_router.get("/postulaciones", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
 def get_postulaciones(
@@ -52,8 +54,27 @@ def get_postulaciones(
 
 ):
     try:
+
+
         # query = db.query(Postulacion).order_by(Postulacion.fecha_postulacion.desc())
-        query = db.query(Postulacion).options(joinedload(Postulacion.convocatoria)).order_by(Postulacion.fecha_postulacion.desc())
+        # query = db.query(Postulacion).options(joinedload(Postulacion.convocatoria)).order_by(Postulacion.fecha_postulacion.desc())
+
+        # query = db.query(Postulacion).options(
+        #     joinedload(Postulacion.convocatoria)
+        #     .joinedload(Convocatoria.detalle_nnas)
+        #     .joinedload(DetalleNNAEnConvocatoria.nna)
+        # )
+
+        query = (
+            db.query(Postulacion)
+              .options(
+                  joinedload(Postulacion.convocatoria)
+                  .joinedload(Convocatoria.detalle_nnas)
+                  .joinedload(DetalleNNAEnConvocatoria.nna)
+              )
+              .order_by(Postulacion.fecha_postulacion.desc())
+        )
+
 
         if search :
             palabras = search.strip().split()
@@ -89,23 +110,88 @@ def get_postulaciones(
         total_pages = ceil(total_records / limit)
         postulaciones = query.offset((page - 1) * limit).limit(limit).all()
 
-        datos = [{
-            "postulacion_id": p.postulacion_id,
-            "convocatoria_id": p.convocatoria_id,
-            "convocatoria": {
-                "convocatoria_referencia": p.convocatoria.convocatoria_referencia if p.convocatoria else None,
-                "convocatoria_llamado": p.convocatoria.convocatoria_llamado if p.convocatoria else None,
-            } if p.convocatoria else None,
-            "fecha_postulacion": p.fecha_postulacion,
-            "nombre": p.nombre,
-            "apellido": p.apellido,
-            "dni": p.dni,
-            "localidad": p.localidad,
-            "provincia": p.provincia,
-            "mail": p.mail,
-            "telefono_contacto": p.telefono_contacto,
-            "conyuge_convive": p.conyuge_convive,
-        } for p in postulaciones]
+        # nna_asociados = [
+        #     {
+        #         "nna_id": det.nna_id,
+        #         "nna_nombre": det.nna.nna_nombre,
+        #         "nna_apellido": det.nna.nna_apellido,
+        #     }
+        #     for det in p.convocatoria.detalle_nnas
+        #     if det.nna is not None
+        # ]
+
+        
+
+        datos = []
+        for p in postulaciones:
+            # si la postulación tiene convocatoria, armo la lista
+            if p.convocatoria:
+                # nna_asociados = [
+                #     {
+                #         "nna_id": det.nna_id,
+                #         "nna_nombre": det.nna.nna_nombre,
+                #         "nna_apellido": det.nna.nna_apellido,
+                #     }
+                #     for det in p.convocatoria.detalle_nnas
+                #     if det.nna is not None
+                # ]
+                nna_asociados = [
+                    {
+                        "nna_id": det.nna_id,
+                        "nombre_completo": f"{det.nna.nna_nombre} {det.nna.nna_apellido}",
+                    }
+                    for det in p.convocatoria.detalle_nnas
+                    if det.nna is not None
+                ]
+            else:
+                nna_asociados = []
+
+            datos.append({
+                "postulacion_id": p.postulacion_id,
+                "convocatoria_id": p.convocatoria_id,
+                "convocatoria": {
+                    "convocatoria_referencia": p.convocatoria.convocatoria_referencia if p.convocatoria else None,
+                    "convocatoria_llamado":     p.convocatoria.convocatoria_llamado     if p.convocatoria else None,
+                    "nna_asociados": nna_asociados,
+                    "total_nna": len(nna_asociados),
+                } if p.convocatoria else None,
+                # "convocatoria": {
+                #     "convocatoria_referencia": p.convocatoria.convocatoria_referencia if p.convocatoria else None,
+                #     "convocatoria_llamado":     p.convocatoria.convocatoria_llamado     if p.convocatoria else None,
+                #     "nna_asociados": nna_asociados,
+                #     "total_nna":     len(nna_asociados),
+                # } if p.convocatoria else None,
+                "fecha_postulacion":  p.fecha_postulacion,
+                "nombre":             p.nombre,
+                "apellido":           p.apellido,
+                "dni":                p.dni,
+                "localidad":          p.localidad,
+                "provincia":          p.provincia,
+                "mail":               p.mail,
+                "telefono_contacto":  p.telefono_contacto,
+                "conyuge_convive":    p.conyuge_convive,
+            })
+
+
+        # datos = [{
+        #     "postulacion_id": p.postulacion_id,
+        #     "convocatoria_id": p.convocatoria_id,
+        #     "convocatoria": {
+        #         "convocatoria_referencia": p.convocatoria.convocatoria_referencia if p.convocatoria else None,
+        #         "convocatoria_llamado": p.convocatoria.convocatoria_llamado if p.convocatoria else None,
+        #         "nna_asociados": nna_asociados,
+        #         "total_nna": len(nna_asociados),
+        #     } if p.convocatoria else None,
+        #     "fecha_postulacion": p.fecha_postulacion,
+        #     "nombre": p.nombre,
+        #     "apellido": p.apellido,
+        #     "dni": p.dni,
+        #     "localidad": p.localidad,
+        #     "provincia": p.provincia,
+        #     "mail": p.mail,
+        #     "telefono_contacto": p.telefono_contacto,
+        #     "conyuge_convive": p.conyuge_convive,
+        # } for p in postulaciones]
 
         return {
             "page": page,
