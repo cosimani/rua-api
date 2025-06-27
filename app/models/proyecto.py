@@ -11,6 +11,7 @@ from models.notif_y_observaciones import ObservacionesProyectos
 from models.base import Base
 
 
+
 class Proyecto(Base):
     __tablename__ = "proyecto"
 
