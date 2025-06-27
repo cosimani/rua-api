@@ -2907,7 +2907,7 @@ def get_estado_usuario(
                 ),
                 "invitacion_pendiente": (
                     "Invitación pendiente",
-                    "Revise su correo o acceda al proyecto desde el menú principal.",
+                    "Hay una invitación pendiente a su proyecto adoptivo. Revisen sus correos para aceptar la invitación.",
                     ""
                 ),
                 "actualizando": (
