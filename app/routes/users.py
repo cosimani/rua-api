@@ -1230,57 +1230,50 @@ async def create_user(
         # Cuerpo en HTML
         cuerpo = f"""
         <html>
-            <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-                <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-                <tr>
-                    <td align="center">
-                    <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-                        <tr>
-                        <td style="font-size: 24px; color: #007bff;">
-                            <strong>¡Hola {nombre}!</strong>
-                        </td>
-                        </tr>
-                        <tr>
-                        <td style="padding-top: 20px; font-size: 17px;">
-                            <p>¡Bienvenido a la plataforma virtual del <strong>Registro Único de Adopciones de Córdoba</strong>!</p>
-                             <p>Para iniciar el proceso de inscripción hace clic en el siguiente botón y completa el curso informativo obligatorio:</p>
-                        </td>
-                        </tr>
-                        <tr>
-                        <td align="center" style="padding: 30px 0;">
-                            <!-- BOTÓN RESPONSIVE -->
-                            <table cellpadding="0" cellspacing="0" border="0" style="border-radius: 8px;">
-                            <tr>
-                                <td align="center" bgcolor="#0d6efd" style="border-radius: 8px;">
-                                <a href="{link_activacion}"
-                                    target="_blank"
-                                    style="display: inline-block; padding: 12px 25px; font-size: 16px; color: #ffffff; background-color: #0d6efd; text-decoration: none; border-radius: 8px; font-weight: bold;">
-                                    Confirmo mi registro en el sistema
-                                </a>
-                                </td>
-                            </tr>
-                            </table>
-                        </td>
-                        </tr>
-                        <tr>
-                        <td align="center" style="font-size: 17px;">
-                            <p><strong>Muchas gracias</strong></p>
-                        </td>
-                        </tr>
-                        <tr>
-                        <td style="padding-top: 30px;">
-                            <hr style="border: none; border-top: 1px solid #dee2e6;">
-                            <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                            <strong>Registro Único de Adopciones de Córdoba</strong>
-                            </p>
-                        </td>
-                        </tr>
-                    </table>
-                    </td>
-                </tr>
-                </table>
-            </body>
-            </html>
+          <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+            <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+              <tr>
+                <td align="center">
+                  <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                    <tr>
+                      <td style="font-size: 24px; color: #007bff;">
+                          <strong>¡Hola {nombre}!</strong>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding-top: 20px; font-size: 17px;">
+                          <p>¡Bienvenido a la plataforma virtual del <strong>Registro Único de Adopciones de Córdoba</strong>!</p>
+                            <p>Para iniciar el proceso de inscripción hace clic en el siguiente botón y completa el curso informativo obligatorio:</p>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td align="center" style="padding: 30px 0;">
+                        <!-- BOTÓN RESPONSIVE -->
+                        <table cellpadding="0" cellspacing="0" border="0" style="border-radius: 8px;">
+                          <tr>
+                            <td align="center" bgcolor="#0d6efd" style="border-radius: 8px;">
+                              <a href="{link_activacion}"
+                                  target="_blank"
+                                  style="display: inline-block; padding: 12px 25px; font-size: 16px; color: #ffffff; background-color: #0d6efd; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                                  Confirmo mi registro en el sistema
+                              </a>
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding-top: 20px; font-size: 17px;">
+                        <p>Para ingresar usa el mismo usuario y contraseña que creaste en la plataforma.</p>
+                        <p>¡Muchas gracias por querer formar parte del Registro Único de Adopciones de Córdoba!</p>
+                      </td>
+                    </tr>   
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </body>
+        </html>
 
         """
         

@@ -710,70 +710,119 @@ async def recuperar_clave(
         link = f"{protocolo}://{host_con_puerto}{endpoint}?activacion={act_code}"
 
 
-        # Cuerpo del mail en estilo institucional
         cuerpo = f"""
-            <html>
+          <html>
             <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-                <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+              <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
                 <tr>
-                    <td align="center">
+                  <td align="center">
                     <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-                        <tr>
-                        <td style="font-size: 24px; color: #007bff; padding-bottom: 20px;">
-                            <strong>Recuperación de contraseña</strong>
+                      <tr>
+                        <td style="font-size: 24px; color: #007bff;">
+                            <strong>¡Hola {user.nombre}!</strong>
                         </td>
-                        </tr>
-                        <tr>
-                        <td style="font-size: 17px; padding-bottom: 10px;">
-                            Hola,
+                      </tr>
+                      <tr>
+                        <td style="padding-top: 20px; font-size: 17px;">
+                            <p>Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+                            <p>Desde este correo podrás cambiar tu contraseña de acceso al Sistema RUA haciendo clic en el
+                               siguiente botón:</p>
                         </td>
-                        </tr>
-                        <tr>
-                        <td style="font-size: 17px; padding-bottom: 10px;">
-                            Desde este mail podrás cambiar tu contraseña de acceso al Sistema RUA.
-                        </td>
-                        </tr>
-                        <tr>
-                        <td style="font-size: 17px; padding-bottom: 10px;">
-                            Hacé clic en el siguiente botón:
-                        </td>
-                        </tr>
-                        <tr>
-                        <td align="center" style="padding: 20px 0 30px 0;">
-                            <!-- BOTÓN RESPONSIVE -->
-                            <table cellpadding="0" cellspacing="0" border="0" style="border-radius: 8px;">
+                      </tr>
+                      <tr>
+                        <td align="center" style="padding: 30px 0;">
+                          <!-- BOTÓN RESPONSIVE -->
+                          <table cellpadding="0" cellspacing="0" border="0" style="border-radius: 8px;">
                             <tr>
-                                <td align="center" bgcolor="#0d6efd" style="border-radius: 8px;">
+                              <td align="center" bgcolor="#0d6efd" style="border-radius: 8px;">
                                 <a href="{link}"
                                     target="_blank"
-                                    style="display: inline-block; padding: 12px 20px; font-size: 16px; color: #ffffff; background-color: #0d6efd; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                                    style="display: inline-block; padding: 12px 25px; font-size: 16px; color: #ffffff; background-color: #0d6efd; text-decoration: none; border-radius: 8px; font-weight: bold;">
                                     🔐 Elegir nueva contraseña
                                 </a>
-                                </td>
+                              </td>
                             </tr>
-                            </table>
+                          </table>
                         </td>
-                        </tr>
-                        <tr>
-                        <td style="font-size: 17px; padding-bottom: 30px;">
-                            Este enlace tiene validez limitada.
+                      </tr>
+                      <tr>
+                        <td style="padding-top: 20px; font-size: 17px;">
+                          <p>Este enlace funcionará por tiempo limitado.</p>
+                          <p>¡Muchas gracias por querer formar parte del Registro Único de Adopciones de Córdoba!</p>
                         </td>
-                        </tr>
-                        <tr>
-                        <td>
-                            <hr style="border: none; border-top: 1px solid #dee2e6; margin: 40px 0;">
-                            <p style="font-size: 15px; color: #6c757d;">
-                            <strong>Registro Único de Adopciones de Córdoba</strong>
-                            </p>
-                        </td>
-                        </tr>
+                      </tr>   
                     </table>
-                    </td>
+                  </td>
                 </tr>
-                </table>
+              </table>
             </body>
-            </html>
-            """
+          </html>
+          """
+
+        # # Cuerpo del mail en estilo institucional
+        # cuerpo = f"""
+        #     <html>
+        #     <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+        #         <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+        #         <tr>
+        #             <td align="center">
+        #             <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+        #                 <tr>
+        #                 <td style="font-size: 24px; color: #007bff; padding-bottom: 20px;">
+        #                     <strong>Recuperación de contraseña</strong>
+        #                 </td>
+        #                 </tr>
+        #                 <tr>
+        #                 <td style="font-size: 17px; padding-bottom: 10px;">
+        #                     Hola,
+        #                 </td>
+        #                 </tr>
+        #                 <tr>
+        #                 <td style="font-size: 17px; padding-bottom: 10px;">
+        #                     Desde este mail podrás cambiar tu contraseña de acceso al Sistema RUA.
+        #                 </td>
+        #                 </tr>
+        #                 <tr>
+        #                 <td style="font-size: 17px; padding-bottom: 10px;">
+        #                     Hacé clic en el siguiente botón:
+        #                 </td>
+        #                 </tr>
+        #                 <tr>
+        #                 <td align="center" style="padding: 20px 0 30px 0;">
+        #                     <!-- BOTÓN RESPONSIVE -->
+        #                     <table cellpadding="0" cellspacing="0" border="0" style="border-radius: 8px;">
+        #                     <tr>
+        #                         <td align="center" bgcolor="#0d6efd" style="border-radius: 8px;">
+        #                         <a href="{link}"
+        #                             target="_blank"
+        #                             style="display: inline-block; padding: 12px 20px; font-size: 16px; color: #ffffff; background-color: #0d6efd; text-decoration: none; border-radius: 8px; font-weight: bold;">
+        #                             🔐 Elegir nueva contraseña
+        #                         </a>
+        #                         </td>
+        #                     </tr>
+        #                     </table>
+        #                 </td>
+        #                 </tr>
+        #                 <tr>
+        #                 <td style="font-size: 17px; padding-bottom: 30px;">
+        #                     Este enlace tiene validez limitada.
+        #                 </td>
+        #                 </tr>
+        #                 <tr>
+        #                 <td>
+        #                     <hr style="border: none; border-top: 1px solid #dee2e6; margin: 40px 0;">
+        #                     <p style="font-size: 15px; color: #6c757d;">
+        #                     <strong>Registro Único de Adopciones de Córdoba</strong>
+        #                     </p>
+        #                 </td>
+        #                 </tr>
+        #             </table>
+        #             </td>
+        #         </tr>
+        #         </table>
+        #     </body>
+        #     </html>
+        #     """
 
 
         enviar_mail(destinatario = mail, asunto = asunto, cuerpo = cuerpo)
