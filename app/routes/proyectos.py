@@ -6405,7 +6405,7 @@ def actualizar_estado_proyecto(
     subregistros   = data.get("subregistros")      # list | None
     fecha_suspenso = data.get("fecha_suspenso")    # "YYYY-MM-DD" | None
 
-    estados_validos = {"aprobado", "viable", "en_suspenso",
+    estados_validos = {"aprobado", "entrevistando", "viable", "en_suspenso",
                        "no_viable", "baja_anulacion"}
     if nuevo_estado not in estados_validos or not observacion:
         raise HTTPException(status_code=400, detail="Datos inválidos")

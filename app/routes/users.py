@@ -2621,12 +2621,17 @@ def cambiar_clave_usuario(
             }
         # ——————————————————————————————
 
-        # 🔄 Moodle
-        actualizar_clave_en_moodle(mail, nueva_clave, db)
+        # 🔄 Moodle solo si es adoptante
+        user_group = db.query(UserGroup).filter(UserGroup.login == login).first()
+        if user_group:
+            group = db.query(Group).filter(Group.group_id == user_group.group_id).first()
+            if group and group.description and group.description.lower() == "adoptante":
+                actualizar_clave_en_moodle(mail, nueva_clave, db)
 
         # 💾 Guardar en bcrypt
         hashed_clave = get_password_hash(nueva_clave)
         user.clave = hashed_clave
+
 
         evento = RuaEvento(
             login = login,
