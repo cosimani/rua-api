@@ -216,7 +216,7 @@ def upsert_ddjj(
                 "success": False,
                 "tipo_mensaje": "amarillo",
                 "mensaje": "<p>Su Declaración Jurada ya fue firmada previamente.</p>"
-                        "<p>Si necesita realizar modificaciones, puede reabrirla desde y volver a firmarla. "
+                        "<p>Si necesita realizar modificaciones, puede reabrirla y volver a firmarla. "
                         "La nueva firma será notificada al equipo de supervisión del RUA para su revisión.</p>",
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
@@ -224,97 +224,97 @@ def upsert_ddjj(
 
 
 
-        # Validar campos obligatorios
-        campos_requeridos = [
-            "ddjj_nombre", "ddjj_apellido", "ddjj_fecha_nac", "ddjj_nacionalidad",
-            "ddjj_sexo", "ddjj_estado_civil", "ddjj_correo_electronico",
-            "ddjj_telefono", "ddjj_calle", "ddjj_localidad"
-        ]
+        # # Validar campos obligatorios
+        # campos_requeridos = [
+        #     "ddjj_nombre", "ddjj_apellido", "ddjj_fecha_nac", "ddjj_nacionalidad",
+        #     "ddjj_sexo", "ddjj_estado_civil", "ddjj_correo_electronico",
+        #     "ddjj_telefono", "ddjj_calle", "ddjj_localidad"
+        # ]
 
-        # Diccionario con nombres amigables para campos requeridos
-        nombres_amigables = {
-            "ddjj_nombre": "Nombre",
-            "ddjj_apellido": "Apellido",
-            "ddjj_fecha_nac": "Fecha de nacimiento",
-            "ddjj_nacionalidad": "Nacionalidad",
-            "ddjj_sexo": "Sexo",
-            "ddjj_estado_civil": "Estado civil",
-            "ddjj_correo_electronico": "Correo electrónico",
-            "ddjj_telefono": "Celular",
-            "ddjj_calle": "Calle",
-            "ddjj_localidad": "Localidad",
-            "al_menos_un_subregistro": "Al menos un subregistro en Disponibilidad adoptiva"
-        }
-
-
-        campos_faltantes = [campo for campo in campos_requeridos if not data.get(campo)]
-
-        # Validar que al menos un subregistro esté en "Y", True o similar
-        subregistros = [
-            # Subregistros principales
-            "ddjj_subregistro_flexible",
-            "ddjj_subregistro_1", "ddjj_subregistro_2", "ddjj_subregistro_3", "ddjj_subregistro_4",
-            "ddjj_subregistro_5_a", "ddjj_subregistro_5_b", "ddjj_subregistro_5_c",
-            "ddjj_subregistro_6_a", "ddjj_subregistro_6_b", "ddjj_subregistro_6_c",
-            "ddjj_subregistro_6_d", "ddjj_subregistro_6_2", "ddjj_subregistro_6_3", "ddjj_subregistro_6_mas_de_3",
-
-            # Flexibilidad edad
-            "ddjj_flex_edad_1", "ddjj_flex_edad_2", "ddjj_flex_edad_3", "ddjj_flex_edad_4", "ddjj_flex_edad_todos",
-
-            # Discapacidad
-            "ddjj_discapacidad_1", "ddjj_discapacidad_2",
-            "ddjj_edad_discapacidad_0", "ddjj_edad_discapacidad_1", "ddjj_edad_discapacidad_2",
-            "ddjj_edad_discapacidad_3", "ddjj_edad_discapacidad_4",
-
-            # Enfermedad
-            "ddjj_enfermedad_1", "ddjj_enfermedad_2", "ddjj_enfermedad_3",
-            "ddjj_edad_enfermedad_0", "ddjj_edad_enfermedad_1", "ddjj_edad_enfermedad_2",
-            "ddjj_edad_enfermedad_3", "ddjj_edad_enfermedad_4",
-
-            # Flexibilidad salud
-            "ddjj_flex_condiciones_salud",
-            "ddjj_flex_salud_edad_0", "ddjj_flex_salud_edad_1", "ddjj_flex_salud_edad_2",
-            "ddjj_flex_salud_edad_3", "ddjj_flex_salud_edad_4",
-
-            # Hermanos
-            "ddjj_hermanos_comp_1", "ddjj_hermanos_comp_2", "ddjj_hermanos_comp_3",
-            "ddjj_hermanos_edad_0", "ddjj_hermanos_edad_1", "ddjj_hermanos_edad_2", "ddjj_hermanos_edad_3",
-
-            # Flexibilidad hermanos
-            "ddjj_flex_hermanos_comp_1", "ddjj_flex_hermanos_comp_2", "ddjj_flex_hermanos_comp_3",
-            "ddjj_flex_hermanos_edad_0", "ddjj_flex_hermanos_edad_1", "ddjj_flex_hermanos_edad_2", "ddjj_flex_hermanos_edad_3",
-
-            # Nuevos subregistros definitivos
-            "subreg_1", "subreg_2", "subreg_3", "subreg_4",
-            "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
-            "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
-            "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
-            "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
-            "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
-            "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
-            "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
-            "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
-            "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
-            "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
-            "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
-            "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET"
-        ]
+        # # Diccionario con nombres amigables para campos requeridos
+        # nombres_amigables = {
+        #     "ddjj_nombre": "Nombre",
+        #     "ddjj_apellido": "Apellido",
+        #     "ddjj_fecha_nac": "Fecha de nacimiento",
+        #     "ddjj_nacionalidad": "Nacionalidad",
+        #     "ddjj_sexo": "Sexo",
+        #     "ddjj_estado_civil": "Estado civil",
+        #     "ddjj_correo_electronico": "Correo electrónico",
+        #     "ddjj_telefono": "Celular",
+        #     "ddjj_calle": "Calle",
+        #     "ddjj_localidad": "Localidad",
+        #     "al_menos_un_subregistro": "Al menos un subregistro en Disponibilidad adoptiva"
+        # }
 
 
+        # campos_faltantes = [campo for campo in campos_requeridos if not data.get(campo)]
 
-        if not any(data.get(s) in ["Y", True, "true", "True"] for s in subregistros):
-            campos_faltantes.append("al_menos_un_subregistro")
+        # # Validar que al menos un subregistro esté en "Y", True o similar
+        # subregistros = [
+        #     # Subregistros principales
+        #     "ddjj_subregistro_flexible",
+        #     "ddjj_subregistro_1", "ddjj_subregistro_2", "ddjj_subregistro_3", "ddjj_subregistro_4",
+        #     "ddjj_subregistro_5_a", "ddjj_subregistro_5_b", "ddjj_subregistro_5_c",
+        #     "ddjj_subregistro_6_a", "ddjj_subregistro_6_b", "ddjj_subregistro_6_c",
+        #     "ddjj_subregistro_6_d", "ddjj_subregistro_6_2", "ddjj_subregistro_6_3", "ddjj_subregistro_6_mas_de_3",
 
-        if campos_faltantes:
-            lista = "".join(f"<li>{nombres_amigables.get(campo, campo)}</li>" for campo in campos_faltantes)
+        #     # Flexibilidad edad
+        #     "ddjj_flex_edad_1", "ddjj_flex_edad_2", "ddjj_flex_edad_3", "ddjj_flex_edad_4", "ddjj_flex_edad_todos",
 
-            return {
-                "success": False,
-                "tipo_mensaje": "naranja",
-                "mensaje": f"<p>Faltan completar los siguientes campos obligatorios:</p><ul>{lista}</ul>",
-                "tiempo_mensaje": 8,
-                "next_page": "actual"
-            }
+        #     # Discapacidad
+        #     "ddjj_discapacidad_1", "ddjj_discapacidad_2",
+        #     "ddjj_edad_discapacidad_0", "ddjj_edad_discapacidad_1", "ddjj_edad_discapacidad_2",
+        #     "ddjj_edad_discapacidad_3", "ddjj_edad_discapacidad_4",
+
+        #     # Enfermedad
+        #     "ddjj_enfermedad_1", "ddjj_enfermedad_2", "ddjj_enfermedad_3",
+        #     "ddjj_edad_enfermedad_0", "ddjj_edad_enfermedad_1", "ddjj_edad_enfermedad_2",
+        #     "ddjj_edad_enfermedad_3", "ddjj_edad_enfermedad_4",
+
+        #     # Flexibilidad salud
+        #     "ddjj_flex_condiciones_salud",
+        #     "ddjj_flex_salud_edad_0", "ddjj_flex_salud_edad_1", "ddjj_flex_salud_edad_2",
+        #     "ddjj_flex_salud_edad_3", "ddjj_flex_salud_edad_4",
+
+        #     # Hermanos
+        #     "ddjj_hermanos_comp_1", "ddjj_hermanos_comp_2", "ddjj_hermanos_comp_3",
+        #     "ddjj_hermanos_edad_0", "ddjj_hermanos_edad_1", "ddjj_hermanos_edad_2", "ddjj_hermanos_edad_3",
+
+        #     # Flexibilidad hermanos
+        #     "ddjj_flex_hermanos_comp_1", "ddjj_flex_hermanos_comp_2", "ddjj_flex_hermanos_comp_3",
+        #     "ddjj_flex_hermanos_edad_0", "ddjj_flex_hermanos_edad_1", "ddjj_flex_hermanos_edad_2", "ddjj_flex_hermanos_edad_3",
+
+        #     # Nuevos subregistros definitivos
+        #     "subreg_1", "subreg_2", "subreg_3", "subreg_4",
+        #     "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
+        #     "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
+        #     "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
+        #     "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
+        #     "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
+        #     "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
+        #     "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
+        #     "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
+        #     "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
+        #     "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
+        #     "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
+        #     "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET"
+        # ]
+
+
+
+        # if not any(data.get(s) in ["Y", True, "true", "True"] for s in subregistros):
+        #     campos_faltantes.append("al_menos_un_subregistro")
+
+        # if campos_faltantes:
+        #     lista = "".join(f"<li>{nombres_amigables.get(campo, campo)}</li>" for campo in campos_faltantes)
+
+        #     return {
+        #         "success": False,
+        #         "tipo_mensaje": "naranja",
+        #         "mensaje": f"<p>Faltan completar los siguientes campos obligatorios:</p><ul>{lista}</ul>",
+        #         "tiempo_mensaje": 8,
+        #         "next_page": "actual"
+        #     }
         
 
         # Capitalizar nombre y apellido usando función existente
@@ -361,14 +361,14 @@ def upsert_ddjj(
         ddjj = db.query(DDJJ).filter(DDJJ.login == login).first()
 
 
-        if not all(data.get(f"ddjj_acepto_{i}") == "Y" for i in range(1, 5)):
-            return {
-                "success": False,
-                "tipo_mensaje": "amarillo",
-                "mensaje": "<p>Debe aceptar las declaraciones formales y legales del tramo final para firmar la DDJJ.</p>",
-                "tiempo_mensaje": 6,
-                "next_page": "actual"
-            }
+        # if not all(data.get(f"ddjj_acepto_{i}") == "Y" for i in range(1, 5)):
+        #     return {
+        #         "success": False,
+        #         "tipo_mensaje": "amarillo",
+        #         "mensaje": "<p>Debe aceptar las declaraciones formales y legales del tramo final para firmar la DDJJ.</p>",
+        #         "tiempo_mensaje": 6,
+        #         "next_page": "actual"
+        #     }
         
         
         if not ddjj:
@@ -376,13 +376,13 @@ def upsert_ddjj(
             nueva_ddjj = DDJJ(**data)
             db.add(nueva_ddjj)
 
-            usuario.doc_adoptante_ddjj_firmada = "Y"
+            # usuario.doc_adoptante_ddjj_firmada = "Y"
 
             es_creacion = not ddjj
             es_mismo_usuario = usuario_actual_login == login
 
             evento_detalle = (
-                "DDJJ creada y firmada" if es_creacion else "DDJJ actualizada y firmada"
+                "DDJJ creada" if es_creacion else "DDJJ actualizada"
             )
             evento_detalle += " por el mismo usuario." if es_mismo_usuario else f" por {usuario_actual_login}."
 
@@ -399,7 +399,7 @@ def upsert_ddjj(
                 return {
                     "success": True,
                     "tipo_mensaje": "verde",
-                    "mensaje": "<p>DDJJ firmada exitosamente.</p>",
+                    "mensaje": "<p>DDJJ creada exitosamente.</p>",
                     "tiempo_mensaje": 5,
                     "next_page": "menu_adoptantes/portada"
                 }
@@ -471,13 +471,13 @@ def upsert_ddjj(
                     setattr(usuario, campo_user, valores_normalizados[campo_ddjj])
 
             try:
-                usuario.doc_adoptante_ddjj_firmada = "Y"
+                # usuario.doc_adoptante_ddjj_firmada = "Y"
 
                 es_creacion = not ddjj
                 es_mismo_usuario = usuario_actual_login == login
 
                 evento_detalle = (
-                    "DDJJ creada y firmada" if es_creacion else "DDJJ actualizada y firmada"
+                    "DDJJ creada" if es_creacion else "DDJJ actualizada"
                 )
                 evento_detalle += " por el mismo usuario." if es_mismo_usuario else f" por {usuario_actual_login}."
 
@@ -750,6 +750,363 @@ def get_ddjj_by_login(
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al recuperar la DDJJ: {str(e)}")
+
+
+
+
+@ddjj_router.post("/firmar", response_model=dict, 
+                  dependencies = [Depends(verify_api_key), 
+                                  Depends(require_roles(["administrador", "supervision", "supervisora", 
+                                                         "profesional", "adoptante"]))])
+def firmar_ddjj(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    ✅ Endpoint para firmar la DDJJ del usuario logueado.
+    
+    - Verifica campos obligatorios.
+    - Valida que haya al menos un subregistro.
+    - Verifica que el tramo final esté aceptado.
+    - Marca la DDJJ como firmada en la tabla User.
+    """
+    login = current_user["user"]["login"]
+
+    # 🔍 Buscar la DDJJ de este login
+    ddjj = db.query(DDJJ).filter(DDJJ.login == login).first()
+
+    if not ddjj:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "La declaración jurada no contiene datos, por favor, complete.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    # ✅ Campos obligatorios
+    campos_requeridos = [
+        "ddjj_nombre", "ddjj_apellido", "ddjj_fecha_nac",
+        "ddjj_estado_civil", "ddjj_correo_electronico",
+        "ddjj_telefono", "ddjj_calle", "ddjj_localidad"
+    ]
+
+    nombres_amigables = {
+        "ddjj_nombre": "Nombre",
+        "ddjj_apellido": "Apellido",
+        "ddjj_fecha_nac": "Fecha de nacimiento",
+        "ddjj_estado_civil": "Estado civil",
+        "ddjj_correo_electronico": "Correo electrónico",
+        "ddjj_telefono": "Celular",
+        "ddjj_calle": "Calle",
+        "ddjj_localidad": "Localidad",
+        "al_menos_un_subregistro": "Al menos un subregistro en Disponibilidad adoptiva",
+        "tramo_final": "Aceptar las declaraciones del tramo final"
+    }
+
+    campos_faltantes = [campo for campo in campos_requeridos if not getattr(ddjj, campo)]
+
+
+    # ✅ Validar que al menos un subregistro esté en Y
+    subregistros = [
+        # Subregistros principales
+        "ddjj_subregistro_flexible",
+        "ddjj_subregistro_1", "ddjj_subregistro_2", "ddjj_subregistro_3", "ddjj_subregistro_4",
+        "ddjj_subregistro_5_a", "ddjj_subregistro_5_b", "ddjj_subregistro_5_c",
+        "ddjj_subregistro_6_a", "ddjj_subregistro_6_b", "ddjj_subregistro_6_c",
+        "ddjj_subregistro_6_d", "ddjj_subregistro_6_2", "ddjj_subregistro_6_3", "ddjj_subregistro_6_mas_de_3",
+
+        # Flexibilidad edad
+        "ddjj_flex_edad_1", "ddjj_flex_edad_2", "ddjj_flex_edad_3", "ddjj_flex_edad_4", "ddjj_flex_edad_todos",
+
+        # Discapacidad
+        "ddjj_discapacidad_1", "ddjj_discapacidad_2",
+        "ddjj_edad_discapacidad_0", "ddjj_edad_discapacidad_1", "ddjj_edad_discapacidad_2",
+        "ddjj_edad_discapacidad_3", "ddjj_edad_discapacidad_4",
+
+        # Enfermedad
+        "ddjj_enfermedad_1", "ddjj_enfermedad_2", "ddjj_enfermedad_3",
+        "ddjj_edad_enfermedad_0", "ddjj_edad_enfermedad_1", "ddjj_edad_enfermedad_2",
+        "ddjj_edad_enfermedad_3", "ddjj_edad_enfermedad_4",
+
+        # Flexibilidad salud
+        "ddjj_flex_condiciones_salud",
+        "ddjj_flex_salud_edad_0", "ddjj_flex_salud_edad_1", "ddjj_flex_salud_edad_2",
+        "ddjj_flex_salud_edad_3", "ddjj_flex_salud_edad_4",
+
+        # Hermanos
+        "ddjj_hermanos_comp_1", "ddjj_hermanos_comp_2", "ddjj_hermanos_comp_3",
+        "ddjj_hermanos_edad_0", "ddjj_hermanos_edad_1", "ddjj_hermanos_edad_2", "ddjj_hermanos_edad_3",
+
+        # Flexibilidad hermanos
+        "ddjj_flex_hermanos_comp_1", "ddjj_flex_hermanos_comp_2", "ddjj_flex_hermanos_comp_3",
+        "ddjj_flex_hermanos_edad_0", "ddjj_flex_hermanos_edad_1", "ddjj_flex_hermanos_edad_2", "ddjj_flex_hermanos_edad_3",
+
+        # Nuevos subregistros definitivos
+        "subreg_1", "subreg_2", "subreg_3", "subreg_4",
+        "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
+        "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
+        "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
+        "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
+        "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
+        "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
+        "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
+        "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
+        "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
+        "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
+        "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
+        "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET"
+    ]
+
+    
+    if not any(getattr(ddjj, s, "N") == "Y" for s in subregistros):
+        campos_faltantes.append("al_menos_un_subregistro")
+
+    # ✅ Validar tramo final (aceptaciones)
+    aceptaciones = [getattr(ddjj, f"ddjj_acepto_{i}", "N") for i in range(1,5)]
+    if not all(a == "Y" for a in aceptaciones):
+        campos_faltantes.append("tramo_final")
+
+    # ⚠️ Si hay campos faltantes, devolver error con lista
+    if campos_faltantes:
+        lista = "".join(f"<li>{nombres_amigables.get(campo, campo)}</li>" for campo in campos_faltantes)
+
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": f"<p>Faltan completar los siguientes campos obligatorios:</p><ul>{lista}</ul>",
+            "tiempo_mensaje": 8,
+            "next_page": "actual"
+        }
+
+    # ✅ Marcar como firmada
+    ddjj.ddjj_fecha_ultimo_cambio = datetime.now().strftime("%Y-%m-%d")
+
+    usuario = db.query(User).filter(User.login == login).first()
+    if usuario:
+        usuario.doc_adoptante_ddjj_firmada = "Y"
+
+    db.commit()
+
+    return {
+        "success": True,
+        "tipo_mensaje": "verde",
+        "mensaje": "La Declaración Jurada fue firmada correctamente.",
+        "tiempo_mensaje": 5,
+        "next_page": "actual"
+    }
+
+
+
+# @ddjj_router.post("/firmar", response_model = dict, 
+#                   dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", 
+#                                                                                    "profesional", "adoptante"]))])
+# def firmar_ddjj(
+#     data: dict = Body(...),
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+
+
+#     try:
+#         login = data.get("login")
+#         if not login:
+#             return {
+#                 "success": False,
+#                 "tipo_mensaje": "naranja",
+#                 "mensaje": "<p>El campo 'login' es obligatorio.</p>",
+#                 "tiempo_mensaje": 5,
+#                 "next_page": "actual"
+#             }
+
+#         usuario_actual_login = current_user["user"]["login"]
+
+#         roles_actual = (
+#             db.query(Group.description)
+#             .join(UserGroup, Group.group_id == UserGroup.group_id)
+#             .filter(UserGroup.login == usuario_actual_login)
+#             .all()
+#         )
+#         roles_actual = [r.description for r in roles_actual]
+
+#         if "adoptante" in roles_actual and usuario_actual_login != login:
+#             return {
+#                 "success": False,
+#                 "tipo_mensaje": "naranja",
+#                 "mensaje": "<p>No tiene permisos para modificar la DDJJ de otro usuario.</p>",
+#                 "tiempo_mensaje": 5,
+#                 "next_page": "actual"
+#             }
+
+#         usuario = db.query(User).filter(User.login == login).first()
+#         if not usuario:
+#             return {
+#                 "success": False,
+#                 "tipo_mensaje": "rojo",
+#                 "mensaje": "<p>No existe un usuario con ese DNI.</p>",
+#                 "tiempo_mensaje": 5,
+#                 "next_page": "actual"
+#             }
+
+
+#         if usuario.doc_adoptante_ddjj_firmada == 'Y':
+#             return {
+#                 "success": False,
+#                 "tipo_mensaje": "amarillo",
+#                 "mensaje": "<p>Su Declaración Jurada ya fue firmada previamente.</p>"
+#                         "<p>Si necesita realizar modificaciones, puede reabrirla y volver a firmarla. "
+#                         "La nueva firma será notificada al equipo de supervisión del RUA para su revisión.</p>",
+#                 "tiempo_mensaje": 5,
+#                 "next_page": "actual"
+#             }
+
+
+#         ddjj = db.query(DDJJ).filter(DDJJ.login == login).first()
+
+#         if not ddjj:
+#             return {
+#                 "success": False,
+#                 "tipo_mensaje": "amarillo",
+#                 "mensaje": "<p>Su Declaración Jurada no contiene datos, por favor, complete.</p>",
+#                 "tiempo_mensaje": 5,
+#                 "next_page": "actual"
+#             }
+
+
+#         # Validar campos obligatorios
+#         campos_requeridos = [
+#             "ddjj_nombre", "ddjj_apellido", "ddjj_fecha_nac", "ddjj_nacionalidad",
+#             "ddjj_sexo", "ddjj_estado_civil", "ddjj_correo_electronico",
+#             "ddjj_telefono", "ddjj_calle", "ddjj_localidad"
+#         ]
+
+#         # Diccionario con nombres amigables para campos requeridos
+#         nombres_amigables = {
+#             "ddjj_nombre": "Nombre",
+#             "ddjj_apellido": "Apellido",
+#             "ddjj_fecha_nac": "Fecha de nacimiento",
+#             "ddjj_nacionalidad": "Nacionalidad",
+#             "ddjj_sexo": "Sexo",
+#             "ddjj_estado_civil": "Estado civil",
+#             "ddjj_correo_electronico": "Correo electrónico",
+#             "ddjj_telefono": "Celular",
+#             "ddjj_calle": "Calle",
+#             "ddjj_localidad": "Localidad",
+#             "al_menos_un_subregistro": "Al menos un subregistro en Disponibilidad adoptiva"
+#         }
+
+
+#         campos_faltantes = [campo for campo in campos_requeridos if not data.get(campo)]
+
+#         # Validar que al menos un subregistro esté en "Y", True o similar
+#         subregistros = [
+#             # Subregistros principales
+#             "ddjj_subregistro_flexible",
+#             "ddjj_subregistro_1", "ddjj_subregistro_2", "ddjj_subregistro_3", "ddjj_subregistro_4",
+#             "ddjj_subregistro_5_a", "ddjj_subregistro_5_b", "ddjj_subregistro_5_c",
+#             "ddjj_subregistro_6_a", "ddjj_subregistro_6_b", "ddjj_subregistro_6_c",
+#             "ddjj_subregistro_6_d", "ddjj_subregistro_6_2", "ddjj_subregistro_6_3", "ddjj_subregistro_6_mas_de_3",
+
+#             # Flexibilidad edad
+#             "ddjj_flex_edad_1", "ddjj_flex_edad_2", "ddjj_flex_edad_3", "ddjj_flex_edad_4", "ddjj_flex_edad_todos",
+
+#             # Discapacidad
+#             "ddjj_discapacidad_1", "ddjj_discapacidad_2",
+#             "ddjj_edad_discapacidad_0", "ddjj_edad_discapacidad_1", "ddjj_edad_discapacidad_2",
+#             "ddjj_edad_discapacidad_3", "ddjj_edad_discapacidad_4",
+
+#             # Enfermedad
+#             "ddjj_enfermedad_1", "ddjj_enfermedad_2", "ddjj_enfermedad_3",
+#             "ddjj_edad_enfermedad_0", "ddjj_edad_enfermedad_1", "ddjj_edad_enfermedad_2",
+#             "ddjj_edad_enfermedad_3", "ddjj_edad_enfermedad_4",
+
+#             # Flexibilidad salud
+#             "ddjj_flex_condiciones_salud",
+#             "ddjj_flex_salud_edad_0", "ddjj_flex_salud_edad_1", "ddjj_flex_salud_edad_2",
+#             "ddjj_flex_salud_edad_3", "ddjj_flex_salud_edad_4",
+
+#             # Hermanos
+#             "ddjj_hermanos_comp_1", "ddjj_hermanos_comp_2", "ddjj_hermanos_comp_3",
+#             "ddjj_hermanos_edad_0", "ddjj_hermanos_edad_1", "ddjj_hermanos_edad_2", "ddjj_hermanos_edad_3",
+
+#             # Flexibilidad hermanos
+#             "ddjj_flex_hermanos_comp_1", "ddjj_flex_hermanos_comp_2", "ddjj_flex_hermanos_comp_3",
+#             "ddjj_flex_hermanos_edad_0", "ddjj_flex_hermanos_edad_1", "ddjj_flex_hermanos_edad_2", "ddjj_flex_hermanos_edad_3",
+
+#             # Nuevos subregistros definitivos
+#             "subreg_1", "subreg_2", "subreg_3", "subreg_4",
+#             "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
+#             "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
+#             "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
+#             "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
+#             "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
+#             "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
+#             "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
+#             "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
+#             "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
+#             "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
+#             "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
+#             "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET"
+#         ]
+
+
+
+#         if not any(data.get(s) in ["Y", True, "true", "True"] for s in subregistros):
+#             campos_faltantes.append("al_menos_un_subregistro")
+
+#         if campos_faltantes:
+#             lista = "".join(f"<li>{nombres_amigables.get(campo, campo)}</li>" for campo in campos_faltantes)
+
+#             return {
+#                 "success": False,
+#                 "tipo_mensaje": "naranja",
+#                 "mensaje": f"<p>Faltan completar los siguientes campos obligatorios:</p><ul>{lista}</ul>",
+#                 "tiempo_mensaje": 8,
+#                 "next_page": "actual"
+#             }
+                
+#         usuario.doc_adoptante_ddjj_firmada = "Y"
+
+        
+#         evento_detalle = (
+#             "DDJJ firmada"
+#         )
+#         evento_detalle += f" por {usuario_actual_login}."
+
+#         db.add(RuaEvento(
+#             login=login,
+#             evento_detalle=evento_detalle,
+#             evento_fecha=datetime.now()
+#         ))
+
+#         db.commit()
+
+#         return {
+#             "tipo_mensaje": "verde",
+#             "mensaje": "<p>DDJJ firmada exitosamente.</p>",
+#             "tiempo_mensaje": 5,
+#             "next_page": "menu_adoptantes/portada"
+#         }
+    
+#     except SQLAlchemyError as e:
+#         db.rollback()
+#         return {
+#             "tipo_mensaje": "rojo",
+#             "mensaje": f"<p>Error al firmar DDJJ: {str(e)}</p>",
+#             "tiempo_mensaje": 5,
+#             "next_page": "actual"
+#         }
+            
+#     except SQLAlchemyError as e:
+#               db.rollback()
+#               return {
+#                   "tipo_mensaje": "rojo",
+#                   "mensaje": f"<p>Error inesperado en DDJJ: {str(e)}</p>",
+#                   "tiempo_mensaje": 5,
+#                   "next_page": "actual"
+#               }
+
+
 
 
 
