@@ -52,7 +52,8 @@ carpetas_router = APIRouter()
 
 
 @carpetas_router.get("/", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies = [Depends(verify_api_key), 
+                    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def listar_carpetas(
     request: Request,
     db: Session = Depends(get_db),
@@ -171,7 +172,7 @@ def listar_carpetas(
 
 
 @carpetas_router.post("/", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def crear_carpeta(
     data: dict = Body(...),
     db: Session = Depends(get_db)
@@ -318,7 +319,7 @@ def crear_carpeta(
 
 
 @carpetas_router.put("/{carpeta_id}", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def actualizar_carpeta(
     carpeta_id: int,
     data: dict = Body(...),
@@ -506,7 +507,7 @@ def actualizar_carpeta(
 
 
 @carpetas_router.delete("/{carpeta_id}", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def eliminar_carpeta(
     carpeta_id: int,
     db: Session = Depends(get_db),
@@ -652,7 +653,7 @@ def enviar_a_juzgado(carpeta_id: int, db: Session = Depends(get_db)):
 
 
 @carpetas_router.put("/{carpeta_id}/marcar-con-dictamen", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def marcar_con_dictamen(
     carpeta_id: int,
     db: Session = Depends(get_db),
@@ -721,126 +722,8 @@ def marcar_con_dictamen(
 
 
 
-# @carpetas_router.get("/{carpeta_id}/descargar-pdf", response_class=FileResponse,
-#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
-# def descargar_pdf_carpeta_completa(
-#     carpeta_id: int,
-#     db: Session = Depends(get_db)
-# ):
-#     carpeta = db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).first()
-#     if not carpeta:
-#         return JSONResponse(
-#             status_code=404,
-#             content={
-#                 "success": False,
-#                 "tipo_mensaje": "rojo",
-#                 "mensaje": "La carpeta solicitada no fue encontrada.",
-#                 "tiempo_mensaje": 6,
-#                 "next_page": "actual"
-#             }
-#         )
-        
-
-#     try:
-#         # Ruta de salida final
-#         output_path = os.path.join(DIR_PDF_GENERADOS, f"carpeta_{carpeta_id}_documentos_combinados.pdf")
-#         pdf_paths = []
-
-#         def agregar_documentos(modelo, campos: List[str]):
-#             for campo in campos:
-#                 ruta = getattr(modelo, campo, None)
-#                 if ruta and os.path.exists(ruta):
-#                     ext = os.path.splitext(ruta)[1].lower()
-#                     nombre_base = f"{modelo.__class__.__name__.lower()}_{campo}_{os.path.basename(ruta)}"
-#                     out_pdf = os.path.join(DIR_PDF_GENERADOS, nombre_base + ".pdf")
-
-#                     if ext == ".pdf":
-#                         shutil.copy(ruta, out_pdf)
-#                         pdf_paths.append(out_pdf)
-#                     elif ext in [".jpg", ".jpeg", ".png"]:
-#                         Image.open(ruta).convert("RGB").save(out_pdf)
-#                         pdf_paths.append(out_pdf)
-#                     elif ext in [".doc", ".docx"]:
-#                         subprocess.run([
-#                             "libreoffice", "--headless", "--convert-to", "pdf", "--outdir", DIR_PDF_GENERADOS, ruta
-#                         ], check=True)
-#                         converted = os.path.join(DIR_PDF_GENERADOS, os.path.splitext(os.path.basename(ruta))[0] + ".pdf")
-#                         if os.path.exists(converted):
-#                             pdf_paths.append(converted)
-
-#         # Documentos de proyectos y adoptantes
-#         for dp in carpeta.detalle_proyectos:
-#             proyecto = dp.proyecto
-#             if not proyecto:
-#                 continue
-
-#             agregar_documentos(proyecto, [
-#                 "doc_proyecto_convivencia_o_estado_civil",
-#                 "informe_profesionales"
-#             ])
-
-#             for login in [proyecto.login_1, proyecto.login_2]:
-#                 if login:
-#                     user = db.query(User).filter(User.login == login).first()
-#                     if user:
-#                         agregar_documentos(user, [
-#                             "doc_adoptante_domicilio", "doc_adoptante_dni_frente", "doc_adoptante_dni_dorso",
-#                             "doc_adoptante_deudores_alimentarios", "doc_adoptante_antecedentes",
-#                             "doc_adoptante_migraciones", "doc_adoptante_salud"
-#                         ])
-
-#         # Documentos de NNAs
-#         for dnna in carpeta.detalle_nna:
-#             nna = dnna.nna
-#             if nna:
-#                 agregar_documentos(nna, [
-#                     "doc_dni_frente", "doc_dni_dorso", "doc_certificado_nacimiento", "doc_certificado_discapacidad"
-#                 ])
-
-#         if not pdf_paths:
-#             return JSONResponse(
-#                 status_code=404,
-#                 content={
-#                     "success": False,
-#                     "tipo_mensaje": "naranja",
-#                     "mensaje": "No se encontraron documentos disponibles para combinar en esta carpeta.",
-#                     "tiempo_mensaje": 6,
-#                     "next_page": "actual"
-#                 }
-#             )
-
-
- 
-#         # Fusionar todos los PDF
-#         merged = fitz.open()
-#         for path in pdf_paths:
-#             with fitz.open(path) as doc:
-#                 merged.insert_pdf(doc)
-#         merged.save(output_path)
-
-#         return FileResponse(
-#             path=output_path,
-#             filename=f"documentos_carpeta_{carpeta_id}.pdf",
-#             media_type="application/pdf"
-#         )
-
-#     except Exception as e:
-#         return JSONResponse(
-#             status_code=404,
-#             content={
-#                 "success": False,
-#                 "tipo_mensaje": "rojo",
-#                 "mensaje": f"Ocurrió un error al generar el PDF combinado: {str(e)}",
-#                 "tiempo_mensaje": 6,
-#                 "next_page": "actual"
-#             }
-#         )
-
-
-
-
 @carpetas_router.put("/{carpeta_id}/seleccionar-proyecto", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def seleccionar_proyecto(
     carpeta_id: int,
     data: dict = Body(...),

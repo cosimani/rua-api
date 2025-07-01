@@ -53,7 +53,7 @@ nna_router = APIRouter()
 
 @nna_router.get("/", response_model=dict,
     dependencies=[Depends(verify_api_key), 
-                  Depends(require_roles(["administrador", "supervisora", "profesional", "coordinadora"]))])
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
 def get_nnas(
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1),
@@ -211,7 +211,7 @@ def get_nnas(
 
 
 @nna_router.get("/{nna_id}", response_model=dict, 
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def get_nna_by_id(nna_id: int, db: Session = Depends(get_db)):
     """
     Devuelve un único NNA por su `nna_id`, con misma estructura que el listado paginado.
@@ -353,7 +353,7 @@ def get_nna_by_id(nna_id: int, db: Session = Depends(get_db)):
 
 
 @nna_router.post("/por-ids", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def get_nnas_por_ids(nna_ids: List[int] = Body(...), db: Session = Depends(get_db)):
     """
     Devuelve un listado de NNAs por sus IDs, sin aplicar filtros de disponibilidad.
@@ -408,7 +408,7 @@ def get_nnas_por_ids(nna_ids: List[int] = Body(...), db: Session = Depends(get_d
 
 
 @nna_router.post("/", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def create_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
     """
     Crea un nuevo registro de NNA.
@@ -456,7 +456,7 @@ def create_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
 
 
 @nna_router.delete("/{nna_id}", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def delete_nna(nna_id: int, db: Session = Depends(get_db)):
     """
     Elimina un NNA si existe.
@@ -477,7 +477,7 @@ def delete_nna(nna_id: int, db: Session = Depends(get_db)):
 
 
 @nna_router.post("/upsert", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
     """
     🔁 Inserta o actualiza un NNA según el `nna_dni`.
@@ -603,7 +603,7 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
 
 @nna_router.put("/documentos/{nna_id}", response_model=dict,
     dependencies=[Depends(verify_api_key),
-                  Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def update_nna_document_by_id(
     nna_id: int,
     campo: Literal["nna_ficha", "nna_sentencia"] = Form(...),
@@ -707,7 +707,7 @@ def update_nna_document_by_id(
 
 
 @nna_router.get("/documentos/{nna_id}/descargar-todos", response_class=FileResponse,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def descargar_todos_documentos_nna(
     nna_id: int,
     campo: Literal["nna_ficha", "nna_sentencia"] = Query(...),
@@ -769,7 +769,7 @@ def descargar_todos_documentos_nna(
 
 @nna_router.get("/documentos/{nna_id}/descargar", response_class=FileResponse,
     dependencies=[Depends(verify_api_key),
-                  Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def descargar_documento_nna(
     nna_id: int,
     campo: Literal["nna_ficha", "nna_sentencia"] = Query(...),

@@ -18,7 +18,7 @@ check_router = APIRouter()
 
 
 @check_router.post("/verificaciones_de_cron", response_model=dict, dependencies=[Depends( verify_api_key ), 
-                                Depends(require_roles(["administrador", "supervisora"]))])
+                                Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def verificaciones_de_cron(db: Session = Depends(get_db)):
     """
     Revisa proyectos con estado 'no_viable' y si tienen más de 2 años en ese estado,

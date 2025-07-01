@@ -196,7 +196,7 @@ def eliminar_proyecto(
 
 @proyectos_router.get("/", response_model=dict, 
                   dependencies=[Depends( verify_api_key ), 
-                                Depends(require_roles(["administrador", "supervisora", "profesional", "coordinadora"]))])
+                                Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
 def get_proyectos(
     request: Request,
     db: Session = Depends(get_db),
@@ -640,7 +640,7 @@ def get_proyectos(
 
 @proyectos_router.get("/{proyecto_id}", response_model=dict, 
                   dependencies=[Depends( verify_api_key ), 
-                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante", "coordinadora"]))])
+                                Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante", "coordinadora"]))])
 def get_proyecto_por_id(
     request: Request,
     proyecto_id: int,
@@ -1007,7 +1007,7 @@ def get_proyecto_por_id(
 
 
 @proyectos_router.post("/validar-pretenso", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "adoptante"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "adoptante"]))])
 def validar_pretenso(
     data: dict = Body(...),
     db: Session = Depends(get_db),
@@ -1396,7 +1396,7 @@ def crear_proyecto_preliminar(
 
 @proyectos_router.post("/", response_model=dict, status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(verify_api_key), 
-                  Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante"]))])
 def crear_proyecto(
     data: dict = Body(...),
     db: Session = Depends(get_db)
@@ -1623,7 +1623,7 @@ def crear_proyecto(
 
 @proyectos_router.post("/notificacion/{proyecto_id}", response_model = dict,
                        dependencies = [Depends(verify_api_key), 
-                                       Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                                       Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def crear_notificacion_proyecto(
     proyecto_id: int,
     data: dict = Body(...),
@@ -1964,7 +1964,7 @@ def solicitar_revision_proyecto(
 
 @proyectos_router.put("/documentos/{proyecto_id}", response_model=dict,
     dependencies=[Depends(verify_api_key), 
-                  Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante"]))])
 def subir_documento_proyecto(
     proyecto_id: int,
     campo: Literal[
@@ -2044,7 +2044,7 @@ def subir_documento_proyecto(
 
 
 @proyectos_router.get("/documentos/{proyecto_id}/descargar", response_class=FileResponse,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante"]))])
 def descargar_documento_proyecto(
     proyecto_id: int,
     campo: Literal["doc_proyecto_convivencia_o_estado_civil"] = Query(...),
@@ -2074,7 +2074,7 @@ def descargar_documento_proyecto(
 
 
 @proyectos_router.post("/solicitar-valoracion", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["supervision", "supervisora"]))])
 def solicitar_valoracion(
     data: dict = Body(...),
     db: Session = Depends(get_db),
@@ -2278,7 +2278,7 @@ def solicitar_valoracion(
 
 
 @proyectos_router.get("/profesionales-asignadas/{proyecto_id}", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def obtener_profesionales_asignadas(
     proyecto_id: int,
     db: Session = Depends(get_db)
@@ -2331,7 +2331,7 @@ def obtener_profesionales_asignadas(
 
 
 @proyectos_router.get("/{proyecto_id}/historial", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def get_historial_estado_proyecto(
     proyecto_id: int,
     db: Session = Depends(get_db)
@@ -2556,7 +2556,7 @@ def agendar_entrevista(
 
 
 @proyectos_router.get("/entrevista/listado/{proyecto_id}", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def obtener_entrevistas_de_proyecto(
     proyecto_id: int,
     db: Session = Depends(get_db)
@@ -2667,7 +2667,7 @@ def obtener_entrevistas_de_proyecto(
 
 
 @proyectos_router.post("/reasignar-profesionales/{proyecto_id}", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["supervisora"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["supervision", "supervisora"]))])
 async def reasignar_profesionales(
     proyecto_id: int,
     payload: dict = Body(...),
@@ -3065,25 +3065,44 @@ def solicitar_valoracion_final(
         )
         db.add(historial_estado)
 
+
+        # Obtener nombres completos de pretensos
+        nombres_pretensos = []
+
+        if proyecto.usuario_1:
+            nombre_1 = f"{proyecto.usuario_1.nombre} {proyecto.usuario_1.apellido or ''}".strip()
+            nombres_pretensos.append(nombre_1)
+
+        if proyecto.usuario_2:
+            nombre_2 = f"{proyecto.usuario_2.nombre} {proyecto.usuario_2.apellido or ''}".strip()
+            nombres_pretensos.append(nombre_2)
+
+        # Unir los nombres en un solo string, separados por ' y ' si hay dos
+        nombres_completos = " y ".join(nombres_pretensos)
+
+
         # Registrar evento
         login_autor = current_user["user"]["login"]
         evento = RuaEvento(
             login = login_autor,
-            evento_detalle = f"Solicitud de valoración final para el proyecto #{proyecto_id}",
+            # evento_detalle = f"Solicitud de valoración final para el proyecto #{proyecto_id}",
+            evento_detalle = f"El proyecto de {nombres_completos} fue enviado a valoración final. Proyecto #{proyecto_id}",
             evento_fecha = datetime.now()
         )
         db.add(evento)
+        
 
-        # Notificar a supervisoras
-        supervisoras = db.query(User).join(UserGroup, User.login == UserGroup.login)\
+        # Notificar a supervision
+        personal_supervision = db.query(User).join(UserGroup, User.login == UserGroup.login)\
             .join(Group, Group.group_id == UserGroup.group_id)\
-            .filter(Group.description == "supervisora").all()
+            .filter(Group.description == "supervision").all()
 
-        for supervisora in supervisoras:
+        for persona_de_supervision in personal_supervision :
             resultado = crear_notificacion_individual(
                 db = db,
-                login_destinatario = supervisora.login,
-                mensaje = "📄 Un proyecto fue enviado a supervisión para valoración final.",
+                login_destinatario = persona_de_supervision.login,
+                # mensaje = "📄 Un proyecto fue enviado a supervisión para valoración final.",
+                mensaje = f"📄 El proyecto de {nombres_completos} fue enviado a valoración final.",
                 link = "/menu_supervisoras/detalleProyecto",
                 data_json = { "proyecto_id": proyecto_id },
                 tipo_mensaje = "naranja"
@@ -3093,7 +3112,7 @@ def solicitar_valoracion_final(
                 return {
                     "success": False,
                     "tipo_mensaje": "rojo",
-                    "mensaje": f"Error al notificar a la supervisora {supervisora.login}",
+                    "mensaje": f"Error al notificar a persona de supervisión {persona_de_supervision.login}",
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
@@ -3180,29 +3199,33 @@ def entregar_informe_vinculacion(
         )
         db.add(evento)
 
-        # Notificar a supervisoras
-        supervisoras = db.query(User).join(UserGroup, User.login == UserGroup.login)\
-            .join(Group, Group.group_id == UserGroup.group_id)\
-            .filter(Group.description == "supervisora").all()
 
-        for supervisora in supervisoras:
+        # 🔔 Notificar a supervisoras y supervision
+        supervisoras_y_supervision = db.query(User)\
+            .join(UserGroup, User.login == UserGroup.login)\
+            .join(Group, Group.group_id == UserGroup.group_id)\
+            .filter(Group.description.in_(["supervisora", "supervision"]))\
+            .all()
+
+        for persona in supervisoras_y_supervision:
             resultado = crear_notificacion_individual(
-                db = db,
-                login_destinatario = supervisora.login,
-                mensaje = "📄 Un informe de vinculacion fue enviado a supervisión.",
-                link = "/menu_supervisoras/detalleProyecto",
-                data_json = { "proyecto_id": proyecto_id },
-                tipo_mensaje = "naranja"
+                db=db,
+                login_destinatario=persona.login,
+                mensaje="📄 Un informe de vinculación fue enviado a supervisión.",
+                link="/menu_supervisoras/detalleProyecto",
+                data_json={"proyecto_id": proyecto_id},
+                tipo_mensaje="naranja"
             )
             if not resultado["success"]:
                 db.rollback()
                 return {
                     "success": False,
                     "tipo_mensaje": "rojo",
-                    "mensaje": f"Error al notificar a la supervisora {supervisora.login}",
+                    "mensaje": f"Error al notificar a {persona.login}",
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
+
 
         db.commit()
 
@@ -3285,26 +3308,29 @@ def entregar_informe_vinculacion(
         )
         db.add(evento)
 
-        # Notificar a supervisoras
-        supervisoras = db.query(User).join(UserGroup, User.login == UserGroup.login)\
+        
+        # 🔔 Notificar a supervisoras y supervision
+        supervisoras_y_supervision = db.query(User)\
+            .join(UserGroup, User.login == UserGroup.login)\
             .join(Group, Group.group_id == UserGroup.group_id)\
-            .filter(Group.description == "supervisora").all()
+            .filter(Group.description.in_(["supervisora", "supervision"]))\
+            .all()
 
-        for supervisora in supervisoras:
+        for persona in supervisoras_y_supervision:
             resultado = crear_notificacion_individual(
-                db = db,
-                login_destinatario = supervisora.login,
-                mensaje = "📄 Un informe de seguimiento de guarda fue enviado a supervisión.",
-                link = "/menu_supervisoras/detalleProyecto",
-                data_json = { "proyecto_id": proyecto_id },
-                tipo_mensaje = "naranja"
+                db=db,
+                login_destinatario=persona.login,
+                mensaje="📄 Un informe de seguimiento de guarda fue enviado a supervisión.",
+                link="/menu_supervisoras/detalleProyecto",
+                data_json={"proyecto_id": proyecto_id},
+                tipo_mensaje="naranja"
             )
             if not resultado["success"]:
                 db.rollback()
                 return {
                     "success": False,
                     "tipo_mensaje": "rojo",
-                    "mensaje": f"Error al notificar a la supervisora {supervisora.login}",
+                    "mensaje": f"Error al notificar a {persona.login}",
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
@@ -3334,7 +3360,7 @@ def entregar_informe_vinculacion(
 
 
 @proyectos_router.get("/proyecto/{proyecto_id}/fecha-para-valorar", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def obtener_fecha_para_valorar(
     proyecto_id: int,
     db: Session = Depends(get_db)
@@ -3384,7 +3410,7 @@ def obtener_fecha_para_valorar(
 
         
 @proyectos_router.post("/valoracion/final", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def valorar_proyecto_final(
     data: dict = Body(...),
     db: Session = Depends(get_db),
@@ -3761,7 +3787,7 @@ def valorar_proyecto_final(
 
 
 @proyectos_router.get( "/proyectos/entrevista/informe/{proyecto_id}/descargar", response_class=FileResponse,
-    dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"])) ] )
+    dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"])) ] )
 def descargar_informe_valoracion(
     proyecto_id: int,
     db: Session = Depends(get_db)
@@ -3804,7 +3830,7 @@ def subir_informe_valoracion(
 @proyectos_router.get(
     "/entrevista/informe/{proyecto_id}/descargar-todos",
     response_class=FileResponse,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervisora"]))]
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))]
 )
 def descargar_todos_valoracion(
     proyecto_id:int, db:Session=Depends(get_db)
@@ -3816,7 +3842,7 @@ def descargar_todos_valoracion(
 
 # 2) Informe de vinculación
 @proyectos_router.put( "/informe-vinculacion/{proyecto_id}", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervisora"]))]
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))]
 )
 def subir_informe_vinculacion(
     proyecto_id: int,
@@ -3832,7 +3858,7 @@ def subir_informe_vinculacion(
 @proyectos_router.get(
     "/informe-vinculacion/{proyecto_id}/descargar-todos",
     response_class=FileResponse,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervisora"]))]
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))]
 )
 def descargar_todos_vinculacion(
     proyecto_id:int, db:Session=Depends(get_db)
@@ -3845,7 +3871,7 @@ def descargar_todos_vinculacion(
 
 # 3) Informe seguimiento de guarda
 @proyectos_router.put( "/informe-seguimiento-guarda/{proyecto_id}", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervisora"]))]
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))]
 )
 def subir_informe_guarda(
     proyecto_id:int,
@@ -3860,7 +3886,7 @@ def subir_informe_guarda(
 @proyectos_router.get(
     "/informe-seguimiento-guarda/{proyecto_id}/descargar-todos",
     response_class=FileResponse,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervisora"]))]
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))]
 )
 def descargar_todos_guarda(
     proyecto_id:int, db:Session=Depends(get_db)
@@ -3877,7 +3903,7 @@ def descargar_todos_guarda(
     response_class=FileResponse,
     dependencies=[
         Depends(verify_api_key),
-        Depends(require_roles(["administrador", "profesional", "supervisora"]))
+        Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))
     ]
 )
 def descargar_todos_informes_valoracion(
@@ -3939,7 +3965,7 @@ def descargar_todos_informes_valoracion(
 
 
 @proyectos_router.get("/documento/{proyecto_id}/{tipo_documento}/descargar", response_class = FileResponse,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def descargar_documento_proyecto(
     proyecto_id: int,
     tipo_documento: Literal["informe_entrevistas", "sentencia_guarda", "sentencia_adopcion"],
@@ -3985,7 +4011,7 @@ def descargar_documento_proyecto(
 
 
 @proyectos_router.put("/dictamen/{proyecto_id}", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def subir_dictamen(
     proyecto_id: int,
     file: UploadFile = File(...),
@@ -4061,7 +4087,7 @@ def subir_dictamen(
 
 
 @proyectos_router.get("/dictamen/{proyecto_id}/descargar", response_class = FileResponse,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def descargar_dictamen(
     proyecto_id: int,
     db: Session = Depends(get_db)
@@ -4091,7 +4117,7 @@ def descargar_dictamen(
 
 
 @proyectos_router.post("/por-oficio", response_model = dict, status_code = status.HTTP_200_OK,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def crear_proyecto_por_oficio(data: dict = Body(...), db: Session = Depends(get_db)):
     """
     📄 Crea un nuevo proyecto ingresado por oficio.
@@ -4344,7 +4370,7 @@ def crear_proyecto_por_oficio(data: dict = Body(...), db: Session = Depends(get_
 
 
 @proyectos_router.put("/guarda/{proyecto_id}", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def subir_sentencia_guarda(
     proyecto_id: int,
     file: UploadFile = File(...),
@@ -4392,7 +4418,7 @@ def subir_sentencia_guarda(
 
 
 @proyectos_router.get("/guarda/{proyecto_id}/descargar", response_class = FileResponse,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def descargar_sentencia_guarda(
     proyecto_id: int,
     db: Session = Depends(get_db)
@@ -4421,7 +4447,7 @@ def descargar_sentencia_guarda(
 
 
 @proyectos_router.put("/confirmar-sentencia-guarda/{proyecto_id}", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def confirmar_sentencia_guarda(
     proyecto_id: int,
     body: dict = Body(...),
@@ -4501,7 +4527,7 @@ def confirmar_sentencia_guarda(
 
 
 @proyectos_router.put("/adopcion/{proyecto_id}", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def subir_sentencia_adopcion(
     proyecto_id: int,
     file: UploadFile = File(...),
@@ -4549,7 +4575,7 @@ def subir_sentencia_adopcion(
 
 
 @proyectos_router.get("/adopcion/{proyecto_id}/descargar", response_class = FileResponse,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def descargar_sentencia_adopcion(
     proyecto_id: int,
     db: Session = Depends(get_db)
@@ -4578,7 +4604,7 @@ def descargar_sentencia_adopcion(
 
 
 @proyectos_router.put("/confirmar-sentencia-adopcion/{proyecto_id}", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def confirmar_sentencia_adopcion(
     proyecto_id: int,
     body: dict = Body(...),
@@ -5013,8 +5039,6 @@ def crear_proyecto_completo(
                     tipo_mensaje="azul"
                 )
 
-                print( '12', nuevo.proyecto_id )
-
 
             # Registrar historial de estado
             historial = ProyectoHistorialEstado(
@@ -5049,7 +5073,7 @@ def crear_proyecto_completo(
 
 @proyectos_router.post("/notificacion/proyecto/mensaje", response_model=dict,
                       dependencies=[Depends(verify_api_key),
-                                    Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                                    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def notificar_proyecto_mensaje(
     data: dict = Body(...),
     db: Session = Depends(get_db),
@@ -5232,7 +5256,7 @@ def notificar_proyecto_mensaje(
     
 @proyectos_router.post("/proyectos/{proyecto_id}/observacion", response_model=dict,
     dependencies=[Depends(verify_api_key),
-                  Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def registrar_observacion_proyecto(
     proyecto_id: int,
     data: dict = Body(...),
@@ -5311,7 +5335,7 @@ def registrar_observacion_proyecto(
 
 @proyectos_router.get("/observacion/{proyecto_id}/listado", response_model=dict,
                       dependencies=[Depends(verify_api_key),
-                                    Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                                    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def listar_observaciones_de_proyecto(
     proyecto_id: int,
     db: Session = Depends(get_db),
@@ -5517,7 +5541,7 @@ def agregar_comentario_extra(
 
 
 @proyectos_router.post("/solicitar-actualizacion", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["supervisora"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["supervision", "supervisora"]))])
 def solicitar_actualizacion_proyecto(
     data: dict = Body(...),
     db: Session = Depends(get_db),
@@ -5692,7 +5716,7 @@ def solicitar_actualizacion_proyecto(
 
 
 @proyectos_router.post("/aprobar-proyecto", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["supervisora"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["supervision", "supervisora"]))])
 def aprobar_proyecto(
     data: dict = Body(...),
     db: Session = Depends(get_db),
@@ -5909,7 +5933,7 @@ def aprobar_proyecto(
 
 
 @proyectos_router.get("/proyectos/{proyecto_id}/descargar-pdf", response_class=FileResponse,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def descargar_pdf_proyecto(
     proyecto_id: int,
     db: Session = Depends(get_db)
@@ -6051,7 +6075,7 @@ def descargar_pdf_proyecto(
 
 
 @proyectos_router.put("/informe-vinculacion/{proyecto_id}", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def subir_informe_vinculacion(
     proyecto_id: int,
     file: UploadFile = File(...),
@@ -6118,7 +6142,7 @@ def subir_informe_vinculacion(
 
 
 @proyectos_router.get("/informe-vinculacion/{proyecto_id}/descargar", response_class=FileResponse,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def descargar_informe_vinculacion(
     proyecto_id: int,
     db: Session = Depends(get_db)
@@ -6144,7 +6168,7 @@ def descargar_informe_vinculacion(
 
 
 @proyectos_router.put("/informe-seguimiento-guarda/{proyecto_id}", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def subir_informe_seguimiento_guarda(
     proyecto_id: int,
     file: UploadFile = File(...),
@@ -6211,7 +6235,7 @@ def subir_informe_seguimiento_guarda(
 
 
 @proyectos_router.get("/informe-seguimiento-guarda/{proyecto_id}/descargar", response_class=FileResponse,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervisora"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def descargar_informe_seguimiento_guarda(
     proyecto_id: int,
     db: Session = Depends(get_db)
@@ -6240,7 +6264,7 @@ def descargar_informe_seguimiento_guarda(
     "/modificar/{proyecto_id}/actualizar-nro-orden",
     dependencies=[
         Depends(verify_api_key),
-        Depends(require_roles(["administrador", "supervisora"]))
+        Depends(require_roles(["administrador", "supervision", "supervisora"]))
     ]
 )
 def actualizar_nro_orden(
@@ -6324,7 +6348,7 @@ def actualizar_nro_orden(
 
 @proyectos_router.get("/nnas/por-proyecto/{proyecto_id}", dependencies=[
     Depends(verify_api_key),
-    Depends(require_roles(["administrador", "supervisora", "profesional", "coordinadora"]))
+    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))
 ])
 def get_nnas_por_proyecto(proyecto_id: int, db: Session = Depends(get_db)):
     """
@@ -6389,7 +6413,7 @@ def get_nnas_por_proyecto(proyecto_id: int, db: Session = Depends(get_db)):
 
 @proyectos_router.post("/estado-por-atajo/{proyecto_id}", response_model=dict,
     dependencies=[Depends(verify_api_key),
-                  Depends(require_roles(["administrador", "supervisora"]))])
+                  Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def actualizar_estado_proyecto(
     proyecto_id: int,
     data: dict = Body(...),

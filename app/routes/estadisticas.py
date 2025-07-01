@@ -24,7 +24,7 @@ estadisticas_router = APIRouter()
 
 @estadisticas_router.get("/generales", response_model=dict, 
                          dependencies=[Depends( verify_api_key ), 
-                                       Depends(require_roles(["administrador", "supervisora", "profesional", "coordinadora"]))])
+                                       Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
 def get_estadisticas(db: Session = Depends(get_db)):
     return calcular_estadisticas_generales(db)
 
@@ -34,7 +34,7 @@ def get_estadisticas(db: Session = Depends(get_db)):
 
 @estadisticas_router.get("/informe_general", 
                          dependencies=[Depends(verify_api_key), 
-                                       Depends(require_roles(["administrador", "supervisora", "coordinadora"]))])
+                                       Depends(require_roles(["administrador", "supervision", "supervisora", "coordinadora"]))])
 def generar_pdf_estadisticas(db: Session = Depends(get_db)):
     stats = calcular_estadisticas_generales(db)
     pdf = EstadisticasPDF()
@@ -122,7 +122,7 @@ def generar_pdf_estadisticas(db: Session = Depends(get_db)):
 
 @estadisticas_router.get("/historial/{login}", response_model=dict, 
                   dependencies=[Depends( verify_api_key ), 
-                                Depends(require_roles(["administrador", "supervisora", "coordinadora"]))])
+                                Depends(require_roles(["administrador", "supervision", "supervisora", "coordinadora"]))])
 def get_user_timeline(
     login: str,
     db: Session = Depends(get_db)

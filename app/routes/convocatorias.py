@@ -221,7 +221,7 @@ def get_convocatoria_publica_by_id(convocatoria_id: int, db: Session = Depends(g
 
 @convocatoria_router.post("/", response_model=dict, 
                   dependencies=[Depends( verify_api_key ), 
-                                Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                                Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def upsert_convocatoria(
     convocatoria_data: dict = Body(...),
     db: Session = Depends(get_db),
@@ -313,7 +313,7 @@ def upsert_convocatoria(
 
 @convocatoria_router.delete("/{convocatoria_id}", response_model=dict, 
                   dependencies=[Depends( verify_api_key ), 
-                                Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                                Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def delete_convocatoria(convocatoria_id: int, db: Session = Depends(get_db)):
     """
     Elimina una convocatoria si existe.
@@ -834,7 +834,8 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
 
 
 @convocatoria_router.put("/{convocatoria_id}/online", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                  dependencies=[Depends( verify_api_key ), 
+                                Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def actualizar_online(convocatoria_id: int, data: dict = Body(...), db: Session = Depends(get_db)):
     try:
         estado = data.get("convocatoria_online")
@@ -851,7 +852,7 @@ def actualizar_online(convocatoria_id: int, data: dict = Body(...), db: Session 
 
 
 @convocatoria_router.get("/para-select/para-filtro", response_model=List[dict], 
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def get_convocatorias_para_filtro(
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1),
@@ -888,7 +889,7 @@ def get_convocatorias_para_filtro(
 
 
 @convocatoria_router.get("/timeline/{convocatoria_id}", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def obtener_timeline_convocatoria(convocatoria_id: int, db: Session = Depends(get_db)):
     """
     📅 Devuelve una línea de tiempo de una convocatoria:

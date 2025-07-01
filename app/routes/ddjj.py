@@ -18,7 +18,7 @@ ddjj_router = APIRouter()
 
 
 @ddjj_router.post("/upsert", response_model = dict, 
-                  dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", 
+                  dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", 
                                                                                    "profesional", "adoptante"]))])
 def upsert_ddjj(
     data: dict = Body(...),
@@ -517,7 +517,7 @@ def upsert_ddjj(
 
 
 @ddjj_router.get("/{login}", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervisora", 
+                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervision", "supervisora", 
                                                                                   "profesional", "adoptante"]))])
 def get_ddjj_by_login(
     login: str,
@@ -754,7 +754,8 @@ def get_ddjj_by_login(
 
 
 @ddjj_router.post("/reabrir", response_model=dict, 
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
+    dependencies=[Depends(verify_api_key), 
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante"]))])
 def reabrir_ddjj(
     data: dict = Body(...),
     db: Session = Depends(get_db),

@@ -85,7 +85,7 @@ users_router = APIRouter()
 
 @users_router.get("/", response_model=dict, 
                   dependencies=[Depends( verify_api_key ), 
-                                Depends(require_roles(["administrador", "supervisora", "profesional", "coordinadora"]))])
+                                Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
 def get_users(
     request: Request,
     db: Session = Depends(get_db),
@@ -102,7 +102,7 @@ def get_users(
         ),
     ),
 
-    group_description: Literal["adoptante", "profesional", "supervisora", "administrador"] = Query(
+    group_description: Literal["adoptante", "supervision", "profesional", "supervisora", "administrador"] = Query(
         None, description="Grupo o rol del usuario"),   
 
     search: Optional[str] = Query(None, description="Búsqueda por al menos 3 caracteres alfanuméricos"),
@@ -560,7 +560,7 @@ def get_user_by_login(
     roles = [r.description for r in roles]
 
     # Permitir siempre si es Admin, supervisora o profesional
-    if any(r in ["administrador", "supervisora", "profesional", "coordinadora"] for r in roles):
+    if any(r in ["administrador", "supervision", "supervisora", "profesional", "coordinadora"] for r in roles):
         pass  # acceso completo
 
     # Si es adoptante, permitir solo si consulta su propio login
@@ -684,7 +684,7 @@ def get_user_by_login(
         pendientes = {}
 
         
-        if user.group == 'supervisora' :
+        if user.group in ['supervisora', 'supervision']:
             # Obtener pendientes de supervisora
             pendientes_doc_adoptante = db.query(User).filter(User.doc_adoptante_estado == "pedido_revision").count()
 
@@ -1084,7 +1084,7 @@ async def create_user(
     
     
     # Validar que el grupo sea uno de los permitidos
-    allowed_groups = ["adoptante", "profesional", "supervisora", "administrador"]
+    allowed_groups = ["adoptante", "profesional", "supervision", "supervisora", "administrador"]
     if group_description not in allowed_groups :
         raise HTTPException(status_code=400, detail=f"El grupo debe ser uno de: {', '.join(allowed_groups)}")
 
@@ -1369,7 +1369,7 @@ def delete_user(login: str, db: Session = Depends(get_db)):
 
 @users_router.put("/personal/{login}", response_model=dict, 
                   dependencies=[Depends( verify_api_key ), 
-                                Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                                Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def update_user_by_login(
     login: str,
     payload: dict = Body(...),
@@ -1481,7 +1481,7 @@ def update_user_by_login(
 
 @users_router.put("/documentos/{login}", response_model=dict,
                   dependencies=[Depends(verify_api_key),
-                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
+                                Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante"]))])
 def update_user_document_by_login(
     login: str,
     campo: Literal[
@@ -1687,7 +1687,7 @@ def solicitar_revision_documentos(
 
 
 @users_router.put("/{login}/aprobar-curso", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def aprobar_curso_adoptante(
     login: str,
     db: Session = Depends(get_db),
@@ -1758,7 +1758,7 @@ def aprobar_curso_adoptante(
 
 @users_router.get("/documentos/{login}/descargar", response_class=FileResponse,
     dependencies=[Depends(verify_api_key),
-                  Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante"]))])
 def descargar_documento_usuario(
     login: str,
     campo: Literal[
@@ -1796,7 +1796,7 @@ def descargar_documento_usuario(
 
 @users_router.post("/observacion/{login}", response_model=dict,
                    dependencies=[Depends(verify_api_key),
-                                 Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                                 Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def crear_observacion_pretenso(
     login: str,
     data: dict = Body(...),
@@ -1841,7 +1841,7 @@ def crear_observacion_pretenso(
         .filter(UserGroup.login == login_que_observo)
         .first()
     )
-    if not grupo_observador or grupo_observador.description not in ["supervisora", "profesional", "administrador"]:
+    if not grupo_observador or grupo_observador.description not in ["supervision", "supervisora", "profesional", "administrador"]:
         raise HTTPException(status_code = 400, detail = "El observador no tiene permiso para registrar observaciones.")
 
     try:
@@ -1898,7 +1898,7 @@ def crear_observacion_pretenso(
 
 @users_router.post("/notificacion/{login}", response_model=dict,
                    dependencies=[Depends(verify_api_key),
-                                 Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                                 Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def notificacion_a_pretenso(
     login: str,
     data: dict = Body(...),
@@ -1943,7 +1943,7 @@ def notificacion_a_pretenso(
         .filter(UserGroup.login == login_que_observo)
         .first()
     )
-    if not grupo_observador or grupo_observador.description not in ["supervisora", "profesional", "administrador"]:
+    if not grupo_observador or grupo_observador.description not in ["supervision", "supervisora", "profesional", "administrador"]:
         raise HTTPException(status_code = 400, detail = "El observador no tiene permiso para registrar observaciones.")
 
     try:
@@ -2075,7 +2075,7 @@ def notificacion_a_pretenso(
 
 @users_router.get("/observacion/{login}/listado", response_model=dict,
                   dependencies=[Depends(verify_api_key),
-                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante", "coordinadora"]))])
+                                Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante", "coordinadora"]))])
 def listar_observaciones_de_pretenso(
     login: str,
     db: Session = Depends(get_db),
@@ -2172,7 +2172,7 @@ def listar_observaciones_de_pretenso(
 
 @users_router.get("/eventos/{login}", response_model=dict,
                   dependencies=[Depends(verify_api_key),
-                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante", "coordinadora"]))])
+                                Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante", "coordinadora"]))])
 def listar_eventos_login(
     login: str,
     db: Session = Depends(get_db),
@@ -2237,7 +2237,7 @@ def listar_eventos_login(
 
 @users_router.get("/observaciones/{login}", response_model=dict,
                   dependencies=[Depends(verify_api_key),
-                                Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante", "coordinadora"]))])
+                                Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante", "coordinadora"]))])
 def listar_observaciones_login(
     login: str,
     db: Session = Depends(get_db),
@@ -2317,7 +2317,7 @@ def listar_observaciones_login(
 
 @users_router.put("/usuario/actualizar", response_model = dict, 
                   dependencies=[Depends(verify_api_key),
-                                Depends(require_roles(["administrador", "supervisora"]))])
+                                Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def actualizar_usuario_total(
     datos: dict = Body(...),
     db: Session = Depends(get_db),
@@ -2670,7 +2670,7 @@ def cambiar_clave_usuario(
 
 
 @users_router.get("/timeline/{login}", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional", "coordinadora"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
 def obtener_timeline_usuario(
     login: str,
     nivel: Literal["hitos", "notificaciones", "observaciones", "eventos"] = Query("hitos"),
@@ -3159,7 +3159,7 @@ def actualizar_mis_datos_personales(
 
 @users_router.post("/notificacion/pretenso/mensaje", response_model=dict,
                    dependencies=[Depends(verify_api_key),
-                                 Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                                 Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def notificar_pretenso_mensaje(
     data: dict = Body(...),
     db: Session = Depends(get_db),
@@ -3371,7 +3371,7 @@ def notificar_pretenso_mensaje(
 
 @users_router.post("/observacion/{login}/registrar", response_model=dict,
     dependencies=[Depends(verify_api_key),
-                  Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def registrar_observacion_directa(
     login: str,
     data: dict = Body(...),
@@ -3464,7 +3464,7 @@ def registrar_observacion_directa(
 
 @users_router.put("/usuarios/{login}/darse-de-baja", response_model=dict,
     dependencies=[Depends(verify_api_key),
-                  Depends(require_roles(["administrador", "supervisora", "adoptante"]))])
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "adoptante"]))])
 def darse_de_baja_del_sistema(
     login: str,
     db: Session = Depends(get_db),
@@ -3551,7 +3551,7 @@ def darse_de_baja_del_sistema(
 
 
 @users_router.get("/{login}/descargar-documentos", response_class=FileResponse,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def descargar_documentos_usuario(
     login: str,
     db: Session = Depends(get_db)

@@ -29,7 +29,7 @@ notificaciones_router = APIRouter()
 
 @notificaciones_router.post("/notificaciones", response_model = dict, 
                    dependencies = [Depends(verify_api_key),
-                                   Depends(require_roles(["supervisora", "profesional", "adoptante"]))])
+                                   Depends(require_roles(["supervision", "supervisora", "profesional", "adoptante"]))])
 def crear_notificacion(
     data: dict = Body(...),
     db: Session = Depends(get_db),
@@ -99,7 +99,7 @@ def crear_notificacion(
 
 @notificaciones_router.post("/notificaciones/para-rol", response_model = dict, 
                    dependencies = [Depends(verify_api_key), 
-                                   Depends(require_roles(["administrador", "supervisora", "profesional", "adoptante"]))])
+                                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante"]))])
 def crear_notificacion_para_rol(
     data: dict = Body(...),
     db: Session = Depends(get_db),
@@ -169,7 +169,7 @@ def crear_notificacion_para_rol(
 
 @notificaciones_router.put("/notificaciones/{notificacion_id}/vista", response_model = dict, 
                   dependencies = [Depends(verify_api_key),
-                                 Depends(require_roles(["supervisora", "profesional", "adoptante", "coordinadora"]))])
+                                 Depends(require_roles(["supervision", "supervisora", "profesional", "adoptante", "coordinadora"]))])
 def marcar_notificacion_como_vista(
     notificacion_id: int,
     db: Session = Depends(get_db),
@@ -211,7 +211,7 @@ def marcar_notificacion_como_vista(
 
 @notificaciones_router.get("/notificaciones/listado", response_model = dict, 
                   dependencies = [Depends(verify_api_key),
-                                  Depends(require_roles(["supervisora", "profesional", "adoptante", "coordinadora"]))])
+                                  Depends(require_roles(["supervision", "supervisora", "profesional", "adoptante", "coordinadora"]))])
 def listar_notificaciones(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
@@ -246,7 +246,7 @@ def listar_notificaciones(
 
 
 @notificaciones_router.get("/notificaciones/{login}/listado", response_model=dict,
-    dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def listar_notificaciones_de_usuario(
     login: str,
     filtro: Literal["vistas", "no_vistas", "todas"] = Query(..., description="Filtrar por estado de vista"),
@@ -281,7 +281,7 @@ def listar_notificaciones_de_usuario(
 
 
 @notificaciones_router.get("/notificaciones/proyecto/{proyecto_id}/listado", response_model=dict,
-    dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def listar_notificaciones_comunes_del_proyecto(
     proyecto_id: int,
     filtro: Literal["vistas", "no_vistas", "todas"] = Query(..., description="Filtrar por estado de vista"),

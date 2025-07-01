@@ -44,7 +44,7 @@ postulaciones_router = APIRouter()
 
 
 @postulaciones_router.get("/postulaciones", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def get_postulaciones(
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1),
@@ -209,7 +209,7 @@ def get_postulaciones(
 
 
 @postulaciones_router.get("/postulaciones/{postulacion_id}", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervisora", "profesional"]))])
+                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def get_postulacion(postulacion_id: int, db: Session = Depends(get_db)):
     try:
         # postulacion = db.query(Postulacion).filter(Postulacion.postulacion_id == postulacion_id).first()
