@@ -1109,6 +1109,7 @@ def get_ddjj_by_login(
                     "dni": getattr(ddjj, f"ddjj_otro{i}_dni"),
                     "domicilio": getattr(ddjj, f"ddjj_otro{i}_domicilio_real"),
                     "edad": getattr(ddjj, f"ddjj_otro{i}_edad"),
+                    "parentesco": getattr(ddjj, f"ddjj_otro{i}_parentesco"),
                     "nacionalidad": getattr(ddjj, f"ddjj_otro{i}_nacionalidad"),
                     "ocupacion": getattr(ddjj, f"ddjj_otro{i}_ocupacion"),
                     "convive_con_usted": getattr(ddjj, f"ddjj_otro{i}_convive_con_usted"),
@@ -1120,6 +1121,7 @@ def get_ddjj_by_login(
                     getattr(ddjj, f"ddjj_otro{i}_dni"),
                     getattr(ddjj, f"ddjj_otro{i}_domicilio_real"),
                     getattr(ddjj, f"ddjj_otro{i}_edad"),
+                    getattr(ddjj, f"ddjj_otro{i}_parentesco"),
                     getattr(ddjj, f"ddjj_otro{i}_nacionalidad"),
                     getattr(ddjj, f"ddjj_otro{i}_ocupacion"),
                 ])
