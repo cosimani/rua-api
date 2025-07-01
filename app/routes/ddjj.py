@@ -17,6 +17,504 @@ ddjj_router = APIRouter()
 
 
 
+# @ddjj_router.post("/upsert", response_model = dict, 
+#                   dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", 
+#                                                                                    "profesional", "adoptante"]))])
+# def upsert_ddjj(
+#     data: dict = Body(...),
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+
+#     """
+#     📝 Crea o actualiza una Declaración Jurada (DDJJ) usando el `login` como identificador.
+
+#     - Si **no existe** una DDJJ para ese login, se creará una nueva.
+#     - Si **ya existe**, se actualizarán únicamente los campos proporcionados (excepto `login`).
+
+#     📦 **Ejemplo para crear una nueva DDJJ**:
+
+#     ```json
+#     {
+#       "login": "12345678",
+#       "ddjj_nombre": "Juan",
+#       "ddjj_apellido": "Pérez",
+#       "ddjj_telefono": "3511234567"
+#     }
+#     ```
+
+#     🔄 **Ejemplo para actualizar un solo campo**:
+
+#     ```json
+#     {
+#       "login": "12345678",
+#       "ddjj_telefono": "3519876543"
+#     }
+#     ```
+
+#     🔁 **Ejemplo para modificar todos los campos**:
+
+#     ```json
+#     {
+#     "login": "00123456",
+#     "ddjj_nombre": "Carlos",
+#     "ddjj_apellido": "Ponce",
+#     "ddjj_estado_civil": "Casada",
+#     "ddjj_calle": "Av. Siempre Viva 123",
+#     "ddjj_depto": "B",
+#     "ddjj_barrio": "Centro",
+#     "ddjj_localidad": "Córdoba",
+#     "ddjj_cp": "5000",
+#     "ddjj_provincia": "Córdoba",
+#     "ddjj_fecha_nac": "1985-07-12",
+#     "ddjj_nacionalidad": "Argentina",
+#     "ddjj_sexo": "Femenino",
+#     "ddjj_correo_electronico": "lucia.gomez@example.com",
+#     "ddjj_telefono": "3511234567",
+#     "ddjj_ocupacion": "Docente",
+#     "ddjj_horas_semanales": "30",
+#     "ddjj_ingreso_mensual": "200000",
+#     "ddjj_existe_otro_ingreso": "N",
+#     "ddjj_ingreso_grupo_familiar": "350000",
+#     "ddjj_analizaron": "Sí",
+#     "ddjj_horas_ocio": "10",
+#     "ddjj_extra_laborales": "Teatro y caminatas",
+#     "ddjj_denunciado_violencia_familiar": "N",
+#     "ddjj_causa_penal": "N",
+#     "ddjj_juicios_filiacion": "N",
+#     "ddjj_subregistro_1": "Y",
+#     "ddjj_subregistro_2": "N",
+#     "ddjj_subregistro_3": "Y",
+#     "ddjj_subregistro_4": "N",
+#     "ddjj_subregistro_5_a": "Y",
+#     "ddjj_subregistro_5_b": "N",
+#     "ddjj_subregistro_5_c": "N",
+#     "ddjj_subregistro_6_a": "N",
+#     "ddjj_subregistro_6_b": "N",
+#     "ddjj_subregistro_6_c": "N",
+#     "ddjj_subregistro_6_d": "N",
+#     "ddjj_subregistro_6_2": "N",
+#     "ddjj_subregistro_6_3": "N",
+#     "ddjj_subregistro_6_mas_de_3": "N",
+#     "ddjj_subregistro_flexible": "N",
+
+#     "ddjj_acepto_1": "Y",
+#     "ddjj_acepto_2": "Y",
+#     "ddjj_acepto_3": "Y",
+#     "ddjj_acepto_4": "Y",
+
+#     "ddjj_hijo1_tiene": "Y",
+#     "ddjj_hijo1_nombre_completo": "Mateo Gómez",
+#     "ddjj_hijo1_estado_civil": "Soltero",
+#     "ddjj_hijo1_dni": "50123456",
+#     "ddjj_hijo1_domicilio_real": "Av. Siempre Viva 123",
+#     "ddjj_hijo1_edad": "12",
+#     "ddjj_hijo1_nacionalidad": "Argentina",
+#     "ddjj_hijo1_ocupacion": "Estudiante",
+#     "ddjj_hijo1_convive_con_usted": "Y",
+
+#     "ddjj_otro1_tiene": "Y",
+#     "ddjj_otro1_nombre_completo": "María Pérez",
+#     "ddjj_otro1_estado_civil": "Viuda",
+#     "ddjj_otro1_dni": "40111222",
+#     "ddjj_otro1_domicilio_real": "Av. Siempre Viva 123",
+#     "ddjj_otro1_nacionalidad": "Argentina",
+#     "ddjj_otro1_edad": "67",
+#     "ddjj_otro1_ocupacion": "Jubilada",
+#     "ddjj_otro1_convive_con_usted": "Y",
+
+#     "ddjj_apoyo1_tiene": "Y",
+#     "ddjj_apoyo1_nombre_completo": "Mariano Ruiz",
+#     "ddjj_apoyo1_estado_civil": "Casado",
+#     "ddjj_apoyo1_dni": "30112233",
+#     "ddjj_apoyo1_domicilio_real": "Av. Mitre 456",
+#     "ddjj_apoyo1_nacionalidad": "Argentina",
+#     "ddjj_apoyo1_edad": "45",
+#     "ddjj_apoyo1_ocupacion": "Psicólogo",
+
+#     "ddjj_guardo_1": "Y",
+#     "ddjj_guardo_2": "Y",
+#     "ddjj_guardo_3": "Y",
+#     "ddjj_guardo_4": "Y",
+#     "ddjj_guardo_5": "Y",
+#     "ddjj_guardo_6": "Y",
+#     "ddjj_guardo_7": "Y",
+#     "ddjj_guardo_8": "Y"
+#     }
+
+#     ```
+
+#     ✅ **Respuesta exitosa**:
+
+#     ```json
+#     {
+#       "tipo_mensaje": "verde",
+#       "mensaje": "<p>DDJJ actualizada exitosamente.</p>",
+#       "tiempo_mensaje": 5,
+#       "next_page": "actual"
+#     }
+#     ```
+
+#     ❌ **Respuesta con error**:
+
+#     ```json
+#     {
+#       "tipo_mensaje": "rojo",
+#       "mensaje": "<p>Error al actualizar DDJJ.</p>",
+#       "tiempo_mensaje": 5,
+#       "next_page": "actual"
+#     }
+#     ```
+#     """
+
+
+#     try:
+#         login = data.get("login")
+#         if not login:
+#             return {
+#                 "success": False,
+#                 "tipo_mensaje": "naranja",
+#                 "mensaje": "<p>El campo 'login' es obligatorio.</p>",
+#                 "tiempo_mensaje": 5,
+#                 "next_page": "actual"
+#             }
+
+#         data = convertir_booleans_a_string(data)
+
+#         usuario_actual_login = current_user["user"]["login"]
+
+#         roles_actual = (
+#             db.query(Group.description)
+#             .join(UserGroup, Group.group_id == UserGroup.group_id)
+#             .filter(UserGroup.login == usuario_actual_login)
+#             .all()
+#         )
+#         roles_actual = [r.description for r in roles_actual]
+
+#         if "adoptante" in roles_actual and usuario_actual_login != login:
+#             return {
+#                 "success": False,
+#                 "tipo_mensaje": "naranja",
+#                 "mensaje": "<p>No tiene permisos para modificar la DDJJ de otro usuario.</p>",
+#                 "tiempo_mensaje": 5,
+#                 "next_page": "actual"
+#             }
+
+#         usuario = db.query(User).filter(User.login == login).first()
+#         if not usuario:
+#             return {
+#                 "success": False,
+#                 "tipo_mensaje": "rojo",
+#                 "mensaje": "<p>No existe un usuario con ese DNI.</p>",
+#                 "tiempo_mensaje": 5,
+#                 "next_page": "actual"
+#             }
+
+
+#         if usuario.doc_adoptante_ddjj_firmada == 'Y':
+#             return {
+#                 "success": False,
+#                 "tipo_mensaje": "amarillo",
+#                 "mensaje": "<p>Su Declaración Jurada ya fue firmada previamente.</p>"
+#                         "<p>Si necesita realizar modificaciones, puede reabrirla y volver a firmarla. "
+#                         "La nueva firma será notificada al equipo de supervisión del RUA para su revisión.</p>",
+#                 "tiempo_mensaje": 5,
+#                 "next_page": "actual"
+#             }
+
+
+
+#         # # Validar campos obligatorios
+#         # campos_requeridos = [
+#         #     "ddjj_nombre", "ddjj_apellido", "ddjj_fecha_nac", "ddjj_nacionalidad",
+#         #     "ddjj_sexo", "ddjj_estado_civil", "ddjj_correo_electronico",
+#         #     "ddjj_telefono", "ddjj_calle", "ddjj_localidad"
+#         # ]
+
+#         # # Diccionario con nombres amigables para campos requeridos
+#         # nombres_amigables = {
+#         #     "ddjj_nombre": "Nombre",
+#         #     "ddjj_apellido": "Apellido",
+#         #     "ddjj_fecha_nac": "Fecha de nacimiento",
+#         #     "ddjj_nacionalidad": "Nacionalidad",
+#         #     "ddjj_sexo": "Sexo",
+#         #     "ddjj_estado_civil": "Estado civil",
+#         #     "ddjj_correo_electronico": "Correo electrónico",
+#         #     "ddjj_telefono": "Celular",
+#         #     "ddjj_calle": "Calle",
+#         #     "ddjj_localidad": "Localidad",
+#         #     "al_menos_un_subregistro": "Al menos un subregistro en Disponibilidad adoptiva"
+#         # }
+
+
+#         # campos_faltantes = [campo for campo in campos_requeridos if not data.get(campo)]
+
+#         # # Validar que al menos un subregistro esté en "Y", True o similar
+#         # subregistros = [
+#         #     # Subregistros principales
+#         #     "ddjj_subregistro_flexible",
+#         #     "ddjj_subregistro_1", "ddjj_subregistro_2", "ddjj_subregistro_3", "ddjj_subregistro_4",
+#         #     "ddjj_subregistro_5_a", "ddjj_subregistro_5_b", "ddjj_subregistro_5_c",
+#         #     "ddjj_subregistro_6_a", "ddjj_subregistro_6_b", "ddjj_subregistro_6_c",
+#         #     "ddjj_subregistro_6_d", "ddjj_subregistro_6_2", "ddjj_subregistro_6_3", "ddjj_subregistro_6_mas_de_3",
+
+#         #     # Flexibilidad edad
+#         #     "ddjj_flex_edad_1", "ddjj_flex_edad_2", "ddjj_flex_edad_3", "ddjj_flex_edad_4", "ddjj_flex_edad_todos",
+
+#         #     # Discapacidad
+#         #     "ddjj_discapacidad_1", "ddjj_discapacidad_2",
+#         #     "ddjj_edad_discapacidad_0", "ddjj_edad_discapacidad_1", "ddjj_edad_discapacidad_2",
+#         #     "ddjj_edad_discapacidad_3", "ddjj_edad_discapacidad_4",
+
+#         #     # Enfermedad
+#         #     "ddjj_enfermedad_1", "ddjj_enfermedad_2", "ddjj_enfermedad_3",
+#         #     "ddjj_edad_enfermedad_0", "ddjj_edad_enfermedad_1", "ddjj_edad_enfermedad_2",
+#         #     "ddjj_edad_enfermedad_3", "ddjj_edad_enfermedad_4",
+
+#         #     # Flexibilidad salud
+#         #     "ddjj_flex_condiciones_salud",
+#         #     "ddjj_flex_salud_edad_0", "ddjj_flex_salud_edad_1", "ddjj_flex_salud_edad_2",
+#         #     "ddjj_flex_salud_edad_3", "ddjj_flex_salud_edad_4",
+
+#         #     # Hermanos
+#         #     "ddjj_hermanos_comp_1", "ddjj_hermanos_comp_2", "ddjj_hermanos_comp_3",
+#         #     "ddjj_hermanos_edad_0", "ddjj_hermanos_edad_1", "ddjj_hermanos_edad_2", "ddjj_hermanos_edad_3",
+
+#         #     # Flexibilidad hermanos
+#         #     "ddjj_flex_hermanos_comp_1", "ddjj_flex_hermanos_comp_2", "ddjj_flex_hermanos_comp_3",
+#         #     "ddjj_flex_hermanos_edad_0", "ddjj_flex_hermanos_edad_1", "ddjj_flex_hermanos_edad_2", "ddjj_flex_hermanos_edad_3",
+
+#         #     # Nuevos subregistros definitivos
+#         #     "subreg_1", "subreg_2", "subreg_3", "subreg_4",
+#         #     "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
+#         #     "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
+#         #     "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
+#         #     "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
+#         #     "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
+#         #     "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
+#         #     "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
+#         #     "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
+#         #     "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
+#         #     "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
+#         #     "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
+#         #     "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET"
+#         # ]
+
+
+
+#         # if not any(data.get(s) in ["Y", True, "true", "True"] for s in subregistros):
+#         #     campos_faltantes.append("al_menos_un_subregistro")
+
+#         # if campos_faltantes:
+#         #     lista = "".join(f"<li>{nombres_amigables.get(campo, campo)}</li>" for campo in campos_faltantes)
+
+#         #     return {
+#         #         "success": False,
+#         #         "tipo_mensaje": "naranja",
+#         #         "mensaje": f"<p>Faltan completar los siguientes campos obligatorios:</p><ul>{lista}</ul>",
+#         #         "tiempo_mensaje": 8,
+#         #         "next_page": "actual"
+#         #     }
+        
+
+#         # Capitalizar nombre y apellido usando función existente
+#         if "ddjj_nombre" in data:
+#             data["ddjj_nombre"] = capitalizar_nombre(data["ddjj_nombre"])
+
+#         if "ddjj_apellido" in data:
+#             data["ddjj_apellido"] = capitalizar_nombre(data["ddjj_apellido"])
+
+#         # Normalizar celular usando función existente
+#         celular_raw = data.get("ddjj_telefono", "")
+#         resultado_validacion_celular = normalizar_celular(celular_raw)
+
+#         if resultado_validacion_celular["valido"]:
+#             data["ddjj_telefono"] = resultado_validacion_celular["celular"]
+#         else:
+#             return {
+#                 "tipo_mensaje": "amarillo",
+#                 "mensaje": (
+#                     "<p>Ingrese un número de celular válido en Datos personales.</p>"
+#                     "<p>Por favor, intente nuevamente.</p>"
+#                 ),
+#                 "tiempo_mensaje": 5,
+#                 "next_page": "actual"
+#             }
+        
+
+#         # Normalizar fecha de nacimiento si existe
+#         if "ddjj_fecha_nac" in data:
+#             valor_original = data["ddjj_fecha_nac"]
+#             try:
+#                 # Detectar si viene en formato DD/MM/YYYY y convertir
+#                 if isinstance(valor_original, str) and "/" in valor_original:
+#                     fecha = datetime.strptime(valor_original, "%d/%m/%Y").date()
+#                     data["ddjj_fecha_nac"] = fecha.isoformat()  # convierte a YYYY-MM-DD
+#             except ValueError:
+#                 return {
+#                     "tipo_mensaje": "amarillo",
+#                     "mensaje": "<p>La fecha de nacimiento no tiene un formato válido (esperado: DD/MM/YYYY o YYYY-MM-DD).</p>",
+#                     "tiempo_mensaje": 6,
+#                     "next_page": "actual"
+#                 }
+
+#         ddjj = db.query(DDJJ).filter(DDJJ.login == login).first()
+
+
+#         # if not all(data.get(f"ddjj_acepto_{i}") == "Y" for i in range(1, 5)):
+#         #     return {
+#         #         "success": False,
+#         #         "tipo_mensaje": "amarillo",
+#         #         "mensaje": "<p>Debe aceptar las declaraciones formales y legales del tramo final para firmar la DDJJ.</p>",
+#         #         "tiempo_mensaje": 6,
+#         #         "next_page": "actual"
+#         #     }
+        
+        
+#         if not ddjj:
+
+#             nueva_ddjj = DDJJ(**data)
+#             db.add(nueva_ddjj)
+
+#             # usuario.doc_adoptante_ddjj_firmada = "Y"
+
+#             es_creacion = not ddjj
+#             es_mismo_usuario = usuario_actual_login == login
+
+#             evento_detalle = (
+#                 "DDJJ creada" if es_creacion else "DDJJ actualizada"
+#             )
+#             evento_detalle += " por el mismo usuario." if es_mismo_usuario else f" por {usuario_actual_login}."
+
+#             db.add(RuaEvento(
+#                 login=login,
+#                 evento_detalle=evento_detalle,
+#                 evento_fecha=datetime.now()
+#             ))
+
+      
+#             try:
+#                 db.commit()
+#                 db.refresh(nueva_ddjj)
+#                 return {
+#                     "success": True,
+#                     "tipo_mensaje": "verde",
+#                     "mensaje": "<p>DDJJ creada exitosamente.</p>",
+#                     "tiempo_mensaje": 5,
+#                     "next_page": "menu_adoptantes/portada"
+#                 }
+#             except SQLAlchemyError as e:
+#                 db.rollback()
+#                 return {
+#                     "success": False,
+#                     "tipo_mensaje": "rojo",
+#                     "mensaje": f"<p>Error al crear DDJJ: {str(e)}</p>",
+#                     "tiempo_mensaje": 5,
+#                     "next_page": "actual"
+#                 }
+        
+#         else:
+            
+#             campos_actualizables = {
+#                 k: v for k, v in data.items() if k != "login" and hasattr(ddjj, k)
+#             }
+
+#             # Diccionario que guardará valores ya transformados y listos para usar
+#             valores_normalizados = {}
+
+#             # Capitalizar nombre y apellido
+#             if "ddjj_nombre" in campos_actualizables:
+#                 valores_normalizados["ddjj_nombre"] = capitalizar_nombre((campos_actualizables["ddjj_nombre"] or "").strip())
+
+#             if "ddjj_apellido" in campos_actualizables:
+#                 valores_normalizados["ddjj_apellido"] = capitalizar_nombre((campos_actualizables["ddjj_apellido"] or "").strip())
+
+#             # Normalizar celular
+#             if "ddjj_telefono" in campos_actualizables:
+#                 celular = (campos_actualizables["ddjj_telefono"] or "").strip()
+#                 resultado = normalizar_celular(celular)
+#                 if resultado["valido"]:
+#                     valores_normalizados["ddjj_telefono"] = resultado["celular"]
+
+#             # Copiar sin modificación pero con limpieza
+#             for campo in ["ddjj_fecha_nac", "ddjj_calle", "ddjj_depto", "ddjj_barrio", "ddjj_localidad", "ddjj_provincia"]:
+#                 if campo in campos_actualizables:
+#                     valores_normalizados[campo] = (campos_actualizables[campo] or "").strip()
+
+#             # Asignar los valores transformados a la DDJJ
+#             # for campo, valor in valores_normalizados.items():
+#             #     setattr(ddjj, campo, valor)
+
+#             for campo, valor in campos_actualizables.items():
+#                 if isinstance(valor, bool):
+#                     valor = "Y" if valor else "N"
+#                 elif isinstance(valor, str) and valor.strip().lower() in ["true", "false"]:
+#                     valor = "Y" if valor.strip().lower() == "true" else "N"
+#                 setattr(ddjj, campo, valor)
+
+
+#             # Asignar también a sec_users
+#             mapeo_ddjj_a_user = {
+#                 "ddjj_nombre": "nombre",
+#                 "ddjj_apellido": "apellido",
+#                 "ddjj_telefono": "celular",
+#                 "ddjj_fecha_nac": "fecha_nacimiento",
+#                 "ddjj_calle": "calle_y_nro",
+#                 "ddjj_depto": "depto_etc",
+#                 "ddjj_barrio": "barrio",
+#                 "ddjj_localidad": "localidad",
+#                 "ddjj_provincia": "provincia"
+#             }
+
+#             for campo_ddjj, campo_user in mapeo_ddjj_a_user.items():
+#                 if campo_ddjj in valores_normalizados:
+#                     setattr(usuario, campo_user, valores_normalizados[campo_ddjj])
+
+#             try:
+#                 # usuario.doc_adoptante_ddjj_firmada = "Y"
+
+#                 es_creacion = not ddjj
+#                 es_mismo_usuario = usuario_actual_login == login
+
+#                 evento_detalle = (
+#                     "DDJJ creada" if es_creacion else "DDJJ actualizada"
+#                 )
+#                 evento_detalle += " por el mismo usuario." if es_mismo_usuario else f" por {usuario_actual_login}."
+
+#                 db.add(RuaEvento(
+#                     login=login,
+#                     evento_detalle=evento_detalle,
+#                     evento_fecha=datetime.now()
+#                 ))
+
+#                 db.commit()
+
+#                 return {
+#                     "tipo_mensaje": "verde",
+#                     "mensaje": "<p>DDJJ actualizada exitosamente.</p>",
+#                     "tiempo_mensaje": 5,
+#                     "next_page": "menu_adoptantes/portada"
+#                 }
+#             except SQLAlchemyError as e:
+#                 db.rollback()
+#                 return {
+#                     "tipo_mensaje": "rojo",
+#                     "mensaje": f"<p>Error al actualizar DDJJ: {str(e)}</p>",
+#                     "tiempo_mensaje": 5,
+#                     "next_page": "actual"
+#                 }
+            
+#     except SQLAlchemyError as e:
+#               db.rollback()
+#               return {
+#                   "tipo_mensaje": "rojo",
+#                   "mensaje": f"<p>Error inesperado en DDJJ: {str(e)}</p>",
+#                   "tiempo_mensaje": 5,
+#                   "next_page": "actual"
+#               }
+
+
+
 @ddjj_router.post("/upsert", response_model = dict, 
                   dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", 
                                                                                    "profesional", "adoptante"]))])
@@ -168,221 +666,315 @@ def upsert_ddjj(
     """
 
 
-    try:
-        login = data.get("login")
-        if not login:
+    login = data.get("login")
+    if not login:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "<p>El campo 'login' es obligatorio.</p>",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    data = convertir_booleans_a_string(data)
+
+    usuario_actual_login = current_user["user"]["login"]
+
+    roles_actual = (
+        db.query(Group.description)
+        .join(UserGroup, Group.group_id == UserGroup.group_id)
+        .filter(UserGroup.login == usuario_actual_login)
+        .all()
+    )
+    roles_actual = [r.description for r in roles_actual]
+
+    if "adoptante" in roles_actual and usuario_actual_login != login:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "<p>No tiene permisos para modificar la DDJJ de otro usuario.</p>",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    usuario = db.query(User).filter(User.login == login).first()
+    if not usuario:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "<p>No existe un usuario con ese DNI.</p>",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+
+    if usuario.doc_adoptante_ddjj_firmada == 'Y':
+        return {
+            "success": False,
+            "tipo_mensaje": "amarillo",
+            "mensaje": "<p>Su Declaración Jurada ya fue firmada previamente.</p>"
+                    "<p>Si necesita realizar modificaciones, puede reabrirla desde y volver a firmarla. "
+                    "La nueva firma será notificada al equipo de supervisión del RUA para su revisión.</p>",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+
+
+    # Validar campos obligatorios
+    campos_requeridos = [
+        "ddjj_nombre", "ddjj_apellido", "ddjj_fecha_nac", "ddjj_nacionalidad",
+        "ddjj_sexo", "ddjj_estado_civil", "ddjj_correo_electronico",
+        "ddjj_telefono", "ddjj_calle", "ddjj_localidad"
+    ]
+
+    # Diccionario con nombres amigables para campos requeridos
+    nombres_amigables = {
+        "ddjj_nombre": "Nombre",
+        "ddjj_apellido": "Apellido",
+        "ddjj_fecha_nac": "Fecha de nacimiento",
+        "ddjj_nacionalidad": "Nacionalidad",
+        "ddjj_sexo": "Sexo",
+        "ddjj_estado_civil": "Estado civil",
+        "ddjj_correo_electronico": "Correo electrónico",
+        "ddjj_telefono": "Celular",
+        "ddjj_calle": "Calle",
+        "ddjj_localidad": "Localidad",
+        "al_menos_un_subregistro": "Al menos un subregistro en Disponibilidad adoptiva"
+    }
+
+
+    campos_faltantes = [campo for campo in campos_requeridos if not data.get(campo)]
+
+    # Validar que al menos un subregistro esté en "Y", True o similar
+    subregistros = [
+        # Subregistros principales
+        "ddjj_subregistro_flexible",
+        "ddjj_subregistro_1", "ddjj_subregistro_2", "ddjj_subregistro_3", "ddjj_subregistro_4",
+        "ddjj_subregistro_5_a", "ddjj_subregistro_5_b", "ddjj_subregistro_5_c",
+        "ddjj_subregistro_6_a", "ddjj_subregistro_6_b", "ddjj_subregistro_6_c",
+        "ddjj_subregistro_6_d", "ddjj_subregistro_6_2", "ddjj_subregistro_6_3", "ddjj_subregistro_6_mas_de_3",
+
+        # Flexibilidad edad
+        "ddjj_flex_edad_1", "ddjj_flex_edad_2", "ddjj_flex_edad_3", "ddjj_flex_edad_4", "ddjj_flex_edad_todos",
+
+        # Discapacidad
+        "ddjj_discapacidad_1", "ddjj_discapacidad_2",
+        "ddjj_edad_discapacidad_0", "ddjj_edad_discapacidad_1", "ddjj_edad_discapacidad_2",
+        "ddjj_edad_discapacidad_3", "ddjj_edad_discapacidad_4",
+
+        # Enfermedad
+        "ddjj_enfermedad_1", "ddjj_enfermedad_2", "ddjj_enfermedad_3",
+        "ddjj_edad_enfermedad_0", "ddjj_edad_enfermedad_1", "ddjj_edad_enfermedad_2",
+        "ddjj_edad_enfermedad_3", "ddjj_edad_enfermedad_4",
+
+        # Flexibilidad salud
+        "ddjj_flex_condiciones_salud",
+        "ddjj_flex_salud_edad_0", "ddjj_flex_salud_edad_1", "ddjj_flex_salud_edad_2",
+        "ddjj_flex_salud_edad_3", "ddjj_flex_salud_edad_4",
+
+        # Hermanos
+        "ddjj_hermanos_comp_1", "ddjj_hermanos_comp_2", "ddjj_hermanos_comp_3",
+        "ddjj_hermanos_edad_0", "ddjj_hermanos_edad_1", "ddjj_hermanos_edad_2", "ddjj_hermanos_edad_3",
+
+        # Flexibilidad hermanos
+        "ddjj_flex_hermanos_comp_1", "ddjj_flex_hermanos_comp_2", "ddjj_flex_hermanos_comp_3",
+        "ddjj_flex_hermanos_edad_0", "ddjj_flex_hermanos_edad_1", "ddjj_flex_hermanos_edad_2", "ddjj_flex_hermanos_edad_3",
+
+        # Nuevos subregistros definitivos
+        "subreg_1", "subreg_2", "subreg_3", "subreg_4",
+        "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
+        "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
+        "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
+        "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
+        "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
+        "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
+        "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
+        "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
+        "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
+        "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
+        "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
+        "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET"
+    ]
+
+
+
+    if not any(data.get(s) in ["Y", True, "true", "True"] for s in subregistros):
+        campos_faltantes.append("al_menos_un_subregistro")
+
+    if campos_faltantes:
+        lista = "".join(f"<li>{nombres_amigables.get(campo, campo)}</li>" for campo in campos_faltantes)
+
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": f"<p>Faltan completar los siguientes campos obligatorios:</p><ul>{lista}</ul>",
+            "tiempo_mensaje": 8,
+            "next_page": "actual"
+        }
+    
+
+    # Capitalizar nombre y apellido usando función existente
+    if "ddjj_nombre" in data:
+        data["ddjj_nombre"] = capitalizar_nombre(data["ddjj_nombre"])
+
+    if "ddjj_apellido" in data:
+        data["ddjj_apellido"] = capitalizar_nombre(data["ddjj_apellido"])
+
+    # Normalizar celular usando función existente
+    celular_raw = data.get("ddjj_telefono", "")
+    resultado_validacion_celular = normalizar_celular(celular_raw)
+
+    if resultado_validacion_celular["valido"]:
+        data["ddjj_telefono"] = resultado_validacion_celular["celular"]
+    else:
+        return {
+            "tipo_mensaje": "amarillo",
+            "mensaje": (
+                "<p>Ingrese un número de celular válido en Datos personales.</p>"
+                "<p>Por favor, intente nuevamente.</p>"
+            ),
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+    
+
+    # Normalizar fecha de nacimiento si existe
+    if "ddjj_fecha_nac" in data:
+        valor_original = data["ddjj_fecha_nac"]
+        try:
+            # Detectar si viene en formato DD/MM/YYYY y convertir
+            if isinstance(valor_original, str) and "/" in valor_original:
+                fecha = datetime.strptime(valor_original, "%d/%m/%Y").date()
+                data["ddjj_fecha_nac"] = fecha.isoformat()  # convierte a YYYY-MM-DD
+        except ValueError:
             return {
-                "success": False,
-                "tipo_mensaje": "naranja",
-                "mensaje": "<p>El campo 'login' es obligatorio.</p>",
-                "tiempo_mensaje": 5,
+                "tipo_mensaje": "amarillo",
+                "mensaje": "<p>La fecha de nacimiento no tiene un formato válido (esperado: DD/MM/YYYY o YYYY-MM-DD).</p>",
+                "tiempo_mensaje": 6,
                 "next_page": "actual"
             }
 
-        data = convertir_booleans_a_string(data)
+    ddjj = db.query(DDJJ).filter(DDJJ.login == login).first()
 
-        usuario_actual_login = current_user["user"]["login"]
 
-        roles_actual = (
-            db.query(Group.description)
-            .join(UserGroup, Group.group_id == UserGroup.group_id)
-            .filter(UserGroup.login == usuario_actual_login)
-            .all()
+    if not all(data.get(f"ddjj_acepto_{i}") == "Y" for i in range(1, 5)):
+        return {
+            "success": False,
+            "tipo_mensaje": "amarillo",
+            "mensaje": "<p>Debe aceptar las declaraciones formales y legales del tramo final para firmar la DDJJ.</p>",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+    
+    
+    if not ddjj:
+
+        nueva_ddjj = DDJJ(**data)
+        db.add(nueva_ddjj)
+
+        usuario.doc_adoptante_ddjj_firmada = "Y"
+
+        es_creacion = not ddjj
+        es_mismo_usuario = usuario_actual_login == login
+
+        evento_detalle = (
+            "DDJJ creada y firmada" if es_creacion else "DDJJ actualizada y firmada"
         )
-        roles_actual = [r.description for r in roles_actual]
+        evento_detalle += " por el mismo usuario." if es_mismo_usuario else f" por {usuario_actual_login}."
 
-        if "adoptante" in roles_actual and usuario_actual_login != login:
+        db.add(RuaEvento(
+            login=login,
+            evento_detalle=evento_detalle,
+            evento_fecha=datetime.now()
+        ))
+
+  
+        try:
+            db.commit()
+            db.refresh(nueva_ddjj)
             return {
-                "success": False,
-                "tipo_mensaje": "naranja",
-                "mensaje": "<p>No tiene permisos para modificar la DDJJ de otro usuario.</p>",
+                "success": True,
+                "tipo_mensaje": "verde",
+                "mensaje": "<p>DDJJ firmada exitosamente.</p>",
                 "tiempo_mensaje": 5,
-                "next_page": "actual"
+                "next_page": "menu_adoptantes/portada"
             }
-
-        usuario = db.query(User).filter(User.login == login).first()
-        if not usuario:
+        except SQLAlchemyError as e:
+            db.rollback()
             return {
                 "success": False,
                 "tipo_mensaje": "rojo",
-                "mensaje": "<p>No existe un usuario con ese DNI.</p>",
+                "mensaje": f"<p>Error al crear DDJJ: {str(e)}</p>",
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
             }
-
-
-        if usuario.doc_adoptante_ddjj_firmada == 'Y':
-            return {
-                "success": False,
-                "tipo_mensaje": "amarillo",
-                "mensaje": "<p>Su Declaración Jurada ya fue firmada previamente.</p>"
-                        "<p>Si necesita realizar modificaciones, puede reabrirla y volver a firmarla. "
-                        "La nueva firma será notificada al equipo de supervisión del RUA para su revisión.</p>",
-                "tiempo_mensaje": 5,
-                "next_page": "actual"
-            }
-
-
-
-        # # Validar campos obligatorios
-        # campos_requeridos = [
-        #     "ddjj_nombre", "ddjj_apellido", "ddjj_fecha_nac", "ddjj_nacionalidad",
-        #     "ddjj_sexo", "ddjj_estado_civil", "ddjj_correo_electronico",
-        #     "ddjj_telefono", "ddjj_calle", "ddjj_localidad"
-        # ]
-
-        # # Diccionario con nombres amigables para campos requeridos
-        # nombres_amigables = {
-        #     "ddjj_nombre": "Nombre",
-        #     "ddjj_apellido": "Apellido",
-        #     "ddjj_fecha_nac": "Fecha de nacimiento",
-        #     "ddjj_nacionalidad": "Nacionalidad",
-        #     "ddjj_sexo": "Sexo",
-        #     "ddjj_estado_civil": "Estado civil",
-        #     "ddjj_correo_electronico": "Correo electrónico",
-        #     "ddjj_telefono": "Celular",
-        #     "ddjj_calle": "Calle",
-        #     "ddjj_localidad": "Localidad",
-        #     "al_menos_un_subregistro": "Al menos un subregistro en Disponibilidad adoptiva"
-        # }
-
-
-        # campos_faltantes = [campo for campo in campos_requeridos if not data.get(campo)]
-
-        # # Validar que al menos un subregistro esté en "Y", True o similar
-        # subregistros = [
-        #     # Subregistros principales
-        #     "ddjj_subregistro_flexible",
-        #     "ddjj_subregistro_1", "ddjj_subregistro_2", "ddjj_subregistro_3", "ddjj_subregistro_4",
-        #     "ddjj_subregistro_5_a", "ddjj_subregistro_5_b", "ddjj_subregistro_5_c",
-        #     "ddjj_subregistro_6_a", "ddjj_subregistro_6_b", "ddjj_subregistro_6_c",
-        #     "ddjj_subregistro_6_d", "ddjj_subregistro_6_2", "ddjj_subregistro_6_3", "ddjj_subregistro_6_mas_de_3",
-
-        #     # Flexibilidad edad
-        #     "ddjj_flex_edad_1", "ddjj_flex_edad_2", "ddjj_flex_edad_3", "ddjj_flex_edad_4", "ddjj_flex_edad_todos",
-
-        #     # Discapacidad
-        #     "ddjj_discapacidad_1", "ddjj_discapacidad_2",
-        #     "ddjj_edad_discapacidad_0", "ddjj_edad_discapacidad_1", "ddjj_edad_discapacidad_2",
-        #     "ddjj_edad_discapacidad_3", "ddjj_edad_discapacidad_4",
-
-        #     # Enfermedad
-        #     "ddjj_enfermedad_1", "ddjj_enfermedad_2", "ddjj_enfermedad_3",
-        #     "ddjj_edad_enfermedad_0", "ddjj_edad_enfermedad_1", "ddjj_edad_enfermedad_2",
-        #     "ddjj_edad_enfermedad_3", "ddjj_edad_enfermedad_4",
-
-        #     # Flexibilidad salud
-        #     "ddjj_flex_condiciones_salud",
-        #     "ddjj_flex_salud_edad_0", "ddjj_flex_salud_edad_1", "ddjj_flex_salud_edad_2",
-        #     "ddjj_flex_salud_edad_3", "ddjj_flex_salud_edad_4",
-
-        #     # Hermanos
-        #     "ddjj_hermanos_comp_1", "ddjj_hermanos_comp_2", "ddjj_hermanos_comp_3",
-        #     "ddjj_hermanos_edad_0", "ddjj_hermanos_edad_1", "ddjj_hermanos_edad_2", "ddjj_hermanos_edad_3",
-
-        #     # Flexibilidad hermanos
-        #     "ddjj_flex_hermanos_comp_1", "ddjj_flex_hermanos_comp_2", "ddjj_flex_hermanos_comp_3",
-        #     "ddjj_flex_hermanos_edad_0", "ddjj_flex_hermanos_edad_1", "ddjj_flex_hermanos_edad_2", "ddjj_flex_hermanos_edad_3",
-
-        #     # Nuevos subregistros definitivos
-        #     "subreg_1", "subreg_2", "subreg_3", "subreg_4",
-        #     "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
-        #     "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
-        #     "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
-        #     "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
-        #     "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
-        #     "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
-        #     "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
-        #     "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
-        #     "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
-        #     "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
-        #     "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
-        #     "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET"
-        # ]
-
-
-
-        # if not any(data.get(s) in ["Y", True, "true", "True"] for s in subregistros):
-        #     campos_faltantes.append("al_menos_un_subregistro")
-
-        # if campos_faltantes:
-        #     lista = "".join(f"<li>{nombres_amigables.get(campo, campo)}</li>" for campo in campos_faltantes)
-
-        #     return {
-        #         "success": False,
-        #         "tipo_mensaje": "naranja",
-        #         "mensaje": f"<p>Faltan completar los siguientes campos obligatorios:</p><ul>{lista}</ul>",
-        #         "tiempo_mensaje": 8,
-        #         "next_page": "actual"
-        #     }
+    
+    else:
         
+        campos_actualizables = {
+            k: v for k, v in data.items() if k != "login" and hasattr(ddjj, k)
+        }
 
-        # Capitalizar nombre y apellido usando función existente
-        if "ddjj_nombre" in data:
-            data["ddjj_nombre"] = capitalizar_nombre(data["ddjj_nombre"])
+        # Diccionario que guardará valores ya transformados y listos para usar
+        valores_normalizados = {}
 
-        if "ddjj_apellido" in data:
-            data["ddjj_apellido"] = capitalizar_nombre(data["ddjj_apellido"])
+        # Capitalizar nombre y apellido
+        if "ddjj_nombre" in campos_actualizables:
+            valores_normalizados["ddjj_nombre"] = capitalizar_nombre((campos_actualizables["ddjj_nombre"] or "").strip())
 
-        # Normalizar celular usando función existente
-        celular_raw = data.get("ddjj_telefono", "")
-        resultado_validacion_celular = normalizar_celular(celular_raw)
+        if "ddjj_apellido" in campos_actualizables:
+            valores_normalizados["ddjj_apellido"] = capitalizar_nombre((campos_actualizables["ddjj_apellido"] or "").strip())
 
-        if resultado_validacion_celular["valido"]:
-            data["ddjj_telefono"] = resultado_validacion_celular["celular"]
-        else:
-            return {
-                "tipo_mensaje": "amarillo",
-                "mensaje": (
-                    "<p>Ingrese un número de celular válido en Datos personales.</p>"
-                    "<p>Por favor, intente nuevamente.</p>"
-                ),
-                "tiempo_mensaje": 5,
-                "next_page": "actual"
-            }
-        
+        # Normalizar celular
+        if "ddjj_telefono" in campos_actualizables:
+            celular = (campos_actualizables["ddjj_telefono"] or "").strip()
+            resultado = normalizar_celular(celular)
+            if resultado["valido"]:
+                valores_normalizados["ddjj_telefono"] = resultado["celular"]
 
-        # Normalizar fecha de nacimiento si existe
-        if "ddjj_fecha_nac" in data:
-            valor_original = data["ddjj_fecha_nac"]
-            try:
-                # Detectar si viene en formato DD/MM/YYYY y convertir
-                if isinstance(valor_original, str) and "/" in valor_original:
-                    fecha = datetime.strptime(valor_original, "%d/%m/%Y").date()
-                    data["ddjj_fecha_nac"] = fecha.isoformat()  # convierte a YYYY-MM-DD
-            except ValueError:
-                return {
-                    "tipo_mensaje": "amarillo",
-                    "mensaje": "<p>La fecha de nacimiento no tiene un formato válido (esperado: DD/MM/YYYY o YYYY-MM-DD).</p>",
-                    "tiempo_mensaje": 6,
-                    "next_page": "actual"
-                }
+        # Copiar sin modificación pero con limpieza
+        for campo in ["ddjj_fecha_nac", "ddjj_calle", "ddjj_depto", "ddjj_barrio", "ddjj_localidad", "ddjj_provincia"]:
+            if campo in campos_actualizables:
+                valores_normalizados[campo] = (campos_actualizables[campo] or "").strip()
 
-        ddjj = db.query(DDJJ).filter(DDJJ.login == login).first()
+        # Asignar los valores transformados a la DDJJ
+        # for campo, valor in valores_normalizados.items():
+        #     setattr(ddjj, campo, valor)
+
+        for campo, valor in campos_actualizables.items():
+            if isinstance(valor, bool):
+                valor = "Y" if valor else "N"
+            elif isinstance(valor, str) and valor.strip().lower() in ["true", "false"]:
+                valor = "Y" if valor.strip().lower() == "true" else "N"
+            setattr(ddjj, campo, valor)
 
 
-        # if not all(data.get(f"ddjj_acepto_{i}") == "Y" for i in range(1, 5)):
-        #     return {
-        #         "success": False,
-        #         "tipo_mensaje": "amarillo",
-        #         "mensaje": "<p>Debe aceptar las declaraciones formales y legales del tramo final para firmar la DDJJ.</p>",
-        #         "tiempo_mensaje": 6,
-        #         "next_page": "actual"
-        #     }
-        
-        
-        if not ddjj:
+        # Asignar también a sec_users
+        mapeo_ddjj_a_user = {
+            "ddjj_nombre": "nombre",
+            "ddjj_apellido": "apellido",
+            "ddjj_telefono": "celular",
+            "ddjj_fecha_nac": "fecha_nacimiento",
+            "ddjj_calle": "calle_y_nro",
+            "ddjj_depto": "depto_etc",
+            "ddjj_barrio": "barrio",
+            "ddjj_localidad": "localidad",
+            "ddjj_provincia": "provincia"
+        }
 
-            nueva_ddjj = DDJJ(**data)
-            db.add(nueva_ddjj)
+        for campo_ddjj, campo_user in mapeo_ddjj_a_user.items():
+            if campo_ddjj in valores_normalizados:
+                setattr(usuario, campo_user, valores_normalizados[campo_ddjj])
 
-            # usuario.doc_adoptante_ddjj_firmada = "Y"
+        try:
+            usuario.doc_adoptante_ddjj_firmada = "Y"
 
             es_creacion = not ddjj
             es_mismo_usuario = usuario_actual_login == login
 
             evento_detalle = (
-                "DDJJ creada" if es_creacion else "DDJJ actualizada"
+                "DDJJ creada y firmada" if es_creacion else "DDJJ actualizada y firmada"
             )
             evento_detalle += " por el mismo usuario." if es_mismo_usuario else f" por {usuario_actual_login}."
 
@@ -392,127 +984,22 @@ def upsert_ddjj(
                 evento_fecha=datetime.now()
             ))
 
-      
-            try:
-                db.commit()
-                db.refresh(nueva_ddjj)
-                return {
-                    "success": True,
-                    "tipo_mensaje": "verde",
-                    "mensaje": "<p>DDJJ creada exitosamente.</p>",
-                    "tiempo_mensaje": 5,
-                    "next_page": "menu_adoptantes/portada"
-                }
-            except SQLAlchemyError as e:
-                db.rollback()
-                return {
-                    "success": False,
-                    "tipo_mensaje": "rojo",
-                    "mensaje": f"<p>Error al crear DDJJ: {str(e)}</p>",
-                    "tiempo_mensaje": 5,
-                    "next_page": "actual"
-                }
-        
-        else:
-            
-            campos_actualizables = {
-                k: v for k, v in data.items() if k != "login" and hasattr(ddjj, k)
+            db.commit()
+
+            return {
+                "tipo_mensaje": "verde",
+                "mensaje": "<p>DDJJ actualizada exitosamente.</p>",
+                "tiempo_mensaje": 5,
+                "next_page": "menu_adoptantes/portada"
             }
-
-            # Diccionario que guardará valores ya transformados y listos para usar
-            valores_normalizados = {}
-
-            # Capitalizar nombre y apellido
-            if "ddjj_nombre" in campos_actualizables:
-                valores_normalizados["ddjj_nombre"] = capitalizar_nombre((campos_actualizables["ddjj_nombre"] or "").strip())
-
-            if "ddjj_apellido" in campos_actualizables:
-                valores_normalizados["ddjj_apellido"] = capitalizar_nombre((campos_actualizables["ddjj_apellido"] or "").strip())
-
-            # Normalizar celular
-            if "ddjj_telefono" in campos_actualizables:
-                celular = (campos_actualizables["ddjj_telefono"] or "").strip()
-                resultado = normalizar_celular(celular)
-                if resultado["valido"]:
-                    valores_normalizados["ddjj_telefono"] = resultado["celular"]
-
-            # Copiar sin modificación pero con limpieza
-            for campo in ["ddjj_fecha_nac", "ddjj_calle", "ddjj_depto", "ddjj_barrio", "ddjj_localidad", "ddjj_provincia"]:
-                if campo in campos_actualizables:
-                    valores_normalizados[campo] = (campos_actualizables[campo] or "").strip()
-
-            # Asignar los valores transformados a la DDJJ
-            # for campo, valor in valores_normalizados.items():
-            #     setattr(ddjj, campo, valor)
-
-            for campo, valor in campos_actualizables.items():
-                if isinstance(valor, bool):
-                    valor = "Y" if valor else "N"
-                elif isinstance(valor, str) and valor.strip().lower() in ["true", "false"]:
-                    valor = "Y" if valor.strip().lower() == "true" else "N"
-                setattr(ddjj, campo, valor)
-
-
-            # Asignar también a sec_users
-            mapeo_ddjj_a_user = {
-                "ddjj_nombre": "nombre",
-                "ddjj_apellido": "apellido",
-                "ddjj_telefono": "celular",
-                "ddjj_fecha_nac": "fecha_nacimiento",
-                "ddjj_calle": "calle_y_nro",
-                "ddjj_depto": "depto_etc",
-                "ddjj_barrio": "barrio",
-                "ddjj_localidad": "localidad",
-                "ddjj_provincia": "provincia"
+        except SQLAlchemyError as e:
+            db.rollback()
+            return {
+                "tipo_mensaje": "rojo",
+                "mensaje": f"<p>Error al actualizar DDJJ: {str(e)}</p>",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
             }
-
-            for campo_ddjj, campo_user in mapeo_ddjj_a_user.items():
-                if campo_ddjj in valores_normalizados:
-                    setattr(usuario, campo_user, valores_normalizados[campo_ddjj])
-
-            try:
-                # usuario.doc_adoptante_ddjj_firmada = "Y"
-
-                es_creacion = not ddjj
-                es_mismo_usuario = usuario_actual_login == login
-
-                evento_detalle = (
-                    "DDJJ creada" if es_creacion else "DDJJ actualizada"
-                )
-                evento_detalle += " por el mismo usuario." if es_mismo_usuario else f" por {usuario_actual_login}."
-
-                db.add(RuaEvento(
-                    login=login,
-                    evento_detalle=evento_detalle,
-                    evento_fecha=datetime.now()
-                ))
-
-                db.commit()
-
-                return {
-                    "tipo_mensaje": "verde",
-                    "mensaje": "<p>DDJJ actualizada exitosamente.</p>",
-                    "tiempo_mensaje": 5,
-                    "next_page": "menu_adoptantes/portada"
-                }
-            except SQLAlchemyError as e:
-                db.rollback()
-                return {
-                    "tipo_mensaje": "rojo",
-                    "mensaje": f"<p>Error al actualizar DDJJ: {str(e)}</p>",
-                    "tiempo_mensaje": 5,
-                    "next_page": "actual"
-                }
-            
-    except SQLAlchemyError as e:
-              db.rollback()
-              return {
-                  "tipo_mensaje": "rojo",
-                  "mensaje": f"<p>Error inesperado en DDJJ: {str(e)}</p>",
-                  "tiempo_mensaje": 5,
-                  "next_page": "actual"
-              }
-
 
 
 
@@ -645,6 +1132,7 @@ def get_ddjj_by_login(
                     "dni": getattr(ddjj, f"ddjj_apoyo{i}_dni"),
                     "domicilio": getattr(ddjj, f"ddjj_apoyo{i}_domicilio_real"),
                     "edad": getattr(ddjj, f"ddjj_apoyo{i}_edad"),
+                    "relacion": getattr(ddjj, f"ddjj_apoyo{i}_relacion"),
                     "nacionalidad": getattr(ddjj, f"ddjj_apoyo{i}_nacionalidad"),
                     "ocupacion": getattr(ddjj, f"ddjj_apoyo{i}_ocupacion"),
                 }
@@ -655,6 +1143,7 @@ def get_ddjj_by_login(
                     getattr(ddjj, f"ddjj_apoyo{i}_dni"),
                     getattr(ddjj, f"ddjj_apoyo{i}_domicilio_real"),
                     getattr(ddjj, f"ddjj_apoyo{i}_edad"),
+                    getattr(ddjj, f"ddjj_apoyo{i}_relacion"),
                     getattr(ddjj, f"ddjj_apoyo{i}_nacionalidad"),
                     getattr(ddjj, f"ddjj_apoyo{i}_ocupacion"),
                 ])

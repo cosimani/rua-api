@@ -132,6 +132,7 @@ class DDJJ(Base):
     ddjj_apoyo1_domicilio_real = Column(String(64))
     ddjj_apoyo1_nacionalidad = Column(String(64))
     ddjj_apoyo1_edad = Column(String(64))
+    ddjj_apoyo1_relacion = Column(String(100))
     ddjj_apoyo1_ocupacion = Column(String(64))
     ddjj_apoyo1_convive_con_usted = Column(String(64))
     ddjj_apoyo2_tiene = Column(String(1))
@@ -141,6 +142,7 @@ class DDJJ(Base):
     ddjj_apoyo2_domicilio_real = Column(String(64))
     ddjj_apoyo2_nacionalidad = Column(String(64))
     ddjj_apoyo2_edad = Column(String(64))
+    ddjj_apoyo2_relacion = Column(String(100))
     ddjj_apoyo2_ocupacion = Column(String(64))
     ddjj_apoyo2_convive_con_usted = Column(String(64))
     # Otros campos
