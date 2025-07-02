@@ -5671,10 +5671,22 @@ def solicitar_actualizacion_proyecto(
             if not user:
                 continue
 
+            # Extraer texto plano del mensaje HTML para guardar en base
+            mensaje_texto_plano = BeautifulSoup(mensaje_html, "lxml").get_text(separator=" ", strip=True)
+
+            if not mensaje_texto_plano:
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": "El mensaje debe tener contenido con información.",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+
             resultado = crear_notificacion_individual(
                 db=db,
                 login_destinatario=login_destinatario,
-                mensaje=mensaje_html,
+                mensaje=mensaje_texto_plano,
                 link="/menu_adoptantes/portada",
                 tipo_mensaje="naranja",
                 enviar_por_whatsapp=False,
@@ -5686,10 +5698,10 @@ def solicitar_actualizacion_proyecto(
             db.add(RuaEvento(
                 login=login_supervisora,
                 evento_detalle=(
-                    f"Se solicitó actualización del proyecto adoptivo correspondiente a "
+                    f"Se solicitó actualización del proyecto a "
                     f"{proyecto.login_1}" +
                     (f" y {proyecto.login_2}" if proyecto.login_2 else "") +
-                    f" por parte de {nombre_supervisora}."
+                    f": {mensaje_texto_plano[:150]}"
                 ),
                 evento_fecha=datetime.now()
             ))
@@ -5697,43 +5709,46 @@ def solicitar_actualizacion_proyecto(
 
             if user.mail:
                 try:
+
                     cuerpo = f"""
                     <html>
-                    <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                      <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
                         <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-                        <tr>
+                          <tr>
                             <td align="center">
-                            <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                              <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
                                 <tr>
-                                <td style="font-size: 24px; color: #fd7e14;">
-                                    <strong>Hola {user.nombre},</strong>
-                                </td>
+                                  <td style="font-size: 24px; color: #007bff;">
+                                      <strong>¡Hola {user.nombre}!</strong>
+                                  </td>
                                 </tr>
                                 <tr>
-                                <td style="padding-top: 20px; font-size: 17px;">
-                                    {mensaje_html}
-                                </td>
+                                  <td style="padding-top: 20px; font-size: 17px;">
+                                    <p>Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+                                    <p>Te informamos que recibiste la siguiente notificación en la plataforma con
+                                    una solicitud para actualizar tu proyecto adoptivo:</p>
+                                  </td>
                                 </tr>
                                 <tr>
-                                <td align="center" style="font-size: 17px; padding-top: 30px;">
-                                    <p><strong>Muchas gracias.</strong></p>
-                                </td>
+                                  <td style="padding-top: 20px; font-size: 16px;">
+                                    <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
+                                        {mensaje_html}
+                                    </div>
+                                  </td>
                                 </tr>
                                 <tr>
-                                <td style="padding-top: 30px;">
-                                    <hr style="border: none; border-top: 1px solid #dee2e6;">
-                                    <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                                    <strong>Registro Único de Adopciones de Córdoba</strong>
-                                    </p>
-                                </td>
+                                  <td style="padding-top: 30px; font-size: 17px;">
+                                    <p>¡Saludos!</p>
+                                  </td>
                                 </tr>
-                            </table>
+                              </table>
                             </td>
-                        </tr>
+                          </tr>
                         </table>
-                    </body>
+                      </body>
                     </html>
                     """
+
                     enviar_mail(
                         destinatario=user.mail,
                         asunto="Solicitud de actualización del proyecto adoptivo",
