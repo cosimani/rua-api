@@ -4769,30 +4769,6 @@ def crear_proyecto_completo(
             print( '2', login_2_user, login_2_roles )
 
 
-            # 🚨 Validar que login_2 no forme parte de otro proyecto activo en RUA
-            proyecto_pareja_activo = (
-                db.query(Proyecto)
-                .filter(
-                    ((Proyecto.login_1 == login_2) | (Proyecto.login_2 == login_2)),
-                    Proyecto.estado_general.in_([
-                        'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando', 'aprobado',
-                        'calendarizando', 'entrevistando', 'para_valorar', 'viable', 'viable_no_disponible',
-                        'en_suspenso', 'no_viable', 'en_carpeta', 'vinculacion', 'guarda'
-                    ]),
-                    Proyecto.ingreso_por == "rua"
-                )
-                .first()
-            )
-
-            if proyecto_pareja_activo:
-                return {
-                    "success": False,
-                    "tipo_mensaje": "naranja",
-                    "mensaje": f"El usuario con DNI {login_2} ya forma parte de otro proyecto activo y no puede sumarse a este.",
-                    "tiempo_mensaje": 5,
-                    "next_page": "actual"
-                }
-
             # 🚨 Validar que login_2 tenga su documentación aprobada
             if login_2_user.doc_adoptante_estado != "aprobado":
                 return {
@@ -4805,48 +4781,64 @@ def crear_proyecto_completo(
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
-
             
-            # # ❌ No permitir si login_2 ya tiene otro proyecto como titular o pareja
-            # proyecto_pareja_activo = db.query(Proyecto).filter(
-            #     or_(
-            #         Proyecto.login_1 == login_2,
-            #         Proyecto.login_2 == login_2
-            #     ),
-            #     Proyecto.estado_general.in_([
-            #         "en_revision", "actualizando", "aprobado", "calendarizando", "entrevistando",
-            #         "para_valorar", "viable", "en_suspenso", "en_carpeta", "vinculacion", "guarda"
-            #     ])
-            # ).first()
-
-            # print( '3', proyecto_pareja_activo )
-
-            # if proyecto_pareja_activo:
-            #     return {
-            #         "success": False,
-            #         "tipo_mensaje": "naranja",
-            #         "mensaje": f"Su pareja ya forma parte de otro proyecto activo. No se puede continuar.",
-            #         "tiempo_mensaje": 5,
-            #         "next_page": "actual"
-            #     }
-
-
 
         # 🔍 1) ¿existe un proyecto activo confeccionando/aprobado/actualizando?. 
         proyecto_existente = (
             db.query(Proyecto)
             .filter(
-                Proyecto.login_1 == login_1,
                 Proyecto.ingreso_por == "rua",
                 Proyecto.estado_general.in_(["confeccionando", "actualizando"]),
-                Proyecto.login_2 == login_2,
-                Proyecto.proyecto_tipo == tipo
+                Proyecto.proyecto_tipo == tipo,
+                or_(
+                    and_(Proyecto.login_1 == login_1, Proyecto.login_2 == login_2),
+                    and_(Proyecto.login_1 == login_2, Proyecto.login_2 == login_1)
+                )
             )
             .first()
         )
+
+        print( '6xxxxx', proyecto_existente )
+        print( 'Proyecto.login_1', proyecto_existente.login_1 )
+        print( 'login_1', login_1 )
+        print( 'Proyecto.ingreso_por', proyecto_existente.ingreso_por )
+        print( 'Proyecto.estado_general', proyecto_existente.estado_general )
+        print( 'Proyecto.login_2', proyecto_existente.login_2 )
+        print( 'Proyecto.proyecto_tipo', proyecto_existente.proyecto_tipo )
+        print( 'tipo', tipo )
         
 
-        print( '6', proyecto_existente )
+
+        # 🚨 Validar que login_2 no forme parte de otro proyecto activo en RUA
+        proyecto_pareja_activo = (
+            db.query(Proyecto)
+            .filter(
+                ((Proyecto.login_1 == login_2) | (Proyecto.login_2 == login_2)),
+                Proyecto.estado_general.in_([
+                    'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando', 'aprobado',
+                    'calendarizando', 'entrevistando', 'para_valorar', 'viable', 'viable_no_disponible',
+                    'en_suspenso', 'no_viable', 'en_carpeta', 'vinculacion', 'guarda'
+                ]),
+                Proyecto.ingreso_por == "rua"
+            )
+            .first()
+        )
+
+        print( '6666', proyecto_pareja_activo )
+
+        if proyecto_pareja_activo:
+            # ✅ Si es el mismo proyecto, no mostrar mensaje de error
+            if not (proyecto_existente and proyecto_pareja_activo.proyecto_id == proyecto_existente.proyecto_id):
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": f"El usuario con DNI {login_2} ya forma parte de otro proyecto activo y no puede sumarse a este.",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+        
+
+        
 
 
         # 🔁 Automatiza la carga de subregistros
@@ -4891,19 +4883,51 @@ def crear_proyecto_completo(
             estado_anterior = proyecto_existente.estado_general  # <-- guardar antes de cambiar
             proyecto_existente.estado_general = estado_nuevo           # <-- luego actualizar
 
-            # registrar el cambio
-            db.add(
-                ProyectoHistorialEstado(
-                    proyecto_id     = proyecto_existente.proyecto_id,
-                    estado_anterior = estado_anterior,
-                    estado_nuevo    = estado_nuevo,
-                    fecha_hora      = datetime.now()
-                )
+            db.commit()
+            db.refresh(proyecto_existente)
+
+  
+            # ✅ Registrar evento de aceptación
+            evento = RuaEvento(
+                login=login_1,
+                evento_detalle="Actualizó proyecto y solicitó revisión del mismo.",
+                evento_fecha=datetime.now()
+            )
+            db.add(evento)
+
+            # 🔔 Obtener nombres completos de login_1 y login_2
+            user1 = db.query(User).filter(User.login == proyecto_existente.login_1).first()
+            user2 = db.query(User).filter(User.login == proyecto_existente.login_2).first()
+
+            if user1 and user2:
+                nombre_completo = f"{user1.nombre} {user1.apellido} y {user2.nombre} {user2.apellido}"
+            elif user1:
+                nombre_completo = f"{user1.nombre} {user1.apellido}"
+            else:
+                nombre_completo = proyecto_existente.login_1
+          
+            # ✅ Crear notificación a supervisoras
+            crear_notificacion_masiva_por_rol(
+                db=db,
+                rol="supervisora",
+                mensaje=f"{nombre_completo} actualizó proyecto y solicitó revisión del mismo.",
+                link="/menu_supervisoras/detalleProyecto",
+                data_json={"proyecto_id": proyecto_existente.proyecto_id},
+                tipo_mensaje="azul"
             )
 
 
+            # ✅ Registrar historial de estado
+            historial = ProyectoHistorialEstado(
+                proyecto_id     = proyecto_existente.proyecto_id,
+                estado_anterior = estado_anterior,
+                estado_nuevo    = estado_nuevo,
+                fecha_hora      = datetime.now()
+            )
+            db.add(historial)
+
             db.commit()
-            db.refresh(proyecto_existente)
+            
 
             return {
                 "success": True,
@@ -5116,7 +5140,7 @@ def crear_proyecto_completo(
         return {
             "success": False,
             "tipo_mensaje": "naranja",
-            "mensaje": f"Error al crear el proyecto avanzado: {str(e)}",
+            "mensaje": f"Error al crear o actualizar el proyecto: {str(e)}",
             "tiempo_mensaje": 5,
             "next_page": "actual"
         }
