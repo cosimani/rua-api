@@ -14,12 +14,14 @@ from helpers.moodle import existe_mail_en_moodle, existe_dni_en_moodle, is_curso
 
 from security.security import get_current_user, require_roles, verify_api_key
 
+from helpers.notificaciones_utils import crear_notificacion_masiva_por_rol, crear_notificacion_individual
+
 
 import os
 import re
 from models.users import User, Group, UserGroup 
 from models.ddjj import DDJJ
-from models.proyecto import Proyecto
+from models.proyecto import Proyecto, ProyectoHistorialEstado
 from models.eventos_y_configs import RuaEvento
 # from models.eventos_y_configs import LoginIntentoIP
 from sqlalchemy.exc import SQLAlchemyError
@@ -490,44 +492,71 @@ def aceptar_invitacion(
         login_2 = proyecto.login_2
         user2 = db.query(User).filter(User.login == login_2).first()
 
-        if respuesta == "N":
-            proyecto.aceptado = "N"
-            proyecto.aceptado_code = None
-            proyecto.estado_general = "baja_rechazo_invitacion"
-            db.commit()
 
+        if respuesta == "N":
+            # Registrar evento antes de borrar el proyecto
             evento = RuaEvento(
                 login=login_2,
                 evento_detalle="El usuario rechazó la invitación al proyecto.",
                 evento_fecha=datetime.now()
             )
             db.add(evento)
+
+            # Borrar el proyecto de la base
+            db.delete(proyecto)
             db.commit()
+
 
         elif respuesta == "Y":
-            if not user2 or getattr(user2, "doc_adoptante_curso_aprobado", "N") != "Y":
-                return {
-                    "tipo_mensaje": "naranja",
-                    "mensaje": (
-                        "<p>No podés aceptar la invitación porque aún no tenés aprobado el Curso Obligatorio.</p>"
-                        "<p>Completalo y volvé a ingresar desde el enlace de la invitación.</p>"
-                    ),
-                    "tiempo_mensaje": 6,
-                    "next_page": "login"
-                }
+            # ✅ Guardar estado anterior antes de modificar
+            estado_anterior = proyecto.estado_general
 
+            # ✅ Actualizar proyecto
             proyecto.aceptado = "Y"
             proyecto.aceptado_code = None
-            proyecto.estado_general = "confeccionando"
+            proyecto.estado_general = "en_revision"
             db.commit()
 
+            # ✅ Registrar evento de aceptación
             evento = RuaEvento(
                 login=login_2,
-                evento_detalle="El usuario aceptó la invitación al proyecto.",
+                evento_detalle="El usuario aceptó la invitación al proyecto y se envía a revisión.",
                 evento_fecha=datetime.now()
             )
             db.add(evento)
+
+            # 🔔 Obtener nombres completos de login_1 y login_2
+            user1 = db.query(User).filter(User.login == proyecto.login_1).first()
+            user2 = db.query(User).filter(User.login == proyecto.login_2).first()
+
+            if user1 and user2:
+                nombre_completo = f"{user1.nombre} {user1.apellido} y {user2.nombre} {user2.apellido}"
+            elif user1:
+                nombre_completo = f"{user1.nombre} {user1.apellido}"
+            else:
+                nombre_completo = proyecto.login_1
+
+            # ✅ Crear notificación a supervisoras
+            crear_notificacion_masiva_por_rol(
+                db=db,
+                rol="supervisora",
+                mensaje=f"{nombre_completo} solicitaron revisión del proyecto.",
+                link="/menu_supervisoras/detalleProyecto",
+                data_json={"proyecto_id": proyecto.proyecto_id},
+                tipo_mensaje="azul"
+            )
+
+            # ✅ Registrar historial de estado con estado anterior
+            db.add(ProyectoHistorialEstado(
+                proyecto_id=proyecto.proyecto_id,
+                estado_anterior=estado_anterior,
+                estado_nuevo="en_revision",
+                fecha_hora=datetime.now()
+            ))
+
             db.commit()
+
+
 
         # Enviar correo a login_1
         try:

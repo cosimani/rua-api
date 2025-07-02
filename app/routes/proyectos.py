@@ -4733,7 +4733,7 @@ def crear_proyecto_completo(
                 return {
                     "success": False,
                     "tipo_mensaje": "naranja",
-                    "mensaje": "Debe especificar el DNI de la pareja para proyectos biparentales.",
+                    "mensaje": "Debe especificar el DNI de la pareja para proyectos en pareja.",
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
@@ -4741,7 +4741,7 @@ def crear_proyecto_completo(
                 return {
                     "success": False,
                     "tipo_mensaje": "naranja",
-                    "mensaje": f"El DNI de la pareja debe ser distinto al suyo.",
+                    "mensaje": f"El DNI de la pareja es igual al tuyo.",
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
@@ -4751,7 +4751,7 @@ def crear_proyecto_completo(
                 return {
                     "success": False,
                     "tipo_mensaje": "naranja",
-                    "mensaje": f"El DNI de su pareja no corresponde a un usuario en el sistema.",
+                    "mensaje": f"El DNI de su pareja no corresponde a un usuario en el Sistema RUA.",
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
@@ -4767,6 +4767,45 @@ def crear_proyecto_completo(
                 }
 
             print( '2', login_2_user, login_2_roles )
+
+
+            # 🚨 Validar que login_2 no forme parte de otro proyecto activo en RUA
+            proyecto_pareja_activo = (
+                db.query(Proyecto)
+                .filter(
+                    ((Proyecto.login_1 == login_2) | (Proyecto.login_2 == login_2)),
+                    Proyecto.estado_general.in_([
+                        'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando', 'aprobado',
+                        'calendarizando', 'entrevistando', 'para_valorar', 'viable', 'viable_no_disponible',
+                        'en_suspenso', 'no_viable', 'en_carpeta', 'vinculacion', 'guarda'
+                    ]),
+                    Proyecto.ingreso_por == "rua"
+                )
+                .first()
+            )
+
+            if proyecto_pareja_activo:
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": f"El usuario con DNI {login_2} ya forma parte de otro proyecto activo y no puede sumarse a este.",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+
+            # 🚨 Validar que login_2 tenga su documentación aprobada
+            if login_2_user.doc_adoptante_estado != "aprobado":
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": (
+                        f"El usuario con DNI {login_2} no tiene su documentación personal aprobada en el sistema. "
+                        "Debe completarla y obtener la aprobación antes de poder sumarse al proyecto."
+                    ),               
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+
             
             # # ❌ No permitir si login_2 ya tiene otro proyecto como titular o pareja
             # proyecto_pareja_activo = db.query(Proyecto).filter(
@@ -4878,18 +4917,19 @@ def crear_proyecto_completo(
         # Sigue por este else cuando el proeycto no existe todavía
         else :
 
-            if tipo != "Monoparental":
-
-                aceptado_code = generar_codigo_para_link(16)
-                aceptado = "N"
-                estado = "invitacion_pendiente"
-
-            else :
+            if tipo == "Monoparental" :  
 
                 aceptado_code = None
                 aceptado = "Y"
                 estado = "en_revision"
                 login_2 = None
+
+            else :  
+                
+                aceptado_code = generar_codigo_para_link(16)
+                aceptado = "N"
+                estado = "invitacion_pendiente"
+                
 
 
             nuevo = Proyecto(
@@ -4951,7 +4991,6 @@ def crear_proyecto_completo(
                                     <tr>
                                     <td style="padding-top: 20px; font-size: 17px;">
                                         <p>Has sido invitado/a a conformar un proyecto adoptivo junto a <strong>{nombre_1} {apellido_1}</strong> (DNI: {login_1}).</p>
-                                        {"<p style='color: red;'><strong>⚠️ Para aceptar la invitación, debés tener aprobado el Curso Obligatorio.</strong></p>" if not doc_adoptante_curso_aprobado else ""}
                                         <p>Por favor, confirmá tu participación haciendo clic en uno de los siguientes botones:</p>
                                     </td>
                                     </tr>
@@ -5011,6 +5050,14 @@ def crear_proyecto_completo(
                     db.add(evento)
                     db.commit()
 
+                    return {
+                        "success": True,
+                        "tipo_mensaje": "verde",
+                        "mensaje": "Invitación enviada correctamente.",
+                        "tiempo_mensaje": 4,
+                        "next_page": "actual"
+                    }
+
                 except Exception as e:
                     return {
                         "success": False,
@@ -5022,6 +5069,7 @@ def crear_proyecto_completo(
 
             print( '11' )
 
+
             # Registrar RuaEvento si es monoparental
             if tipo == "Monoparental":
                 evento = RuaEvento(
@@ -5032,26 +5080,17 @@ def crear_proyecto_completo(
                 db.add(evento)
 
 
-                # 🔔 Notificar a todas las supervisoras
-                if tipo == "Monoparental":
-                    nombre_completo = f"{nombre_1} {apellido_1}"
-                else:
-                    nombre_2 = login_2_user.nombre
-                    apellido_2 = login_2_user.apellido
-                    nombre_completo = f"{nombre_1} {apellido_1} y {nombre_2} {apellido_2}"
+            # 🔔 Notificar a todas las supervisoras
+            nombre_completo = f"{nombre_1} {apellido_1}"
 
-                accion = "solicitó" if tipo == "Monoparental" else "solicitaron"
-
-                crear_notificacion_masiva_por_rol(
-                    db=db,
-                    rol="supervisora",
-                    mensaje=f"{nombre_completo} {accion} revisión del proyecto.",
-                    link="/menu_supervisoras/detalleProyecto",
-                    data_json={"proyecto_id": nuevo.proyecto_id},
-                    tipo_mensaje="azul"
-                )
-
-
+            crear_notificacion_masiva_por_rol(
+                db=db,
+                rol="supervisora",
+                mensaje=f"{nombre_completo} solicitó revisión del proyecto.",
+                link="/menu_supervisoras/detalleProyecto",
+                data_json={"proyecto_id": nuevo.proyecto_id},
+                tipo_mensaje="azul"
+            )
 
             # Registrar historial de estado
             historial = ProyectoHistorialEstado(
