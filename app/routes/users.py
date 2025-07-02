@@ -3285,67 +3285,114 @@ def notificar_pretenso_mensaje(
         if user_destino.mail:
             try:
                 if accion == "solicitar_actualizacion_doc":
-                    cuerpo_mensaje_html = f"""
-                    <p>Desde el equipo de supervisión del <strong>RUA</strong>, solicitamos que revise y actualice su documentación personal en el sistema.</p>
-                    <p>A continuación, compartimos el mensaje enviado por el equipo:</p>
-                    <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
-                        <em>{mensaje}</em>
-                    </div>
+                    cuerpo = f"""
+                    <html>
+                      <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                        <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                          <tr>
+                            <td align="center">
+                              <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                <tr>
+                                  <td style="font-size: 24px; color: #007bff;">
+                                      <strong>¡Hola {user_destino.nombre}!</strong>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td style="padding-top: 20px; font-size: 17px;">
+                                    <p>Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+                                    <p>Te informamos que recibiste la siguiente notificación en la plataforma con
+                                    una solicitud para actualizar tu documentación personal:</p>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td style="padding-top: 20px; font-size: 16px;">
+                                    <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
+                                        {mensaje}
+                                    </div>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td style="padding-top: 30px; font-size: 17px;">
+                                    <p>¡Saludos!</p>
+                                  </td>
+                                </tr>
+                              </table>
+                            </td>
+                          </tr>
+                        </table>
+                      </body>
+                    </html>
                     """
                 elif accion == "aprobar_documentacion":
-                    cuerpo_mensaje_html = f"""
-                    <p>Desde el equipo de supervisión del <strong>RUA</strong>, informamos que su documentación personal fue <strong>revisada y aprobada</strong>.</p>
-                    <p>A continuación, compartimos el mensaje enviado por el equipo:</p>
-                    <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #198754; border-radius: 6px; margin-top: 10px;">
-                        <em>{mensaje}</em>
-                    </div>
+
+                    cuerpo = f"""
+                    <html>
+                      <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                        <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                          <tr>
+                            <td align="center">
+                              <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                <tr>
+                                  <td style="font-size: 24px; color: #007bff;">
+                                      <strong>¡Hola {user_destino.nombre}!</strong>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td style="padding-top: 20px; font-size: 17px;">
+                                    {mensaje}
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td style="padding-top: 30px; font-size: 17px;">
+                                    <p>¡Saludos!</p>
+                                  </td>
+                                </tr>
+                              </table>
+                            </td>
+                          </tr>
+                        </table>
+                      </body>
+                    </html>
                     """
                 else:
-
-                    cuerpo_mensaje_html = f"""
-                    <p>Te informamos que recibiste el siguiente mensaje en la plataforma:</p>
-                    <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
-                        <em>{mensaje}</em>
-                    </div>
-                    """
-
-                cuerpo = f"""
-                <html>
-                <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-                    <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-                    <tr>
-                        <td align="center">
-                        <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-                            <tr>
-                            <td style="font-size: 24px; color: #007bff;">
-                                <strong>Hola {user_destino.nombre},</strong>
+                    cuerpo = f"""
+                    <html>
+                      <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                        <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                          <tr>
+                            <td align="center">
+                              <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                <tr>
+                                  <td style="font-size: 24px; color: #007bff;">
+                                      <strong>¡Hola {user_destino.nombre}!</strong>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td style="padding-top: 20px; font-size: 17px;">
+                                    <p>Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+                                    <p>Te informamos que recibiste la siguiente notificación en la plataforma:</p>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td style="padding-top: 20px; font-size: 16px;">
+                                    <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
+                                        {mensaje}
+                                    </div>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td style="padding-top: 30px; font-size: 17px;">
+                                    <p>¡Saludos!</p>
+                                  </td>
+                                </tr>
+                              </table>
                             </td>
-                            </tr>
-                            <tr>
-                            <td style="padding-top: 20px; font-size: 17px;">
-                                {cuerpo_mensaje_html}
-                            </td>
-                            </tr>
-                            <tr>
-                            <td align="center" style="font-size: 17px; padding-top: 30px;">
-                                <p><strong>Muchas gracias.</strong></p>
-                            </td>
-                            </tr>
-                            <tr>
-                            <td style="padding-top: 30px;">
-                                <hr style="border: none; border-top: 1px solid #dee2e6;">
-                                <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                                <strong>Registro Único de Adopciones de Córdoba</strong>
-                                </p>
-                            </td>
-                            </tr>
+                          </tr>
                         </table>
-                        </td>
-                    </tr>
-                    </table>
-                </body>
-                </html>
-                """
+                      </body>
+                    </html>
+                    """
+                
 
 
                 enviar_mail(
