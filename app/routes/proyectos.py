@@ -13,6 +13,8 @@ from models.convocatorias import DetalleProyectoPostulacion
 from models.ddjj import DDJJ
 from models.nna import Nna
 
+from bs4 import BeautifulSoup
+
 
 # from models.carpeta import DetalleProyectosEnCarpeta
 from models.users import User, Group, UserGroup 
@@ -5029,15 +5031,26 @@ def crear_proyecto_completo(
                 )
                 db.add(evento)
 
+
                 # 🔔 Notificar a todas las supervisoras
+                if tipo == "Monoparental":
+                    nombre_completo = f"{nombre_1} {apellido_1}"
+                else:
+                    nombre_2 = login_2_user.nombre
+                    apellido_2 = login_2_user.apellido
+                    nombre_completo = f"{nombre_1} {apellido_1} y {nombre_2} {apellido_2}"
+
+                accion = "solicitó" if tipo == "Monoparental" else "solicitaron"
+
                 crear_notificacion_masiva_por_rol(
                     db=db,
                     rol="supervisora",
-                    mensaje=f"El usuario {login_1} solicitó revisión del proyecto.",
+                    mensaje=f"{nombre_completo} {accion} revisión del proyecto.",
                     link="/menu_supervisoras/detalleProyecto",
                     data_json={"proyecto_id": nuevo.proyecto_id},
                     tipo_mensaje="azul"
                 )
+
 
 
             # Registrar historial de estado
@@ -5139,11 +5152,24 @@ def notificar_proyecto_mensaje(
             if not user:
                 continue
 
+            # Extraer texto plano del mensaje HTML para guardar en base
+            mensaje_texto_plano = BeautifulSoup(mensaje, "lxml").get_text(separator=" ", strip=True)
+
+            if not mensaje_texto_plano:
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": "El mensaje debe tener contenido con información.",
+                    "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+
+
             # Crear notificación individual
             resultado = crear_notificacion_individual(
                 db=db,
                 login_destinatario=login,
-                mensaje=mensaje,
+                mensaje=mensaje_texto_plano,
                 link=link,
                 data_json=data_json,
                 tipo_mensaje=tipo_mensaje,
@@ -5154,7 +5180,7 @@ def notificar_proyecto_mensaje(
                 raise Exception(resultado["mensaje"])
 
             # Registrar evento
-            evento_detalle = f"Notificación a {login} desde proyecto {proyecto_id}: {mensaje[:150]}"
+            evento_detalle = f"Notificación a {login} desde proyecto {proyecto_id}: {mensaje_texto_plano[:150]}"
             if nuevo_estado:
                 evento_detalle += f" | Estado actualizado: '{nuevo_estado}'"
 
@@ -5167,49 +5193,45 @@ def notificar_proyecto_mensaje(
             # Enviar correo si tiene mail
             if user.mail:
                 try:
-                    cuerpo_mensaje_html = f"""
-                        <p>Recibiste una notificación del <strong>RUA</strong>:</p>
-                        <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
-                            <em>{mensaje}</em>
-                        </div>
-                    """
+                   
                     cuerpo = f"""
                     <html>
-                    <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                      <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
                         <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-                        <tr>
+                          <tr>
                             <td align="center">
-                            <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                              <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
                                 <tr>
-                                <td style="font-size: 24px; color: #007bff;">
-                                    <strong>Hola {user.nombre},</strong>
-                                </td>
+                                  <td style="font-size: 24px; color: #007bff;">
+                                      <strong>¡Hola {user.nombre}!</strong>
+                                  </td>
                                 </tr>
                                 <tr>
-                                <td style="padding-top: 20px; font-size: 17px;">
-                                    {cuerpo_mensaje_html}
-                                </td>
+                                  <td style="padding-top: 20px; font-size: 17px;">
+                                    <p>Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+                                    <p>Te informamos que recibiste la siguiente notificación en la plataforma:</p>
+                                  </td>
                                 </tr>
                                 <tr>
-                                <td align="center" style="font-size: 17px; padding-top: 30px;">
-                                    <p><strong>Muchas gracias.</strong></p>
-                                </td>
+                                  <td style="padding-top: 20px; font-size: 16px;">
+                                    <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
+                                        {mensaje}
+                                    </div>
+                                  </td>
                                 </tr>
                                 <tr>
-                                <td style="padding-top: 30px;">
-                                    <hr style="border: none; border-top: 1px solid #dee2e6;">
-                                    <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                                    <strong>Registro Único de Adopciones de Córdoba</strong>
-                                    </p>
-                                </td>
+                                  <td style="padding-top: 30px; font-size: 17px;">
+                                    <p>¡Saludos!</p>
+                                  </td>
                                 </tr>
-                            </table>
+                              </table>
                             </td>
-                        </tr>
+                          </tr>
                         </table>
-                    </body>
+                      </body>
                     </html>
                     """
+
 
                     enviar_mail(
                         destinatario=user.mail,
@@ -5807,7 +5829,8 @@ def aprobar_proyecto(
             logins_destinatarios.append(proyecto.login_2)
 
         mensaje_notificacion = (
-            "La presentación de tu proyecto adoptivo fue aceptado. Pronto se pondrán en contacto desde el RUA para coordinar las entrevistas."
+            "Tu proyecto adoptivo fue revisado y aprobado. La psicóloga y trabajadora social que van a trabajar en tu caso "
+            "se van a comunicar para coordinar una entrevista."
         )
 
         for login_destinatario in logins_destinatarios:
@@ -5843,51 +5866,47 @@ def aprobar_proyecto(
 
             if user.mail:
                 try:
-                    cuerpo_mensaje_html = f"""
-                        <p>Recibiste una notificación del <strong>RUA</strong>:</p>
-                        <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
-                            <em>La presentación de tu proyecto adoptivo fue aceptado. Pronto se pondrán en contacto con vos para iniciar las entrevistas correspondientes.</em>
-                        </div>
-                    """
-
                     cuerpo = f"""
-                    <html>
-                    <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-                        <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-                        <tr>
-                            <td align="center">
-                            <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-                                <tr>
-                                <td style="font-size: 24px; color: #007bff;">
-                                    <strong>Hola {user.nombre},</strong>
-                                </td>
-                                </tr>
-                                <tr>
-                                <td style="padding-top: 20px; font-size: 17px;">
-                                    {cuerpo_mensaje_html}
-                                </td>
-                                </tr>
-                                <tr>
-                                <td align="center" style="font-size: 17px; padding-top: 30px;">
-                                    <p><strong>Muchas gracias.</strong></p>
-                                </td>
-                                </tr>
-                                <tr>
-                                <td style="padding-top: 30px;">
-                                    <hr style="border: none; border-top: 1px solid #dee2e6;">
-                                    <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                                    <strong>Registro Único de Adopciones de Córdoba</strong>
-                                    </p>
-                                </td>
-                                </tr>
-                            </table>
-                            </td>
-                        </tr>
-                        </table>
-                    </body>
-                    </html>
-                    """
+                      <html>
+                        <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                          <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                            <tr>
+                              <td align="center">
+                                <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                  <tr>
+                                    <td style="font-size: 24px; color: #007bff;">
+                                        <strong>¡Hola {user.nombre}!</strong>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td style="padding-top: 20px; font-size: 17px;">
+                                      <p>Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+                                      <p>Te informamos que recibiste la siguiente notificación en la plataforma:</p>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td style="padding-top: 20px; font-size: 16px;">
+                                      <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
+                                          
+                                        Tu proyecto adoptivo fue revisado y aprobado. La psicóloga y trabajadora social que 
+                                        van a trabajar en tu caso se van a comunicar para coordinar una entrevista.
 
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td style="padding-top: 30px; font-size: 17px;">
+                                      <p>¡Saludos!</p>
+                                    </td>
+                                  </tr>
+                                </table>
+                              </td>
+                            </tr>
+                          </table>
+                        </body>
+                      </html>
+                      """
+                    
                     enviar_mail(
                         destinatario=user.mail,
                         asunto="Notificación del Sistema RUA",
