@@ -4798,45 +4798,38 @@ def crear_proyecto_completo(
             .first()
         )
 
-        print( '6xxxxx', proyecto_existente )
-        print( 'Proyecto.login_1', proyecto_existente.login_1 )
-        print( 'login_1', login_1 )
-        print( 'Proyecto.ingreso_por', proyecto_existente.ingreso_por )
-        print( 'Proyecto.estado_general', proyecto_existente.estado_general )
-        print( 'Proyecto.login_2', proyecto_existente.login_2 )
-        print( 'Proyecto.proyecto_tipo', proyecto_existente.proyecto_tipo )
-        print( 'tipo', tipo )
-        
+        print( '7777 proyecto_existente', proyecto_existente )
 
-
-        # 🚨 Validar que login_2 no forme parte de otro proyecto activo en RUA
-        proyecto_pareja_activo = (
-            db.query(Proyecto)
-            .filter(
-                ((Proyecto.login_1 == login_2) | (Proyecto.login_2 == login_2)),
-                Proyecto.estado_general.in_([
-                    'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando', 'aprobado',
-                    'calendarizando', 'entrevistando', 'para_valorar', 'viable', 'viable_no_disponible',
-                    'en_suspenso', 'no_viable', 'en_carpeta', 'vinculacion', 'guarda'
-                ]),
-                Proyecto.ingreso_por == "rua"
+        if login_2 :
+            
+            # 🚨 Validar que login_2 no forme parte de otro proyecto activo en RUA
+            proyecto_pareja_activo = (
+                db.query(Proyecto)
+                .filter(
+                    ((Proyecto.login_1 == login_2) | (Proyecto.login_2 == login_2)),
+                    Proyecto.estado_general.in_([
+                        'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando', 'aprobado',
+                        'calendarizando', 'entrevistando', 'para_valorar', 'viable', 'viable_no_disponible',
+                        'en_suspenso', 'no_viable', 'en_carpeta', 'vinculacion', 'guarda'
+                    ]),
+                    Proyecto.ingreso_por == "rua"
+                )
+                .first()
             )
-            .first()
-        )
 
-        print( '6666', proyecto_pareja_activo )
+            print( '6666 proyecto_pareja_activo', proyecto_pareja_activo )
 
-        if proyecto_pareja_activo:
-            # ✅ Si es el mismo proyecto, no mostrar mensaje de error
-            if not (proyecto_existente and proyecto_pareja_activo.proyecto_id == proyecto_existente.proyecto_id):
-                return {
-                    "success": False,
-                    "tipo_mensaje": "naranja",
-                    "mensaje": f"El usuario con DNI {login_2} ya forma parte de otro proyecto activo y no puede sumarse a este.",
-                    "tiempo_mensaje": 5,
-                    "next_page": "actual"
-                }
-        
+            if proyecto_pareja_activo:
+                # ✅ Si es el mismo proyecto, no mostrar mensaje de error
+                if not (proyecto_existente and proyecto_pareja_activo.proyecto_id == proyecto_existente.proyecto_id):
+                    return {
+                        "success": False,
+                        "tipo_mensaje": "naranja",
+                        "mensaje": f"El usuario con DNI {login_2} ya forma parte de otro proyecto activo y no puede sumarse a este.",
+                        "tiempo_mensaje": 5,
+                        "next_page": "actual"
+                    }
+            
 
         
 
