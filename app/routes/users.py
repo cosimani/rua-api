@@ -25,6 +25,8 @@ import time
 from datetime import datetime, timedelta, date, time as dt_time
 
 import time
+from bs4 import BeautifulSoup
+
 
 
 from database.config import get_db  # Importá get_db desde config.py
@@ -3229,11 +3231,24 @@ def notificar_pretenso_mensaje(
 
 
     try:
+
+        # Extraer texto plano del mensaje HTML para guardar en base
+        mensaje_texto_plano = BeautifulSoup(mensaje, "lxml").get_text(separator=" ", strip=True)
+
+        if not mensaje_texto_plano:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "El mensaje debe tener contenido con información.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
         # Crear notificación individual
         resultado = crear_notificacion_individual(
             db=db,
             login_destinatario=login_destinatario,
-            mensaje=mensaje,
+            mensaje=mensaje_texto_plano,
             link=link,
             data_json=data_json,
             tipo_mensaje=tipo_mensaje,
@@ -3254,7 +3269,7 @@ def notificar_pretenso_mensaje(
             user_destino.doc_adoptante_estado = nuevo_estado
 
         # Registrar único evento con detalle completo
-        evento_detalle = f"Notificación enviada por {login_que_observa}: {mensaje[:150]}"
+        evento_detalle = f"Notificación enviada por {login_que_observa}: {mensaje_texto_plano[:150]}"
         if nuevo_estado:
             evento_detalle += f" | Se cambió el estado de documentación a '{nuevo_estado}'"
 
