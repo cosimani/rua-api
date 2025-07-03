@@ -4766,8 +4766,6 @@ def crear_proyecto_completo(
                     "next_page": "actual"
                 }
 
-            print( '2', login_2_user, login_2_roles )
-
 
             # 🚨 Validar que login_2 tenga su documentación aprobada
             if login_2_user.doc_adoptante_estado != "aprobado":
@@ -4858,6 +4856,17 @@ def crear_proyecto_completo(
 
 
 
+        # 🚨 Validar que al menos un subregistro sea "Y"
+        if not any(valor == "Y" for valor in subreg_data.values()):
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Debe seleccionar al menos un subregistro.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+
         if proyecto_existente:            
 
             # ── actualizar campos básicos ─────────────────────────────
@@ -4928,6 +4937,7 @@ def crear_proyecto_completo(
                 "mensaje": "Solicitud de revisión enviada correctamente.",
                 "tiempo_mensaje": 4,
                 "next_page": "menu_adoptantes/proyecto",
+                "proyecto_id": proyecto_existente.proyecto_id  # ✅ devuelve el id del proyecto creado
             }
         
         
@@ -5054,8 +5064,12 @@ def crear_proyecto_completo(
                         </html>
                         """
 
+                    try:
+                        enviar_mail(destinatario=login_2_user.mail, asunto="Invitación a proyecto adoptivo - RUA", cuerpo=cuerpo)
+                        print("✅ Correo enviado correctamente")
+                    except Exception as e:
+                        print(f"❌ Error al enviar correo: {e}")
 
-                    enviar_mail(destinatario=login_2_user.mail, asunto="Invitación a proyecto adoptivo - RUA", cuerpo=cuerpo)
 
                     print( '10', login_2_user.mail )
 
@@ -5072,7 +5086,8 @@ def crear_proyecto_completo(
                         "tipo_mensaje": "verde",
                         "mensaje": "Invitación enviada correctamente.",
                         "tiempo_mensaje": 4,
-                        "next_page": "actual"
+                        "next_page": "actual",
+                        "proyecto_id": nuevo.proyecto_id  # ✅ devuelve el id del proyecto creado
                     }
 
                 except Exception as e:
@@ -5125,7 +5140,8 @@ def crear_proyecto_completo(
                 "tipo_mensaje": "verde",
                 "mensaje": "Proyecto creado correctamente.",
                 "tiempo_mensaje": 4,
-                "next_page": "menu_adoptantes/proyecto"
+                "next_page": "menu_adoptantes/proyecto",
+                "proyecto_id": nuevo.proyecto_id  # ✅ devuelve el id del proyecto creado
             }
 
     except SQLAlchemyError as e:
