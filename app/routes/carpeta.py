@@ -430,22 +430,43 @@ def actualizar_carpeta(
         proyectos_previos = {p.proyecto_id for p in proyectos_previos}
 
 
+        # Validar proyectos nuevos que NO estuvieran antes y no estén en estado viable
+        proyectos_a_validar = nuevos_proyectos - proyectos_previos
+
+        if proyectos_a_validar:
+            proyectos_invalidos = db.query(Proyecto).filter(
+                Proyecto.proyecto_id.in_(proyectos_a_validar),
+                Proyecto.estado_general != 'viable'
+            ).all()
+
+            if proyectos_invalidos:
+                ids_invalidos = [p.proyecto_id for p in proyectos_invalidos]
+                return {
+                    "success": False,
+                    "tipo_mensaje": "rojo",
+                    "mensaje": f"Los siguientes proyectos no están en estado 'viable': {ids_invalidos}",
+                    "tiempo_mensaje": 8,
+                    "next_page": "actual"
+                }
+
+
         
-        # Validación previa antes de eliminar y volver a insertar
-        # Validar proyectos nuevos
-        proyectos_invalidos = db.query(Proyecto).filter(
-            Proyecto.proyecto_id.in_(nuevos_proyectos),
-            Proyecto.estado_general != 'viable'
-        ).all()
-        if proyectos_invalidos:
-            ids_invalidos = [p.proyecto_id for p in proyectos_invalidos]
-            return {
-                "success": False,
-                "tipo_mensaje": "rojo",
-                "mensaje": f"Los siguientes proyectos no están en estado 'viable': {ids_invalidos}",
-                "tiempo_mensaje": 8,
-                "next_page": "actual"
-            }
+        # # Validación previa antes de eliminar y volver a insertar
+        # # Validar proyectos nuevos
+        # proyectos_invalidos = db.query(Proyecto).filter(
+        #     Proyecto.proyecto_id.in_(nuevos_proyectos),
+        #     Proyecto.estado_general != 'viable'
+        # ).all()
+
+        # if proyectos_invalidos:
+        #     ids_invalidos = [p.proyecto_id for p in proyectos_invalidos]
+        #     return {
+        #         "success": False,
+        #         "tipo_mensaje": "rojo",
+        #         "mensaje": f"Los siguientes proyectos no están en estado 'viable': {ids_invalidos}",
+        #         "tiempo_mensaje": 8,
+        #         "next_page": "actual"
+        #     }
 
         # Validar NNA nuevos
         estados_permitidos = [
@@ -454,26 +475,47 @@ def actualizar_carpeta(
             'sin_ficha_con_sentencia',
             'disponible'
         ]
-        nnas_invalidos = db.query(Nna).filter(
-            Nna.nna_id.in_(nuevos_nnas),
-            Nna.nna_estado.notin_(estados_permitidos)
-        ).all()
-        if nnas_invalidos:
-            ids_invalidos = [n.nna_id for n in nnas_invalidos]
-            return {
-                "success": False,
-                "tipo_mensaje": "rojo",
-                "mensaje": f"Los siguientes NNA no están en un estado permitido: {ids_invalidos}",
-                "tiempo_mensaje": 8,
-                "next_page": "actual"
-            }
-
 
         # Obtener NNA actualmente asociados antes de eliminar
         nnas_previos = db.query(DetalleNNAEnCarpeta.nna_id)\
             .filter(DetalleNNAEnCarpeta.carpeta_id == carpeta_id)\
             .all()
         nnas_previos = {n.nna_id for n in nnas_previos}
+
+        # Validar solo NNAs nuevos que no estuvieran antes
+        nnas_a_validar = nuevos_nnas - nnas_previos
+
+        if nnas_a_validar:
+            nnas_invalidos = db.query(Nna).filter(
+                Nna.nna_id.in_(nnas_a_validar),
+                Nna.nna_estado.notin_(estados_permitidos)
+            ).all()
+            if nnas_invalidos:
+                ids_invalidos = [n.nna_id for n in nnas_invalidos]
+                return {
+                    "success": False,
+                    "tipo_mensaje": "rojo",
+                    "mensaje": f"Los siguientes NNA no están en un estado permitido: {ids_invalidos}",
+                    "tiempo_mensaje": 8,
+                    "next_page": "actual"
+                }
+            
+        # nnas_invalidos = db.query(Nna).filter(
+        #     Nna.nna_id.in_(nuevos_nnas),
+        #     Nna.nna_estado.notin_(estados_permitidos)
+        # ).all()
+        # if nnas_invalidos:
+        #     ids_invalidos = [n.nna_id for n in nnas_invalidos]
+        #     return {
+        #         "success": False,
+        #         "tipo_mensaje": "rojo",
+        #         "mensaje": f"Los siguientes NNA no están en un estado permitido: {ids_invalidos}",
+        #         "tiempo_mensaje": 8,
+        #         "next_page": "actual"
+        #     }
+
+
+        
 
 
         # Eliminar asignaciones actuales
