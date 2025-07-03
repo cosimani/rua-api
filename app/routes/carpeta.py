@@ -170,6 +170,85 @@ def listar_carpetas(
 
 
 
+@carpetas_router.get("/{carpeta_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def obtener_carpeta(
+    carpeta_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    📁 Obtiene los detalles completos de una carpeta por su ID.
+    """
+    try:
+        carpeta = db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).first()
+        if not carpeta:
+            raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+
+        # Procesar proyectos
+        proyectos = []
+        for dp in carpeta.detalle_proyectos:
+            p = dp.proyecto
+            if p:
+                proyectos.append({
+                    "proyecto_id": p.proyecto_id,
+                    "nro_orden_rua": p.nro_orden_rua,
+                    "proyecto_tipo": p.proyecto_tipo,
+                    "estado_general": p.estado_general,
+                    "proyecto_localidad": p.proyecto_localidad,
+                    "login_1": p.login_1,
+                    "login_1_name": f"{p.usuario_1.nombre} {p.usuario_1.apellido}" if p.usuario_1 else None,
+                    "login_2": p.login_2,
+                    "login_2_name": f"{p.usuario_2.nombre} {p.usuario_2.apellido}" if p.usuario_2 else None,
+                    "fecha_asignacion": dp.fecha_asignacion,
+                    "doc_dictamen": p.doc_dictamen,
+                })
+
+        # Procesar NNAs
+        nnas = []
+        for dnna in carpeta.detalle_nna:
+            n = dnna.nna
+            if n:
+                edad = None
+                if n.nna_fecha_nacimiento:
+                    hoy = date.today()
+                    edad = hoy.year - n.nna_fecha_nacimiento.year - ((hoy.month, hoy.day) < (n.nna_fecha_nacimiento.month, n.nna_fecha_nacimiento.day))
+
+                nnas.append({
+                    "nna_id": n.nna_id,
+                    "nna_nombre": n.nna_nombre,
+                    "nna_apellido": n.nna_apellido,
+                    "nna_dni": n.nna_dni,
+                    "nna_fecha_nacimiento": n.nna_fecha_nacimiento,
+                    "nna_edad": edad,
+                    "nna_localidad": n.nna_localidad,
+                    "nna_provincia": n.nna_provincia,
+                    "nna_en_convocatoria": n.nna_en_convocatoria,
+                    "nna_archivado": n.nna_archivado,
+                })
+
+        estado_carpeta_map = {
+            "vacia": "Vacía",
+            "preparando_carpeta": "En preparación",
+            "enviada_a_juzgado": "En juzgado",
+            "proyecto_seleccionado": "Con dictamen"
+        }
+
+        return {
+            "success": True,
+            "carpeta": {
+                "carpeta_id": carpeta.carpeta_id,
+                "fecha_creacion": carpeta.fecha_creacion,
+                "estado_carpeta": estado_carpeta_map.get(carpeta.estado_carpeta, carpeta.estado_carpeta),
+                "proyectos": proyectos,
+                "nnas": nnas
+            }
+        }
+
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener carpeta: {str(e)}")
+
+
+
 
 @carpetas_router.post("/", response_model = dict,
     dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
