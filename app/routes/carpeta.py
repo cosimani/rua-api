@@ -70,7 +70,11 @@ def listar_carpetas(
             else_=5
         )
 
-        query = db.query(Carpeta).order_by(orden_estado, Carpeta.fecha_creacion.asc())
+        # query = db.query(Carpeta).order_by(orden_estado, Carpeta.fecha_creacion.asc())
+        query = db.query(Carpeta).order_by(
+            orden_estado,
+            Carpeta.carpeta_id.desc()  # ⬅️ agrega orden por id descendente dentro de cada estado
+        )
         
 
         total = query.count()
@@ -769,6 +773,71 @@ def enviar_a_juzgado(carpeta_id: int, db: Session = Depends(get_db)):
     }
 
 
+@carpetas_router.put("/{carpeta_id}/volver-a-preparacion", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
+def volver_a_preparacion(
+    carpeta_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    🔄 Devuelve la carpeta a estado 'preparando_carpeta' para permitir su edición.
+
+    ✅ Cambia el estado de 'enviada_a_juzgado' a 'preparando_carpeta'.
+    ✅ Registra evento RuaEvento.
+    """
+    try:
+        carpeta = db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).first()
+
+        if not carpeta:
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "Carpeta no encontrada.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+        if carpeta.estado_carpeta != "enviada_a_juzgado":
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "La carpeta no está en estado 'En juzgado'.",
+                "tiempo_mensaje": 4,
+                "next_page": "actual"
+            }
+
+        estado_anterior = carpeta.estado_carpeta
+        carpeta.estado_carpeta = "preparando_carpeta"
+
+        # Registrar evento
+        login_actual = current_user["user"]["login"]
+        evento = RuaEvento(
+            login=login_actual,
+            evento_detalle=f"Se devolvió la carpeta #{carpeta_id} de '{estado_anterior}' a 'preparando_carpeta' para edición.",
+            evento_fecha=datetime.now()
+        )
+        db.add(evento)
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "✅ La carpeta fue devuelta a preparación para su edición.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Ocurrió un error al devolver la carpeta: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
 
 
 
