@@ -11,7 +11,7 @@ class Carpeta(Base):
 
     carpeta_id = Column(Integer, primary_key=True, autoincrement=True)
     fecha_creacion = Column(Date, nullable=True)
-    estado_carpeta = Column(Enum('vacia', 'preparando_carpeta', 'enviada_a_juzgado', 'proyecto_seleccionado'), nullable=False)
+    estado_carpeta = Column(Enum('vacia', 'preparando_carpeta', 'enviada_a_juzgado', 'proyecto_seleccionado', 'desierto'), nullable=False)
 
     detalle_proyectos = relationship("DetalleProyectosEnCarpeta", back_populates="carpeta", lazy="joined")
     detalle_nna = relationship("DetalleNNAEnCarpeta", back_populates="carpeta", lazy="joined")
