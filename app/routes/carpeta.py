@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends, status, Request, Query, Body
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, aliased
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import case
+
+from sqlalchemy import and_, func, or_, text, literal_column
 
 from typing import List, Optional, Literal
 from datetime import datetime, date
@@ -31,6 +33,7 @@ from pathlib import Path
 
 
 
+
 # Cargar variables de entorno desde el archivo .env
 load_dotenv()
 
@@ -51,16 +54,23 @@ carpetas_router = APIRouter()
 
 
 
-@carpetas_router.get("/", response_model = dict,
-    dependencies = [Depends(verify_api_key), 
-                    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+@carpetas_router.get("/", response_model=dict,
+    dependencies=[Depends(verify_api_key), 
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def listar_carpetas(
     request: Request,
     db: Session = Depends(get_db),
-    page: int = Query(1, ge = 1),
-    limit: int = Query(10, ge = 1, le = 100),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    busqueda_rapida: Optional[str] = Query(None),
+    estado_filtro: Optional[str] = Query(None),
 ):
     try:
+
+        # ✅ Aliased para usuarios dentro del endpoint
+        User1 = aliased(User)
+        User2 = aliased(User)
+
 
         orden_estado = case(
             (Carpeta.estado_carpeta == "vacia", 1),
@@ -70,25 +80,94 @@ def listar_carpetas(
             else_=5
         )
 
-        # query = db.query(Carpeta).order_by(orden_estado, Carpeta.fecha_creacion.asc())
         query = db.query(Carpeta).order_by(
             orden_estado,
-            Carpeta.carpeta_id.desc()  # ⬅️ agrega orden por id descendente dentro de cada estado
+            Carpeta.carpeta_id.desc()
         )
-        
+
+        # 🔍 Filtro por estado
+        if estado_filtro and estado_filtro != "todos":
+            estado_db_map = {
+                "Vacía": "vacia",
+                "En preparación": "preparando_carpeta",
+                "En juzgado": "enviada_a_juzgado",
+                "Con dictamen": "proyecto_seleccionado",
+            }
+            estado_db_value = estado_db_map.get(estado_filtro, estado_filtro)
+            query = query.filter(Carpeta.estado_carpeta == estado_db_value)
+
+
+        if busqueda_rapida and len(busqueda_rapida.strip()) >= 3:
+          palabras = busqueda_rapida.strip().split()
+          condiciones_por_palabra = []
+
+          query = query \
+              .outerjoin(DetalleNNAEnCarpeta, DetalleNNAEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
+              .outerjoin(Nna, DetalleNNAEnCarpeta.nna_id == Nna.nna_id) \
+              .outerjoin(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
+              .outerjoin(Proyecto, DetalleProyectosEnCarpeta.proyecto_id == Proyecto.proyecto_id) \
+              .outerjoin(User1, User1.login == Proyecto.login_1) \
+              .outerjoin(User2, User2.login == Proyecto.login_2)
+
+          # # 👉 JOIN explícito a las tablas intermedias y luego a Nna, Proyecto y User
+          # query = query \
+          #     .outerjoin(DetalleNNAEnCarpeta, DetalleNNAEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
+          #     .outerjoin(Nna, DetalleNNAEnCarpeta.nna_id == Nna.nna_id) \
+          #     .outerjoin(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
+          #     .outerjoin(Proyecto, DetalleProyectosEnCarpeta.proyecto_id == Proyecto.proyecto_id) \
+          #     .outerjoin(User, User.login == Proyecto.login_1) \
+          #     .outerjoin(User, User.login == Proyecto.login_2)
+
+              
+          for palabra in palabras:
+              patron = f"%{palabra}%"
+              condiciones_por_palabra.append(
+                  or_(
+                      Nna.nna_nombre.ilike(patron),
+                      Nna.nna_apellido.ilike(patron),
+                      Nna.nna_dni.ilike(patron),
+                      Proyecto.nro_orden_rua.ilike(patron),
+                      Proyecto.login_1.ilike(patron),
+                      Proyecto.login_2.ilike(patron),
+                      User1.nombre.ilike(patron),
+                      User1.apellido.ilike(patron),
+                      User1.login.ilike(patron),
+                      User2.nombre.ilike(patron),
+                      User2.apellido.ilike(patron),
+                      User2.login.ilike(patron),
+                  )
+              )
+
+          # for palabra in palabras:
+          #     patron = f"%{palabra}%"
+          #     condiciones_por_palabra.append(
+          #         or_(
+          #             Nna.nna_nombre.ilike(patron),
+          #             Nna.nna_apellido.ilike(patron),
+          #             Nna.nna_dni.ilike(patron),
+          #             Proyecto.nro_orden_rua.ilike(patron),
+          #             Proyecto.login_1.ilike(patron),
+          #             Proyecto.login_2.ilike(patron),
+          #             User.nombre.ilike(patron),
+          #             User.apellido.ilike(patron),
+          #             User.login.ilike(patron),
+          #         )
+          #     )
+
+          query = query.filter(and_(*condiciones_por_palabra))
+          query = query.distinct(Carpeta.carpeta_id)
+
 
         total = query.count()
         carpetas = query.offset((page - 1) * limit).limit(limit).all()
 
         resultado = []
         for carpeta in carpetas:
-
             proyectos = []
             proyectos_resumen = []
 
             for dp in carpeta.detalle_proyectos:
                 p = dp.proyecto
-
                 if p:
                     proyectos.append({
                         "proyecto_id": p.proyecto_id,
@@ -114,7 +193,6 @@ def listar_carpetas(
 
             nnas = []
             nnas_resumen = []
-
             for dnna in carpeta.detalle_nna:
                 n = dnna.nna
                 if n:
@@ -137,19 +215,14 @@ def listar_carpetas(
                     })
 
                     nombre_completo = f"{n.nna_nombre} {n.nna_apellido}"
-                    if edad is not None:
-                        nnas_resumen.append(f"{nombre_completo} ({edad} años)")
-                    else:
-                        nnas_resumen.append(nombre_completo)
+                    nnas_resumen.append(f"{nombre_completo} ({edad} años)" if edad is not None else nombre_completo)
 
-      
             estado_carpeta_map = {
                 "vacia": "Vacía",
                 "preparando_carpeta": "En preparación",
                 "enviada_a_juzgado": "En juzgado",
                 "proyecto_seleccionado": "Con dictamen"
             }
-
 
             resultado.append({
                 "carpeta_id": carpeta.carpeta_id,
@@ -161,7 +234,6 @@ def listar_carpetas(
                 "nnas_resumen": nnas_resumen
             })
 
-
         return {
             "page": page,
             "limit": limit,
@@ -170,7 +242,7 @@ def listar_carpetas(
         }
 
     except SQLAlchemyError as e:
-        raise HTTPException(status_code = 500, detail = f"Error al listar carpetas: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al listar carpetas: {str(e)}")
 
 
 
