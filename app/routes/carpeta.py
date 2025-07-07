@@ -72,7 +72,6 @@ def listar_carpetas(
         User1 = aliased(User)
         User2 = aliased(User)
 
-
         orden_estado = case(
             (Carpeta.estado_carpeta == "vacia", 1),
             (Carpeta.estado_carpeta == "preparando_carpeta", 2),
@@ -86,7 +85,9 @@ def listar_carpetas(
             Carpeta.carpeta_id.desc()
         )
 
-        # 🔍 Filtro por estado
+        joined_proyectos = False
+
+        # 🔍 Filtro por estado de carpeta
         if estado_filtro and estado_filtro != "todos":
             estado_db_map = {
                 "Vacía": "vacia",
@@ -97,79 +98,102 @@ def listar_carpetas(
             estado_db_value = estado_db_map.get(estado_filtro, estado_filtro)
             query = query.filter(Carpeta.estado_carpeta == estado_db_value)
 
-
         # 🔍 Filtro por estado de proyecto
         if estado_proyecto_filtro and estado_proyecto_filtro != "todos":
-            query = query \
-                .outerjoin(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
-                .outerjoin(Proyecto, DetalleProyectosEnCarpeta.proyecto_id == Proyecto.proyecto_id) \
-                .filter(Proyecto.estado_general == estado_proyecto_filtro)
+            if not joined_proyectos:
+                query = query \
+                    .outerjoin(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
+                    .outerjoin(Proyecto, DetalleProyectosEnCarpeta.proyecto_id == Proyecto.proyecto_id)
+                joined_proyectos = True
+
+            query = query.filter(Proyecto.estado_general == estado_proyecto_filtro)
 
 
+        # 🔍 Búsqueda rápida
         if busqueda_rapida and len(busqueda_rapida.strip()) >= 3:
-          palabras = busqueda_rapida.strip().split()
-          condiciones_por_palabra = []
+            palabras = busqueda_rapida.strip().split()
+            condiciones_por_palabra = []
 
-          query = query \
-              .outerjoin(DetalleNNAEnCarpeta, DetalleNNAEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
-              .outerjoin(Nna, DetalleNNAEnCarpeta.nna_id == Nna.nna_id) \
-              .outerjoin(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
-              .outerjoin(Proyecto, DetalleProyectosEnCarpeta.proyecto_id == Proyecto.proyecto_id) \
-              .outerjoin(User1, User1.login == Proyecto.login_1) \
-              .outerjoin(User2, User2.login == Proyecto.login_2)
+            # ✅ Joins necesarios para búsqueda
+            query = query \
+                .outerjoin(DetalleNNAEnCarpeta, DetalleNNAEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
+                .outerjoin(Nna, DetalleNNAEnCarpeta.nna_id == Nna.nna_id)
 
+            if not joined_proyectos:
+                query = query \
+                    .outerjoin(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
+                    .outerjoin(Proyecto, DetalleProyectosEnCarpeta.proyecto_id == Proyecto.proyecto_id)
+                joined_proyectos = True
 
-          # # 👉 JOIN explícito a las tablas intermedias y luego a Nna, Proyecto y User
-          # query = query \
-          #     .outerjoin(DetalleNNAEnCarpeta, DetalleNNAEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
-          #     .outerjoin(Nna, DetalleNNAEnCarpeta.nna_id == Nna.nna_id) \
-          #     .outerjoin(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
-          #     .outerjoin(Proyecto, DetalleProyectosEnCarpeta.proyecto_id == Proyecto.proyecto_id) \
-          #     .outerjoin(User, User.login == Proyecto.login_1) \
-          #     .outerjoin(User, User.login == Proyecto.login_2)
+            query = query \
+                .outerjoin(User1, User1.login == Proyecto.login_1) \
+                .outerjoin(User2, User2.login == Proyecto.login_2)
 
-              
-          for palabra in palabras:
-              patron = f"%{palabra}%"
-              condiciones_por_palabra.append(
-                  or_(
-                      Nna.nna_nombre.ilike(patron),
-                      Nna.nna_apellido.ilike(patron),
-                      Nna.nna_dni.ilike(patron),
-                      Proyecto.nro_orden_rua.ilike(patron),
-                      Proyecto.login_1.ilike(patron),
-                      Proyecto.login_2.ilike(patron),
-                      User1.nombre.ilike(patron),
-                      User1.apellido.ilike(patron),
-                      User1.login.ilike(patron),
-                      User2.nombre.ilike(patron),
-                      User2.apellido.ilike(patron),
-                      User2.login.ilike(patron),
-                  )
-              )
+            for palabra in palabras:
+                patron = f"%{palabra}%"
+                condiciones_por_palabra.append(
+                    or_(
+                        Nna.nna_nombre.ilike(patron),
+                        Nna.nna_apellido.ilike(patron),
+                        Nna.nna_dni.ilike(patron),
+                        Proyecto.nro_orden_rua.ilike(patron),
+                        Proyecto.login_1.ilike(patron),
+                        Proyecto.login_2.ilike(patron),
+                        User1.nombre.ilike(patron),
+                        User1.apellido.ilike(patron),
+                        User1.login.ilike(patron),
+                        User2.nombre.ilike(patron),
+                        User2.apellido.ilike(patron),
+                        User2.login.ilike(patron),
+                    )
+                )
 
-          # for palabra in palabras:
-          #     patron = f"%{palabra}%"
-          #     condiciones_por_palabra.append(
-          #         or_(
-          #             Nna.nna_nombre.ilike(patron),
-          #             Nna.nna_apellido.ilike(patron),
-          #             Nna.nna_dni.ilike(patron),
-          #             Proyecto.nro_orden_rua.ilike(patron),
-          #             Proyecto.login_1.ilike(patron),
-          #             Proyecto.login_2.ilike(patron),
-          #             User.nombre.ilike(patron),
-          #             User.apellido.ilike(patron),
-          #             User.login.ilike(patron),
-          #         )
-          #     )
-
-          query = query.filter(and_(*condiciones_por_palabra))
-          query = query.distinct(Carpeta.carpeta_id)
-
+            query = query.filter(and_(*condiciones_por_palabra)).distinct(Carpeta.carpeta_id)
 
         total = query.count()
         carpetas = query.offset((page - 1) * limit).limit(limit).all()
+
+
+        # if busqueda_rapida and len(busqueda_rapida.strip()) >= 3:
+        #   palabras = busqueda_rapida.strip().split()
+        #   condiciones_por_palabra = []
+
+        #   query = query \
+        #       .outerjoin(DetalleNNAEnCarpeta, DetalleNNAEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
+        #       .outerjoin(Nna, DetalleNNAEnCarpeta.nna_id == Nna.nna_id) \
+        #       .outerjoin(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
+        #       .outerjoin(Proyecto, DetalleProyectosEnCarpeta.proyecto_id == Proyecto.proyecto_id) \
+        #       .outerjoin(User1, User1.login == Proyecto.login_1) \
+        #       .outerjoin(User2, User2.login == Proyecto.login_2)
+
+
+              
+        #   for palabra in palabras:
+        #       patron = f"%{palabra}%"
+        #       condiciones_por_palabra.append(
+        #           or_(
+        #               Nna.nna_nombre.ilike(patron),
+        #               Nna.nna_apellido.ilike(patron),
+        #               Nna.nna_dni.ilike(patron),
+        #               Proyecto.nro_orden_rua.ilike(patron),
+        #               Proyecto.login_1.ilike(patron),
+        #               Proyecto.login_2.ilike(patron),
+        #               User1.nombre.ilike(patron),
+        #               User1.apellido.ilike(patron),
+        #               User1.login.ilike(patron),
+        #               User2.nombre.ilike(patron),
+        #               User2.apellido.ilike(patron),
+        #               User2.login.ilike(patron),
+        #           )
+        #       )
+
+
+        #   query = query.filter(and_(*condiciones_por_palabra))
+        #   query = query.distinct(Carpeta.carpeta_id)
+
+
+        # total = query.count()
+        # carpetas = query.offset((page - 1) * limit).limit(limit).all()
 
         resultado = []
         for carpeta in carpetas:
