@@ -1025,8 +1025,8 @@ def marcar_con_dictamen(
     """
     📌 Marca la carpeta como 'proyecto_seleccionado' o 'desierto' según el proyecto recibido (o ninguno).
     🔁 Cambios:
-    - Si recibe un proyecto_id válido, deja solo ese y marca como 'proyecto_seleccionado'.
-    - Si no recibe ninguno, marca como 'desierto' y elimina todos los proyectos asociados.
+    - Si recibe un proyecto_id válido, deja solo ese y marca como 'proyecto_seleccionado' a la carpeta.
+    - Si no recibe ninguno, marca como 'desierto' la carpeta y elimina todos los proyectos asociados.
     - Actualiza estados de proyectos y NNAs según corresponda.
     - Registra evento RuaEvento.
     """
