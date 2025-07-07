@@ -64,6 +64,7 @@ def listar_carpetas(
     limit: int = Query(10, ge=1, le=100),
     busqueda_rapida: Optional[str] = Query(None),
     estado_filtro: Optional[str] = Query(None),
+    estado_proyecto_filtro: Optional[str] = Query(None),
 ):
     try:
 
@@ -97,6 +98,14 @@ def listar_carpetas(
             query = query.filter(Carpeta.estado_carpeta == estado_db_value)
 
 
+        # 🔍 Filtro por estado de proyecto
+        if estado_proyecto_filtro and estado_proyecto_filtro != "todos":
+            query = query \
+                .outerjoin(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
+                .outerjoin(Proyecto, DetalleProyectosEnCarpeta.proyecto_id == Proyecto.proyecto_id) \
+                .filter(Proyecto.estado_general == estado_proyecto_filtro)
+
+
         if busqueda_rapida and len(busqueda_rapida.strip()) >= 3:
           palabras = busqueda_rapida.strip().split()
           condiciones_por_palabra = []
@@ -108,6 +117,7 @@ def listar_carpetas(
               .outerjoin(Proyecto, DetalleProyectosEnCarpeta.proyecto_id == Proyecto.proyecto_id) \
               .outerjoin(User1, User1.login == Proyecto.login_1) \
               .outerjoin(User2, User2.login == Proyecto.login_2)
+
 
           # # 👉 JOIN explícito a las tablas intermedias y luego a Nna, Proyecto y User
           # query = query \
@@ -703,6 +713,66 @@ def actualizar_carpeta(
 
 
 
+# @carpetas_router.delete("/{carpeta_id}", response_model=dict,
+#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
+# def eliminar_carpeta(
+#     carpeta_id: int,
+#     db: Session = Depends(get_db),
+#     current_user: dict = Depends(get_current_user)
+# ):
+#     """
+#     🗑️ Elimina una carpeta solo si su estado es 'vacia'.
+
+#     🔒 Requiere rol de administradora o supervisora.
+#     """
+#     try:
+#         carpeta = db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).first()
+#         if not carpeta:
+#             raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+
+#         if carpeta.estado_carpeta != "vacia":
+#             return {
+#                 "success": False,
+#                 "tipo_mensaje": "naranja",
+#                 "mensaje": "Solo se pueden eliminar carpetas vacías.",
+#                 "tiempo_mensaje": 6,
+#                 "next_page": "actual"
+#             }
+
+#         # Eliminar relaciones si existieran (precaución defensiva)
+#         db.query(DetalleProyectosEnCarpeta).filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta_id).delete()
+#         db.query(DetalleNNAEnCarpeta).filter(DetalleNNAEnCarpeta.carpeta_id == carpeta_id).delete()
+#         db.delete(carpeta)
+
+#         # Registrar evento
+#         evento = RuaEvento(
+#             login=current_user["user"]["login"],
+#             evento_detalle=f"Se eliminó la carpeta ID {carpeta_id}",
+#             evento_fecha=datetime.now()
+#         )
+#         db.add(evento)
+
+#         db.commit()
+
+#         return {
+#             "success": True,
+#             "tipo_mensaje": "verde",
+#             "mensaje": "Carpeta eliminada correctamente.",
+#             "tiempo_mensaje": 5,
+#             "next_page": "actual"
+#         }
+
+#     except SQLAlchemyError as e:
+#         db.rollback()
+#         return {
+#             "success": False,
+#             "tipo_mensaje": "rojo",
+#             "mensaje": f"Error al eliminar carpeta: {str(e)}",
+#             "tiempo_mensaje": 8,
+#             "next_page": "actual"
+#         }
+
+
 @carpetas_router.delete("/{carpeta_id}", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def eliminar_carpeta(
@@ -711,7 +781,7 @@ def eliminar_carpeta(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    🗑️ Elimina una carpeta solo si su estado es 'vacia'.
+    🗑️ Elimina una carpeta solo si su estado es 'vacia' y no tiene NNAs ni proyectos asociados.
 
     🔒 Requiere rol de administradora o supervisora.
     """
@@ -725,6 +795,26 @@ def eliminar_carpeta(
                 "success": False,
                 "tipo_mensaje": "naranja",
                 "mensaje": "Solo se pueden eliminar carpetas vacías.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # ✅ Verificar que no tenga NNAs asociados
+        if carpeta.detalle_nna and len(carpeta.detalle_nna) > 0:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "No se puede eliminar la carpeta porque tiene NNAs asociados.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # ✅ Verificar que no tenga proyectos asociados
+        if carpeta.detalle_proyectos and len(carpeta.detalle_proyectos) > 0:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "No se puede eliminar la carpeta porque tiene proyectos asociados.",
                 "tiempo_mensaje": 6,
                 "next_page": "actual"
             }
@@ -1363,3 +1453,140 @@ def descargar_pdf_carpeta_completa(carpeta_id: int, db: Session = Depends(get_db
         filename=os.path.basename(zip_path),
         media_type="application/zip"
     )
+
+
+
+
+@carpetas_router.delete("/{carpeta_id}/eliminar-proyecto-seleccionado", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
+def eliminar_carpeta_proyecto_seleccionado(
+    carpeta_id: int,
+    dni_pretenso: str = Query(..., description="DNI del pretenso autorizado para eliminar la carpeta"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    🗑️ Elimina una carpeta en estado 'proyecto_seleccionado' si:
+    - Tiene exactamente un proyecto.
+    - Tiene al menos un NNA.
+    - El DNI recibido coincide con el login_1 (monoparental) o login_1/login_2 (biparental).
+
+    🔒 Requiere rol de administradora o supervisora.
+    """
+    try:
+        carpeta = db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).first()
+        if not carpeta:
+            raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+
+        if carpeta.estado_carpeta != "proyecto_seleccionado":
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Solo se pueden eliminar carpetas en estado 'proyecto_seleccionado'.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        proyectos = carpeta.detalle_proyectos
+        nnas = carpeta.detalle_nna
+
+        # Validaciones
+        if len(proyectos) != 1:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "La carpeta debe tener exactamente un proyecto para ser eliminada.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        if not nnas or len(nnas) == 0:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "La carpeta no tiene NNAs asociados.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # Validar DNI pretenso
+        proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyectos[0].proyecto_id).first()
+        if not proyecto:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Proyecto asociado no encontrado.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        es_biparental = proyecto.proyecto_tipo in ["Matrimonio", "Unión convivencial"]
+        dni_valido = False
+
+        if not es_biparental:
+            # Monoparental: debe coincidir con login_1
+            if proyecto.login_1 == dni_pretenso:
+                dni_valido = True
+        else:
+            # Biparental: puede ser login_1 o login_2
+            if proyecto.login_1 == dni_pretenso or (proyecto.login_2 and proyecto.login_2 == dni_pretenso):
+                dni_valido = True
+
+        if not dni_valido:
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "El DNI proporcionado no corresponde a ningún pretenso de este proyecto. Operación cancelada.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # Cambiar estado del proyecto a viable
+        estado_anterior = proyecto.estado_general
+        proyecto.estado_general = "viable"
+        proyecto.ultimo_cambio_de_estado = datetime.now().date()
+        db.add(ProyectoHistorialEstado(
+            proyecto_id=proyecto.proyecto_id,
+            estado_anterior=estado_anterior,
+            estado_nuevo="viable",
+            fecha_hora=datetime.now()
+        ))
+
+        # Cambiar estado de NNAs a disponible
+        for detalle_nna in nnas:
+            nna_obj = db.query(Nna).filter(Nna.nna_id == detalle_nna.nna_id).first()
+            if nna_obj:
+                nna_obj.nna_estado = "disponible"
+
+        # Eliminar relaciones y carpeta
+        db.query(DetalleProyectosEnCarpeta).filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta_id).delete()
+        db.query(DetalleNNAEnCarpeta).filter(DetalleNNAEnCarpeta.carpeta_id == carpeta_id).delete()
+        db.delete(carpeta)
+
+        # Registrar evento
+        evento = RuaEvento(
+            login=current_user["user"]["login"],
+            evento_detalle=f"Se eliminó la carpeta ID {carpeta_id} en estado 'proyecto_seleccionado' tras validar pretenso.",
+            evento_fecha=datetime.now()
+        )
+        db.add(evento)
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "✅ Carpeta eliminada correctamente. Proyecto marcado como viable y NNAs disponibles.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al eliminar carpeta: {str(e)}",
+            "tiempo_mensaje": 8,
+            "next_page": "actual"
+        }
