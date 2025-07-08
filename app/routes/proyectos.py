@@ -6537,21 +6537,75 @@ def actualizar_estado_proyecto(
 
     estados_validos = {"aprobado", "entrevistando", "viable", "en_suspenso",
                        "no_viable", "baja_anulacion"}
-    if nuevo_estado not in estados_validos or not observacion:
-        raise HTTPException(status_code=400, detail="Datos inválidos")
+    if nuevo_estado not in estados_validos :
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": (
+                "El nuevo estado no es correcto para este proyecto. "
+                "Analice el estado actual del proyecto, si forma parte de una carpeta."
+            ),
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
 
     proyecto = db.query(Proyecto).get(proyecto_id)
     if not proyecto:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Proyecto no encontrado.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    # ───────── validación: si está en carpeta, no permitir ─────────
+    proyecto_en_carpeta = db.query(DetalleProyectosEnCarpeta).filter_by(proyecto_id=proyecto_id).first()
+    if proyecto_en_carpeta:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": (
+                "Este proyecto se encuentra actualmente asociado a una carpeta. "
+                "Los cambios de estado para este proyecto deben realizarse desde la sección Carpetas."
+            ),
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
 
     estado_anterior = proyecto.estado_general
+
+    # ───────── nueva validación ─────────
+    if estado_anterior == nuevo_estado:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "El estado seleccionado es igual al estado actual. No se realizaron cambios.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    # ───────── observación obligatoria para ciertos estados ─────────
+    if nuevo_estado in {"no_viable", "en_suspenso", "baja_anulacion"} and not observacion:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": f"Debe ingresar una observación para el estado '{nuevo_estado}'.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
 
     # ───────── lógica específica por estado ──────────────────────────
     if nuevo_estado == "viable":
         # Esperamos una lista de subregistros válidos en subregistros[]
         if not subregistros or not isinstance(subregistros, list):
-            raise HTTPException(status_code=400,
-                                detail="Se requiere lista de subregistros")
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Se requiere al menos un subregistro.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
         # Limpio todos a "N" y marco los elegidos a "Y"
         pref = "subreg_"          # ej. subreg_1, subreg_FE1…
         for col in [c.name for c in Proyecto.__table__.columns
@@ -6560,8 +6614,13 @@ def actualizar_estado_proyecto(
 
     elif nuevo_estado == "en_suspenso":
         if not fecha_suspenso:
-            raise HTTPException(status_code=400,
-                                detail="Debe indicar fecha_suspenso")
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Debe indicar la fecha de suspenso.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
         proyecto.fecha_suspenso = fecha_suspenso      # asegúrate de tener la col.
 
     # (otros estados no necesitan datos extra)
@@ -6578,13 +6637,14 @@ def actualizar_estado_proyecto(
     ))
 
     # ───────── observación interna ──────────
-    login_obs = current_user["user"]["login"]
-    db.add(ObservacionesProyectos(
-        observacion_fecha           = datetime.now(),
-        observacion                 = observacion,
-        login_que_observo           = login_obs,
-        observacion_a_cual_proyecto = proyecto_id
-    ))
+    if observacion:
+        login_obs = current_user["user"]["login"]
+        db.add(ObservacionesProyectos(
+            observacion_fecha           = datetime.now(),
+            observacion                 = observacion,
+            login_que_observo           = login_obs,
+            observacion_a_cual_proyecto = proyecto_id
+        ))
 
     db.commit()
 
@@ -6595,3 +6655,4 @@ def actualizar_estado_proyecto(
         "tiempo_mensaje": 4,
         "next_page"    : "actual"
     }
+    
