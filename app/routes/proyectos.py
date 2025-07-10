@@ -6656,3 +6656,79 @@ def actualizar_estado_proyecto(
         "next_page"    : "actual"
     }
     
+
+
+@proyectos_router.put("/update_domicilio_de_proyecto/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
+def update_domicilio_de_proyecto(
+    proyecto_id: int,
+    data: dict = Body(...),
+    db: Session = Depends(get_db)
+):
+    """
+    ✏️ Actualiza el domicilio del proyecto y sincroniza el domicilio real en la DDJJ
+    y en el usuario correspondiente (o en ambos usuarios si es biparental).
+    """
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": f"Proyecto con ID {proyecto_id} no encontrado.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    # Campos de domicilio a actualizar
+    campos_domicilio = {
+        "proyecto_calle_y_nro": "calle_y_nro",
+        "proyecto_depto_etc": "depto_etc",
+        "proyecto_barrio": "barrio",
+        "proyecto_localidad": "localidad",
+        "proyecto_provincia": "provincia",
+    }
+
+    # ✅ 1. Actualiza en proyecto
+    for campo in campos_domicilio.keys():
+        if campo in data:
+            setattr(proyecto, campo, data[campo])
+
+    # ✅ 2. Función interna para actualizar DDJJ y User
+    def actualizar_domicilio_pretenso(login):
+        if not login:
+            return
+
+        # Update User
+        user = db.query(User).filter(User.login == login).first()
+        if user:
+            for campo_proy, campo_user in campos_domicilio.items():
+                if campo_proy in data:
+                    setattr(user, campo_user, data[campo_proy])
+
+        # Update DDJJ
+        ddjj = db.query(DDJJ).filter(DDJJ.login == login).first()
+        if ddjj:
+            if "proyecto_calle_y_nro" in data:
+                ddjj.ddjj_calle = data["proyecto_calle_y_nro"]
+            if "proyecto_depto_etc" in data:
+                ddjj.ddjj_depto = data["proyecto_depto_etc"]
+            if "proyecto_barrio" in data:
+                ddjj.ddjj_barrio = data["proyecto_barrio"]
+            if "proyecto_localidad" in data:
+                ddjj.ddjj_localidad = data["proyecto_localidad"]
+            if "proyecto_provincia" in data:
+                ddjj.ddjj_provincia = data["proyecto_provincia"]
+
+    # ✅ 3. Actualiza login_1 y login_2 si existen
+    actualizar_domicilio_pretenso(proyecto.login_1)
+    actualizar_domicilio_pretenso(proyecto.login_2)
+
+    db.commit()
+
+    return {
+        "success": True,
+        "tipo_mensaje": "verde",
+        "mensaje": "Domicilio de proyecto y de pretensos actualizado correctamente.",
+        "tiempo_mensaje": 4,
+        "next_page": "actual"
+    }
