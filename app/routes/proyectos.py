@@ -1000,7 +1000,74 @@ def get_proyecto_por_id(
             proyecto_dict[campo] = getattr(proyecto, campo, None)
 
 
+        # Inicializar listas y set de IDs para evitar duplicados
+        nna_asociados = []
+        nna_ids_agregados = set()
+        convocatoria_info = None
+
+        # 🔍 Si el proyecto está en carpeta, obtener los NNA de la carpeta
+        detalle_proyecto_carpeta = db.query(DetalleProyectosEnCarpeta).filter(
+            DetalleProyectosEnCarpeta.proyecto_id == proyecto.proyecto_id
+        ).first()
+
+        if detalle_proyecto_carpeta:
+            carpeta = detalle_proyecto_carpeta.carpeta
+            if carpeta:
+                for detalle_nna in carpeta.detalle_nna:
+                    nna = detalle_nna.nna
+                    if nna and nna.nna_id not in nna_ids_agregados:
+                        edad = date.today().year - nna.nna_fecha_nacimiento.year - (
+                            (date.today().month, date.today().day) < (nna.nna_fecha_nacimiento.month, nna.nna_fecha_nacimiento.day)
+                        ) if nna.nna_fecha_nacimiento else None
+
+                        nna_asociados.append({
+                            "nna_id": nna.nna_id,
+                            "nna_nombre": nna.nna_nombre,
+                            "nna_apellido": nna.nna_apellido,
+                            "nna_edad": edad,
+                        })
+                        nna_ids_agregados.add(nna.nna_id)
+
+        # 🔍 Si el proyecto ingresó por convocatoria, obtener info de convocatoria y NNA asociados
+        if proyecto.ingreso_por == "convocatoria":
+            detalle_postulacion = db.query(DetalleProyectoPostulacion).filter(
+                DetalleProyectoPostulacion.proyecto_id == proyecto.proyecto_id
+            ).first()
+
+            if detalle_postulacion:
+                postulacion = detalle_postulacion.postulacion
+                convocatoria = postulacion.convocatoria if postulacion else None
+
+                if convocatoria:
+                    convocatoria_info = {
+                        "convocatoria_id": convocatoria.convocatoria_id,
+                        "convocatoria_referencia": convocatoria.convocatoria_referencia,
+                        "convocatoria_llamado": convocatoria.convocatoria_llamado,
+                        "convocatoria_juzgado_interviniente": convocatoria.convocatoria_juzgado_interviniente,
+                        "convocatoria_fecha_publicacion": str(convocatoria.convocatoria_fecha_publicacion),
+                    }
+
+                    for detalle_nna in convocatoria.detalle_nnas:
+                        nna = detalle_nna.nna
+                        if nna and nna.nna_id not in nna_ids_agregados:
+                            edad = date.today().year - nna.nna_fecha_nacimiento.year - (
+                                (date.today().month, date.today().day) < (nna.nna_fecha_nacimiento.month, nna.nna_fecha_nacimiento.day)
+                            ) if nna.nna_fecha_nacimiento else None
+
+                            nna_asociados.append({
+                                "nna_id": nna.nna_id,
+                                "nna_nombre": nna.nna_nombre,
+                                "nna_apellido": nna.nna_apellido,
+                                "nna_edad": edad,
+                            })
+                            nna_ids_agregados.add(nna.nna_id)
+
+        proyecto_dict["nna_asociados"] = nna_asociados
+        proyecto_dict["convocatoria"] = convocatoria_info
+
+    
         return proyecto_dict
+    
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al recuperar el proyecto: {str(e)}")
