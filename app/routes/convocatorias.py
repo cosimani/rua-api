@@ -6,7 +6,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import func, or_
 import re
 
-
 from database.config import get_db
 from security.security import get_current_user, verify_api_key, require_roles
 
@@ -34,7 +33,7 @@ def get_convocatorias(
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
-    search: Optional[str] = Query(None, min_length=3),
+    search: Optional[str] = Query(None),
     fecha_inicio: Optional[date] = Query(None),
     fecha_fin: Optional[date] = Query(None),
     online: Optional[bool] = Query(None)
@@ -42,11 +41,26 @@ def get_convocatorias(
     try:
         query = db.query(Convocatoria)
 
-        if search:
+        # Hacer join con DetalleNNAEnConvocatoria y Nna si hay búsqueda
+        if search and len(search) >= 3:
             pattern = f"%{search}%"
+
+            # Crear un alias para Nna si es necesario (opcional)
+            nna_alias = aliased(Nna)
+
+            query = query.outerjoin(Convocatoria.detalle_nnas).outerjoin(DetalleNNAEnConvocatoria.nna)
+
             query = query.filter(
-                (Convocatoria.convocatoria_referencia.ilike(pattern)) |
-                (Convocatoria.convocatoria_juzgado_interviniente.ilike(pattern))
+                or_(
+                    Convocatoria.convocatoria_referencia.ilike(pattern),
+                    Convocatoria.convocatoria_llamado.ilike(pattern),
+                    Convocatoria.convocatoria_edad_es.ilike(pattern),
+                    Convocatoria.convocatoria_residencia_postulantes.ilike(pattern),
+                    Convocatoria.convocatoria_descripcion.ilike(pattern),
+                    Convocatoria.convocatoria_juzgado_interviniente.ilike(pattern),
+                    Nna.nna_nombre.ilike(pattern),
+                    Nna.nna_apellido.ilike(pattern)
+                )
             )
 
         if fecha_inicio:
