@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Request, status, Body, UploadFile, File, Form
 from typing import List, Optional, Literal, Tuple
-from sqlalchemy.orm import Session, aliased, joinedload
+from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import func, case, and_, or_, Integer, literal_column
 import json
@@ -11,7 +11,7 @@ from datetime import datetime, date
 from models.proyecto import Proyecto, ProyectoHistorialEstado, DetalleEquipoEnProyecto, AgendaEntrevistas, FechaRevision
 from models.carpeta import Carpeta, DetalleProyectosEnCarpeta, DetalleNNAEnCarpeta
 from models.notif_y_observaciones import ObservacionesProyectos, ObservacionesPretensos, NotificacionesRUA
-from models.convocatorias import DetalleProyectoPostulacion
+from models.convocatorias import DetalleProyectoPostulacion, DetalleNNAEnConvocatoria
 from models.ddjj import DDJJ
 from models.nna import Nna
 
@@ -208,32 +208,135 @@ def get_postulaciones(
 
 
 
-@postulaciones_router.get("/postulaciones/{postulacion_id}", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+# @postulaciones_router.get("/postulaciones/{postulacion_id}", response_model=dict, 
+#                   dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+# def get_postulacion(postulacion_id: int, db: Session = Depends(get_db)):
+#     try:
+#         # postulacion = db.query(Postulacion).filter(Postulacion.postulacion_id == postulacion_id).first()
+#         postulacion = db.query(Postulacion)\
+#             .options(joinedload(Postulacion.convocatoria))\
+#             .filter(Postulacion.postulacion_id == postulacion_id)\
+#             .first()
+        
+#         if not postulacion:
+#             raise HTTPException(status_code=404, detail="Postulación no encontrada")
+
+#         # Detalle simple del proyecto vinculado (opcional)
+#         proyecto = None
+#         if postulacion.detalle_proyecto:
+#             proyecto = {
+#                 "proyecto_id": postulacion.detalle_proyecto[0].proyecto_id
+#             }
+
+#         return {
+#             "postulacion_id": postulacion.postulacion_id,
+#             "convocatoria_id": postulacion.convocatoria_id,
+#             "convocatoria": {
+#                 "convocatoria_referencia": postulacion.convocatoria.convocatoria_referencia if postulacion.convocatoria else None,
+#                 "convocatoria_llamado": postulacion.convocatoria.convocatoria_llamado if postulacion.convocatoria else None,
+#             } if postulacion.convocatoria else None,
+#             "fecha_postulacion": postulacion.fecha_postulacion,
+#             "nombre": postulacion.nombre,
+#             "apellido": postulacion.apellido,
+#             "dni": postulacion.dni,
+#             "fecha_nacimiento": postulacion.fecha_nacimiento,
+#             "nacionalidad": postulacion.nacionalidad,
+#             "sexo": postulacion.sexo,
+#             "estado_civil": postulacion.estado_civil,
+#             "calle_y_nro": postulacion.calle_y_nro,
+#             "depto": postulacion.depto,
+#             "barrio": postulacion.barrio,
+#             "localidad": postulacion.localidad,
+#             "cp": postulacion.cp,
+#             "provincia": postulacion.provincia,
+#             "telefono_contacto": postulacion.telefono_contacto,
+#             "videollamada": postulacion.videollamada,
+#             "mail": postulacion.mail,
+#             "movilidad_propia": postulacion.movilidad_propia,
+#             "obra_social": postulacion.obra_social,
+#             "ocupacion": postulacion.ocupacion,
+#             "conyuge_convive": postulacion.conyuge_convive,
+#             "conyuge_nombre": postulacion.conyuge_nombre,
+#             "conyuge_apellido": postulacion.conyuge_apellido,
+#             "conyuge_dni": postulacion.conyuge_dni,
+#             "conyuge_edad": postulacion.conyuge_edad,
+#             "conyuge_otros_datos": postulacion.conyuge_otros_datos,
+#             "hijos": postulacion.hijos,
+#             "acogimiento_es": postulacion.acogimiento_es,
+#             "acogimiento_descripcion": postulacion.acogimiento_descripcion,
+#             "en_rua": postulacion.en_rua,
+#             "subregistro_comentarios": postulacion.subregistro_comentarios,
+#             "otra_convocatoria": postulacion.otra_convocatoria,
+#             "otra_convocatoria_comentarios": postulacion.otra_convocatoria_comentarios,
+#             "antecedentes": postulacion.antecedentes,
+#             "antecedentes_comentarios": postulacion.antecedentes_comentarios,
+#             "como_tomaron_conocimiento": postulacion.como_tomaron_conocimiento,
+#             "motivos": postulacion.motivos,
+#             "comunicaron_decision": postulacion.comunicaron_decision,
+#             "otros_comentarios": postulacion.otros_comentarios,
+#             "inscripto_en_rua": postulacion.inscripto_en_rua,
+#             "proyecto": proyecto
+#         }
+
+#     except SQLAlchemyError as e:
+#         raise HTTPException(status_code=500, detail=f"Error al recuperar la postulación: {str(e)}")
+
+
+
+
+@postulaciones_router.get("/postulaciones/{postulacion_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def get_postulacion(postulacion_id: int, db: Session = Depends(get_db)):
     try:
-        # postulacion = db.query(Postulacion).filter(Postulacion.postulacion_id == postulacion_id).first()
+        # 🔎 Cargar convocatoria con NNA asociados y proyecto vinculado
         postulacion = db.query(Postulacion)\
-            .options(joinedload(Postulacion.convocatoria))\
+            .options(
+                joinedload(Postulacion.convocatoria)
+                    .selectinload(Convocatoria.detalle_nnas)
+                    .joinedload(DetalleNNAEnConvocatoria.nna),
+                joinedload(Postulacion.detalle_proyecto)
+            )\
             .filter(Postulacion.postulacion_id == postulacion_id)\
             .first()
-        
+
         if not postulacion:
             raise HTTPException(status_code=404, detail="Postulación no encontrada")
 
-        # Detalle simple del proyecto vinculado (opcional)
+        # ✅ Proyecto vinculado
         proyecto = None
         if postulacion.detalle_proyecto:
             proyecto = {
                 "proyecto_id": postulacion.detalle_proyecto[0].proyecto_id
             }
 
+        # ✅ NNA asociados a la convocatoria
+        nna_asociados = []
+        if postulacion.convocatoria and postulacion.convocatoria.detalle_nnas:
+            for detalle in postulacion.convocatoria.detalle_nnas:
+                nna = detalle.nna
+                if nna:
+                    edad = None
+                    if nna.nna_fecha_nacimiento:
+                        hoy = date.today()
+                        edad = hoy.year - nna.nna_fecha_nacimiento.year - (
+                            (hoy.month, hoy.day) < (nna.nna_fecha_nacimiento.month, nna.nna_fecha_nacimiento.day)
+                        )
+
+                    nna_asociados.append({
+                        "nna_id": nna.nna_id,
+                        "nna_nombre": nna.nna_nombre,
+                        "nna_apellido": nna.nna_apellido,
+                        "nna_edad": edad
+                    })
+
+        # ✅ Respuesta final
         return {
             "postulacion_id": postulacion.postulacion_id,
             "convocatoria_id": postulacion.convocatoria_id,
             "convocatoria": {
                 "convocatoria_referencia": postulacion.convocatoria.convocatoria_referencia if postulacion.convocatoria else None,
                 "convocatoria_llamado": postulacion.convocatoria.convocatoria_llamado if postulacion.convocatoria else None,
+                "nna_asociados": nna_asociados
             } if postulacion.convocatoria else None,
             "fecha_postulacion": postulacion.fecha_postulacion,
             "nombre": postulacion.nombre,
@@ -280,3 +383,5 @@ def get_postulacion(postulacion_id: int, db: Session = Depends(get_db)):
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al recuperar la postulación: {str(e)}")
+
+
