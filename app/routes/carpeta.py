@@ -359,7 +359,7 @@ def crear_carpeta(
             return {
                 "success": False,
                 "tipo_mensaje": "rojo",
-                "mensaje": "Debe proporcionar al menos 'proyectos_id' o 'nna_id'",
+                "mensaje": "Debe proporcionar al menos un proyecto o un NNA",
                 "tiempo_mensaje": 6,
                 "next_page": "actual"
             }
