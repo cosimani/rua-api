@@ -11,6 +11,9 @@ from datetime import datetime, date
 from database.config import get_db
 from security.security import verify_api_key, require_roles, get_current_user
 
+from helpers.utils import construir_subregistro_string
+
+
 from models.carpeta import Carpeta, DetalleProyectosEnCarpeta, DetalleNNAEnCarpeta
 from models.proyecto import Proyecto, ProyectoHistorialEstado
 from models.users import User
@@ -154,47 +157,6 @@ def listar_carpetas(
         carpetas = query.offset((page - 1) * limit).limit(limit).all()
 
 
-        # if busqueda_rapida and len(busqueda_rapida.strip()) >= 3:
-        #   palabras = busqueda_rapida.strip().split()
-        #   condiciones_por_palabra = []
-
-        #   query = query \
-        #       .outerjoin(DetalleNNAEnCarpeta, DetalleNNAEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
-        #       .outerjoin(Nna, DetalleNNAEnCarpeta.nna_id == Nna.nna_id) \
-        #       .outerjoin(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id) \
-        #       .outerjoin(Proyecto, DetalleProyectosEnCarpeta.proyecto_id == Proyecto.proyecto_id) \
-        #       .outerjoin(User1, User1.login == Proyecto.login_1) \
-        #       .outerjoin(User2, User2.login == Proyecto.login_2)
-
-
-              
-        #   for palabra in palabras:
-        #       patron = f"%{palabra}%"
-        #       condiciones_por_palabra.append(
-        #           or_(
-        #               Nna.nna_nombre.ilike(patron),
-        #               Nna.nna_apellido.ilike(patron),
-        #               Nna.nna_dni.ilike(patron),
-        #               Proyecto.nro_orden_rua.ilike(patron),
-        #               Proyecto.login_1.ilike(patron),
-        #               Proyecto.login_2.ilike(patron),
-        #               User1.nombre.ilike(patron),
-        #               User1.apellido.ilike(patron),
-        #               User1.login.ilike(patron),
-        #               User2.nombre.ilike(patron),
-        #               User2.apellido.ilike(patron),
-        #               User2.login.ilike(patron),
-        #           )
-        #       )
-
-
-        #   query = query.filter(and_(*condiciones_por_palabra))
-        #   query = query.distinct(Carpeta.carpeta_id)
-
-
-        # total = query.count()
-        # carpetas = query.offset((page - 1) * limit).limit(limit).all()
-
         resultado = []
         for carpeta in carpetas:
             proyectos = []
@@ -207,6 +169,7 @@ def listar_carpetas(
                         "proyecto_id": p.proyecto_id,
                         "nro_orden_rua": p.nro_orden_rua,
                         "proyecto_tipo": p.proyecto_tipo,
+                        "subregistro_string": construir_subregistro_string(p),
                         "estado_general": p.estado_general,
                         "proyecto_localidad": p.proyecto_localidad,
                         "login_1": p.login_1,
@@ -303,6 +266,7 @@ def obtener_carpeta(
                     "proyecto_id": p.proyecto_id,
                     "nro_orden_rua": p.nro_orden_rua,
                     "proyecto_tipo": p.proyecto_tipo,
+                    "subregistro_string": construir_subregistro_string(p),
                     "estado_general": p.estado_general,
                     "proyecto_localidad": p.proyecto_localidad,
                     "login_1": p.login_1,
