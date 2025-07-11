@@ -1345,25 +1345,73 @@ def descargar_pdf_carpeta_completa(carpeta_id: int, db: Session = Depends(get_db
         print(f"📄 Procesando proyecto ID {proyecto.proyecto_id}")
         merged = fitz.open()
 
-        # Portada
+
+        ###############
+        pretenso_1 = proyecto.usuario_1
+        pretenso_2 = proyecto.usuario_2 if proyecto.login_2 else None
+
         portada = merged.new_page(width=595, height=842)
-        portada.insert_textbox(fitz.Rect(0, 50, 595, 100), "📄 Proyecto adoptivo", fontsize=22, align=1)
+        portada.insert_textbox(fitz.Rect(0, 50, 595, 100), "SERVICIO DE GUARDA Y ADOPCIÓN", fontname="helv", fontsize=16, align=1, color=(0.1, 0.1, 0.3))
+        portada.insert_textbox(fitz.Rect(0, 75, 595, 120), "REGISTRO ÚNICO DE ADOPCIONES Y EQUIPO TÉCNICO", fontname="helv", fontsize=13, align=1, color=(0.2, 0.2, 0.4))
+        portada.insert_textbox(fitz.Rect(0, 105, 595, 135), "DOCUMENTACIÓN DEL PROYECTO ADOPTIVO", fontname="helv", fontsize=11, align=1, color=(0.4, 0.4, 0.4))
 
-        datos = [
-            f"N° RUA: {proyecto.nro_orden_rua or '-'}",
-            f"Tipo: {proyecto.proyecto_tipo or '-'}",
-            f"Provincia: {proyecto.proyecto_provincia or '-'}",
-        ]
+        domicilio = proyecto.proyecto_calle_y_nro or ""
+        if proyecto.proyecto_depto_etc:
+            domicilio += f", {proyecto.proyecto_depto_etc}"
+        if proyecto.proyecto_barrio:
+            domicilio += f", {proyecto.proyecto_barrio}"
+        if proyecto.proyecto_localidad:
+            domicilio += f", {proyecto.proyecto_localidad}"
 
-        if proyecto.usuario_1:
-            datos.append(f"Pretenso 1: {proyecto.usuario_1.nombre} {proyecto.usuario_1.apellido} - DNI: {proyecto.login_1}")
-        if proyecto.usuario_2:
-            datos.append(f"Pretenso 2: {proyecto.usuario_2.nombre} {proyecto.usuario_2.apellido} - DNI: {proyecto.login_2}")
+        datos = []
+        if proyecto.nro_orden_rua:
+            datos.append(f"N° de orden RUA: {proyecto.nro_orden_rua}")
+        if proyecto.proyecto_tipo:
+            datos.append(f"Tipo de proyecto: {proyecto.proyecto_tipo}")
+        if pretenso_1:
+            datos.append(f"Pretenso 1: {pretenso_1.nombre} {pretenso_1.apellido} - DNI: {pretenso_1.login}")
+        if pretenso_2:
+            datos.append(f"Pretenso 2: {pretenso_2.nombre} {pretenso_2.apellido} - DNI: {pretenso_2.login}")
+        if domicilio.strip():
+            datos.append(f"Domicilio: {domicilio}")
+        if proyecto.proyecto_provincia:
+            datos.append(f"Provincia: {proyecto.proyecto_provincia}")
 
-        y = 130
+        fondo = fitz.Rect(50, 160, 545, 380)
+        portada.draw_rect(fondo, fill=(0.88, 0.93, 0.98))
+        y = 170
         for linea in datos:
-            portada.insert_textbox(fitz.Rect(60, y, 530, y+25), linea, fontsize=14)
-            y += 30
+            portada.insert_textbox(fitz.Rect(60, y, 530, y + 25), linea, fontsize=13, fontname="helv", align=0, color=(0.1, 0.1, 0.1))
+            y += 28
+
+        portada.draw_line(p1=(60, y + 10), p2=(portada.rect.width - 60, y + 10), color=(0.5, 0.5, 0.5), width=0.6)
+
+        #################
+
+        # # Portada
+        # portada = merged.new_page(width=595, height=842)
+        # portada.insert_textbox(fitz.Rect(0, 50, 595, 100), "📄 Proyecto adoptivo", fontsize=22, align=1)
+
+        # datos = [
+        #     f"N° RUA: {proyecto.nro_orden_rua or '-'}",
+        #     f"Tipo: {proyecto.proyecto_tipo or '-'}",
+        #     f"Provincia: {proyecto.proyecto_provincia or '-'}",
+        # ]
+
+        # if proyecto.usuario_1:
+        #     datos.append(f"Pretenso 1: {proyecto.usuario_1.nombre} {proyecto.usuario_1.apellido} - DNI: {proyecto.login_1}")
+        # if proyecto.usuario_2:
+        #     datos.append(f"Pretenso 2: {proyecto.usuario_2.nombre} {proyecto.usuario_2.apellido} - DNI: {proyecto.login_2}")
+
+        # y = 130
+        # for linea in datos:
+        #     portada.insert_textbox(fitz.Rect(60, y, 530, y+25), linea, fontsize=14)
+        #     y += 30
+
+
+
+
+
 
         def agregar_doc(ruta, nombre):
             if not ruta:
@@ -1381,8 +1429,30 @@ def descargar_pdf_carpeta_completa(carpeta_id: int, db: Session = Depends(get_db
             try:
                 if ext == ".pdf":
                     shutil.copy(ruta, out_pdf)
+                
+                # elif ext in [".jpg", ".jpeg", ".png"]:
+                #     Image.open(ruta).convert("RGB").save(out_pdf)
                 elif ext in [".jpg", ".jpeg", ".png"]:
-                    Image.open(ruta).convert("RGB").save(out_pdf)
+                    img = Image.open(ruta).convert("RGB")
+                    
+                    # Tamaño A4 en puntos (1 punto = 1/72 pulgadas)
+                    a4_width, a4_height = 595, 842
+
+                    # Crear nuevo lienzo blanco A4
+                    new_img = Image.new("RGB", (a4_width, a4_height), (255, 255, 255))
+
+                    # Redimensionar imagen manteniendo proporción para que quepa en A4
+                    img.thumbnail((a4_width, a4_height))
+
+                    # Calcular posición para centrarla
+                    x = (a4_width - img.width) // 2
+                    y = (a4_height - img.height) // 2
+
+                    new_img.paste(img, (x, y))
+
+                    # Guardar como PDF en tamaño A4
+                    new_img.save(out_pdf, "PDF", resolution=100.0)
+                    
                 elif ext in [".doc", ".docx"]:
                     subprocess.run([
                         "libreoffice", "--headless", "--convert-to", "pdf", "--outdir", output_folder, ruta

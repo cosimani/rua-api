@@ -6134,8 +6134,29 @@ def descargar_pdf_proyecto(
 
         if ext == ".pdf":
             shutil.copy(ruta_original, out_pdf)
+        # elif ext in [".jpg", ".jpeg", ".png"]:
+        #     Image.open(ruta_original).convert("RGB").save(out_pdf)
         elif ext in [".jpg", ".jpeg", ".png"]:
-            Image.open(ruta_original).convert("RGB").save(out_pdf)
+          img = Image.open(ruta_original).convert("RGB")
+
+          # Tamaño A4 en puntos (1 punto = 1/72 pulgadas)
+          a4_width, a4_height = 595, 842
+
+          # Crear nuevo lienzo blanco A4
+          new_img = Image.new("RGB", (a4_width, a4_height), (255, 255, 255))
+
+          # Redimensionar imagen manteniendo proporción para que quepa en A4
+          img.thumbnail((a4_width, a4_height))
+
+          # Calcular posición para centrarla
+          x = (a4_width - img.width) // 2
+          y = (a4_height - img.height) // 2
+
+          new_img.paste(img, (x, y))
+
+          # Guardar como PDF en tamaño A4
+          new_img.save(out_pdf, "PDF", resolution=100.0)
+
         elif ext in [".doc", ".docx"]:
             subprocess.run([
                 "libreoffice", "--headless", "--convert-to", "pdf", "--outdir", DIR_PDF_GENERADOS, ruta_original
