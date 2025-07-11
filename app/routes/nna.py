@@ -58,7 +58,7 @@ def get_nnas(
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
-    search: Optional[str] = Query(None, min_length=3),
+    search: Optional[str] = Query(None),
     provincia: Optional[str] = Query(None),
     localidad: Optional[str] = Query(None),
     nna_en_convocatoria: Optional[bool] = Query(None),
@@ -70,7 +70,8 @@ def get_nnas(
     try:
         query = db.query(Nna)
 
-        if search:
+        # Si tiene menos de 3 caracteres, no filtra nada extra (devuelve todo)
+        if search and len(search.strip()) >= 3:
             palabras = search.strip().split()
 
             condiciones_por_palabra = []
@@ -86,6 +87,8 @@ def get_nnas(
                 )
 
             query = query.filter(and_(*condiciones_por_palabra))
+        
+
 
 
         if provincia:
