@@ -250,22 +250,10 @@ def get_proyectos(
             .outerjoin(User2, Proyecto.login_2 == User2.login)
         )
 
-
-        # query = (
-        #     db.query(Proyecto)
-        #     .outerjoin(User1, Proyecto.login_1 == User1.login)
-        #     .outerjoin(User2, Proyecto.login_2 == User2.login)
-        # )
-
         if fecha_nro_orden_inicio or fecha_nro_orden_fin:
             fecha_nro_orden_inicio = datetime.strptime(fecha_nro_orden_inicio, "%Y-%m-%d") if fecha_nro_orden_inicio else datetime(1970, 1, 1)
             fecha_nro_orden_fin = datetime.strptime(fecha_nro_orden_fin, "%Y-%m-%d") if fecha_nro_orden_fin else datetime.now()
 
-            # Verificar que Proyecto.fecha_asignacion_nro_orden no sea None antes de aplicar between
-            # query = query.filter(
-            #     Proyecto.fecha_asignacion_nro_orden != None,
-            #     func.str_to_date(Proyecto.fecha_asignacion_nro_orden, "%d/%m/%Y").between(fecha_nro_orden_inicio, fecha_nro_orden_fin)
-            # )
             query = query.filter(
                 Proyecto.fecha_asignacion_nro_orden != None,
                 Proyecto.fecha_asignacion_nro_orden.between(fecha_nro_orden_inicio, fecha_nro_orden_fin)
@@ -275,11 +263,6 @@ def get_proyectos(
             fecha_cambio_estado_inicio = datetime.strptime(fecha_cambio_estado_inicio, "%Y-%m-%d") if fecha_cambio_estado_inicio else datetime(1970, 1, 1)
             fecha_cambio_estado_fin = datetime.strptime(fecha_cambio_estado_fin, "%Y-%m-%d") if fecha_cambio_estado_fin else datetime.now()
 
-            # Verificar que Proyecto.fecha_asignacion_nro_orden no sea None antes de aplicar between
-            # query = query.filter(
-            #     Proyecto.ultimo_cambio_de_estado != None,
-            #     func.str_to_date(Proyecto.ultimo_cambio_de_estado, "%d/%m/%Y").between(fecha_cambio_estado_inicio, fecha_cambio_estado_fin)
-            # )
             query = query.filter(
                 Proyecto.ultimo_cambio_de_estado != None,
                 Proyecto.ultimo_cambio_de_estado.between(fecha_cambio_estado_inicio, fecha_cambio_estado_fin)
@@ -371,12 +354,83 @@ def get_proyectos(
         }
 
 
+
+        # Suponiendo que ya tenés `query` definido como tu query base
         if subregistros:
-            for sr in subregistros:
-                field = subregistro_field_map.get(sr)
-                if field is not None:
-                    query = query.filter(field == "Y")
-        
+            subregistros = list(set(subregistros))  # evitar duplicados
+
+            tags_padres = {
+                "FE": ["FE1", "FE2", "FE3", "FE4", "FET"],
+                "5A": ["5A1E1", "5A1E2", "5A1E3", "5A1E4", "5A1ET", "5A2E1", "5A2E2", "5A2E3", "5A2E4", "5A2ET"],
+                "5B": ["5B1E1", "5B1E2", "5B1E3", "5B1E4", "5B1ET", "5B2E1", "5B2E2", "5B2E3", "5B2E4", "5B2ET", "5B3E1", "5B3E2", "5B3E3", "5B3E4", "5B3ET"],
+                "F5": ["F5E1", "F5E2", "F5E3", "F5E4", "F5ET"],
+                "6": ["61E1", "61E2", "61E3", "61ET", "62E1", "62E2", "62E3", "62ET", "63E1", "63E2", "63E3", "63ET"],
+                "F6": ["F6E1", "F6E2", "F6E3", "F6ET"],
+            }
+
+            # Excluir padres si ya se mandó algún hijo
+            tags_excluidos = set()
+            for padre, hijos in tags_padres.items():
+                if padre in subregistros and any(hijo in subregistros for hijo in hijos):
+                    tags_excluidos.add(padre)
+
+            subregistros_filtrados = [sr for sr in subregistros if sr not in tags_excluidos]
+
+            condiciones = []
+            for sr in subregistros_filtrados:
+                if sr in tags_padres:
+                    grupo_or = [
+                        subregistro_field_map[subtag] == "Y"
+                        for subtag in tags_padres[sr]
+                        if subtag in subregistro_field_map
+                    ]
+                    if grupo_or:
+                        condiciones.append(or_(*grupo_or))
+                else:
+                    field = subregistro_field_map.get(sr)
+                    if field:
+                        condiciones.append(field == "Y")
+
+            if condiciones:
+                query = query.filter(and_(*condiciones))
+
+
+        # tags_padres = {
+        #     "FE": ["FE1", "FE2", "FE3", "FE4", "FET"],
+        #     "5A": ["5A1E1", "5A1E2", "5A1E3", "5A1E4", "5A1ET", "5A2E1", "5A2E2", "5A2E3", "5A2E4", "5A2ET"],
+        #     "5B": ["5B1E1", "5B1E2", "5B1E3", "5B1E4", "5B1ET", "5B2E1", "5B2E2", "5B2E3", "5B2E4", "5B2ET", "5B3E1", "5B3E2", "5B3E3", "5B3E4", "5B3ET"],
+        #     "F5":  ["F5E1", "F5E2", "F5E3", "F5E4", "F5ET"],
+        #     "6":  ["61E1", "61E2", "61E3", "61ET", "62E1", "62E2", "62E3", "62ET", "63E1", "63E2", "63E3", "63ET"],
+        #     "F6":  ["F6E1", "F6E2", "F6E3", "F6ET"],
+        # }
+
+        # if subregistros:
+        #     # Expandir tags padres
+        #     subregistros_expandido = []
+        #     for sr in subregistros:
+        #         if sr in tags_padres:
+        #             subregistros_expandido.extend(tags_padres[sr])
+        #         else:
+        #             subregistros_expandido.append(sr)
+
+        #     # Aplicar filtros con los subregistros expandidos
+        #     condiciones = []
+        #     for sr in subregistros_expandido:
+        #         field = subregistro_field_map.get(sr)
+        #         if field is not None:
+        #             condiciones.append(field == "Y")
+        #     if condiciones:
+        #         query = query.filter(or_(*condiciones))
+
+
+        # if subregistros:
+        #     condiciones = []
+        #     for sr in subregistros:
+        #         field = subregistro_field_map.get(sr)
+        #         if field is not None:
+        #             condiciones.append(field == "Y")
+        #     if condiciones:
+        #         query = query.filter(or_(*condiciones))
 
 
         if search and len(search) >= 3:
@@ -399,29 +453,6 @@ def get_proyectos(
                 )
             # Todas las palabras deben coincidir en algún campo (AND entre ORs)
             query = query.filter(and_(*condiciones_por_palabra))
-
-
-        # if search:
-        #     palabras = search.lower().split()  # divide en palabras
-        #     condiciones_por_palabra = []
-
-        #     for palabra in palabras:
-        #         condiciones_por_palabra.append(
-        #             or_(
-        #                 func.lower(func.concat(User1.nombre, " ", User1.apellido)).ilike(f"%{palabra}%"),
-        #                 func.lower(func.concat(User2.nombre, " ", User2.apellido)).ilike(f"%{palabra}%"),
-        #                 Proyecto.login_1.ilike(f"%{palabra}%"),
-        #                 Proyecto.login_2.ilike(f"%{palabra}%"),
-        #                 Proyecto.nro_orden_rua.ilike(f"%{palabra}%"),
-        #                 Proyecto.proyecto_calle_y_nro.ilike(f"%{palabra}%"),
-        #                 Proyecto.proyecto_barrio.ilike(f"%{palabra}%"),
-        #                 Proyecto.proyecto_localidad.ilike(f"%{palabra}%"),
-        #                 Proyecto.proyecto_provincia.ilike(f"%{palabra}%")
-        #             )
-        #         )
-
-        #     # Todas las palabras deben coincidir en algún campo (AND entre ORs)
-        #     query = query.filter(and_(*condiciones_por_palabra))
 
 
         # Determina si nro_orden_rua es válido (4 o 5 dígitos numéricos)
@@ -459,13 +490,6 @@ def get_proyectos(
         proyectos_list = []
         
         for proyecto in proyectos:
-
-            # Obtener todas las carpetas en las que está el proyecto
-            # carpeta_ids = [
-            #     row.carpeta_id for row in db.query(DetalleProyectosEnCarpeta.carpeta_id)
-            #     .filter(DetalleProyectosEnCarpeta.proyecto_id == proyecto.proyecto_id)
-            #     .all()
-            # ]
 
             # Profesionales asignadas → “Nombre Apellido; …”
             profesionales_asignadas = "; ".join(
