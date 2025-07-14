@@ -38,6 +38,8 @@ class Nna(Base):
                               'disponible', 'preparando_carpeta', 'enviada_a_juzgado', 'proyecto_seleccionado', 
                               'vinculacion', 'guarda', 'adopcion_definitiva', 'interrupcion', 
                               'mayor_sin_adopcion', 'en_convocatoria', 'no_disponible' ), nullable=True)
+
+    hermanos_id = Column(Integer, nullable=True)
     
    
     # # Relación con otra tabla (si existe)
