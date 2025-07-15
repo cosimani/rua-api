@@ -66,6 +66,7 @@ def get_nnas(
     disponible: Optional[bool] = Query(None),
     subregistros: Optional[List[str]] = Query(None, alias="subregistro_portada"),
     estado_filtro: Optional[List[str]] = Query(None),
+    excluir_nna_ids: Optional[List[int]] = Query(None),
 ):
     try:
         query = db.query(Nna)
@@ -141,6 +142,9 @@ def get_nnas(
             # Por defecto oculto los no_disponible
             query = query.filter(Nna.nna_estado != "no_disponible")
 
+        # Si se especifican IDs a excluir, los filtramos
+        if excluir_nna_ids:
+            query = query.filter(~Nna.nna_id.in_(excluir_nna_ids))
 
 
         # 👇 Ordenar por apellido y luego por nombre
@@ -1235,3 +1239,4 @@ def get_hermanos_de_nna(nna_id: int, db: Session = Depends(get_db)):
             "next_page": "actual"
         }
         
+
