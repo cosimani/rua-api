@@ -319,6 +319,14 @@ def get_nna_by_id(nna_id: int, db: Session = Depends(get_db)):
         # Determinar el flag nna_no_disponible según el estado crudo
         nna_no_disponible = "Y" if raw_estado == "no_disponible" else "N"
 
+        # Obtener hermanos si corresponde
+        hermanos = []
+        if nna.hermanos_id is not None:
+            hermanos = db.query(Nna).filter(
+                Nna.hermanos_id == nna.hermanos_id,
+                Nna.nna_id != nna.nna_id
+            ).all()
+
 
         return {
             "nna_id": nna.nna_id,
@@ -348,6 +356,25 @@ def get_nna_by_id(nna_id: int, db: Session = Depends(get_db)):
             # "estado": estado,
             # "comentarios_estado": comentarios_estado,
             # "nna_no_disponible": nna_no_disponible,
+
+            "hermanos": [
+                {
+                    "nna_id": h.nna_id,
+                    "nna_nombre": h.nna_nombre,
+                    "nna_apellido": h.nna_apellido,
+                    "nna_dni": h.nna_dni,
+                    "nna_fecha_nacimiento": h.nna_fecha_nacimiento,
+                    "nna_localidad": h.nna_localidad,
+                    "nna_provincia": h.nna_provincia,
+                    "nna_edad": (
+                        date.today().year - h.nna_fecha_nacimiento.year -
+                        ((date.today().month, date.today().day) < (h.nna_fecha_nacimiento.month, h.nna_fecha_nacimiento.day))
+                    ),
+                    "nna_edad_texto": edad_como_texto(h.nna_fecha_nacimiento)
+                }
+                for h in hermanos
+            ]
+
         }
 
     except SQLAlchemyError as e:
@@ -1001,3 +1028,210 @@ def descargar_documento_nna(
         filename = os.path.basename(filepath),
         media_type = "application/octet-stream"
     )
+
+
+
+
+@nna_router.post("/definir-hermanos", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def definir_hermanos(
+    nna_ids: List[int] = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
+    """
+    Asocia un grupo de NNAs como hermanos mediante un `hermanos_id` común.
+    - Si ninguno tiene `hermanos_id`, se asigna uno nuevo (máximo actual + 1).
+    - Si ya hay un `hermanos_id` común, se usa ese.
+    - Si hay más de un `hermanos_id` distinto, se rechaza la operación.
+    """
+    if len(nna_ids) < 2:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Debe proporcionar al menos 2 NNA para definir hermanos.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+    try:
+        # Traer todos los NNA
+        nnas = db.query(Nna).filter(Nna.nna_id.in_(nna_ids)).all()
+        if len(nnas) != len(nna_ids):
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Uno o más NNA no fueron encontrados.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # Detectar los distintos hermanos_id presentes
+        hermanos_ids = set([nna.hermanos_id for nna in nnas if nna.hermanos_id is not None])
+
+        if len(hermanos_ids) > 1:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Ya hay NNAs con diferentes grupos de hermanos definidos. No se pueden unificar. Por favor desvincule y reagrupe.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # Elegir hermanos_id a asignar (el existente o uno nuevo)
+        if hermanos_ids:
+            nuevo_hermanos_id = hermanos_ids.pop()
+        else:
+            max_hermanos_id = db.query(func.max(Nna.hermanos_id)).scalar() or 0
+            nuevo_hermanos_id = max_hermanos_id + 1
+
+        for nna in nnas:
+            nna.hermanos_id = nuevo_hermanos_id
+
+        db.commit()
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": f"Se definieron {len(nnas)} NNAs como hermanos.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": True,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al definir hermanos.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+
+
+@nna_router.post("/quitar-hermanos", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def quitar_hermanos(
+    nna_ids: List[int] = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
+    """
+    Quita a uno o varios NNAs de su grupo de hermanos (pone hermanos_id en NULL).
+    """
+    if not nna_ids:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Debe proporcionar al menos un NNA para quitar hermanos.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+    try:
+        nnas = db.query(Nna).filter(Nna.nna_id.in_(nna_ids)).all()
+        if len(nnas) != len(nna_ids):
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Uno o más NNA no fueron encontrados.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        modificados = 0
+        for nna in nnas:
+            if nna.hermanos_id is not None:
+                nna.hermanos_id = None
+                modificados += 1
+
+        if modificados == 0:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Ninguno de los NNAs tenía grupo de hermanos asignado.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+        db.commit()
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": f"Se quitaron {modificados} NNAs de su grupo de hermanos.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": True,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al quitar hermanos.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+
+@nna_router.get("/{nna_id}/hermanos", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def get_hermanos_de_nna(nna_id: int, db: Session = Depends(get_db)):
+    """
+    Devuelve los NNAs que tienen el mismo `hermanos_id` que el NNA dado.
+    """
+    try:
+        nna = db.query(Nna).filter(Nna.nna_id == nna_id).first()
+        if not nna:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "NNA no encontrado",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        if nna.hermanos_id is None:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Este NNA no pertenece a ningún grupo de hermanos.",
+                "hermanos": [],
+                "tiempo_mensaje": 4,
+                "next_page": "actual"
+            }
+
+        hermanos = db.query(Nna).filter(
+            Nna.hermanos_id == nna.hermanos_id,
+            Nna.nna_id != nna_id
+        ).all()
+
+        hermanos_data = [
+            {
+                "nna_id": h.nna_id,
+                "nna_nombre": h.nna_nombre,
+                "nna_apellido": h.nna_apellido,
+                "nna_dni": h.nna_dni,
+                "nna_fecha_nacimiento": h.nna_fecha_nacimiento,
+                "nna_localidad": h.nna_localidad,
+                "nna_provincia": h.nna_provincia
+            }
+            for h in hermanos
+        ]
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": f"Se encontraron {len(hermanos_data)} hermanos.",
+            "hermanos": hermanos_data,
+            "tiempo_mensaje": 4,
+            "next_page": "actual"
+        }
+
+    except SQLAlchemyError as e:
+        return {
+            "success": True,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al obtener hermanos.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+        
