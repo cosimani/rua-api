@@ -602,6 +602,7 @@ def delete_nna(nna_id: int, db: Session = Depends(get_db)):
 #         }
 
 
+
 @nna_router.post("/upsert", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
@@ -623,6 +624,28 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
                 "next_page": "actual"
             }
 
+        # Validar campos obligatorios con nombres amigables
+        campos_obligatorios = {
+            "nna_nombre": "Nombre",
+            "nna_apellido": "Apellido",
+            "nna_fecha_nacimiento": "Fecha de nacimiento",
+            "nna_localidad": "Localidad",
+            "nna_provincia": "Provincia"
+        }
+
+        faltantes = [nombre for campo, nombre in campos_obligatorios.items() if not nna_data.get(campo)]
+
+        if faltantes:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": f"Faltan campos obligatorios: {', '.join(faltantes)}.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+
+
         campos = [
             "nna_nombre", "nna_apellido", "nna_fecha_nacimiento", "nna_calle_y_nro",
             "nna_depto_etc", "nna_barrio", "nna_localidad", "nna_provincia",
@@ -642,6 +665,21 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
                     "tiempo_mensaje": 6,
                     "next_page": "actual"
                 }
+
+            # Validar que el nuevo DNI no exista en otro NNA
+            otro_con_igual_dni = db.query(Nna).filter(
+                Nna.nna_dni == dni,
+                Nna.nna_id != nna_id
+            ).first()
+            if otro_con_igual_dni:
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": f"Ya existe otro NNA con este DNI.",
+                    "tiempo_mensaje": 6,
+                    "next_page": "actual"
+                }
+
 
             # Verificamos si se desea marcar como no disponible
             flag = nna_data.get("nna_no_disponible")
@@ -714,6 +752,18 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
             }
 
         # ——— CREAR NUEVO NNA ———
+
+        # Validar que no exista otro con el mismo DNI
+        otro_con_igual_dni = db.query(Nna).filter(Nna.nna_dni == dni).first()
+        if otro_con_igual_dni:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": f"Ya existe un NNA con este DNI.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
         nuevo_nna = Nna(
             nna_dni=dni,
             nna_estado="disponible",
@@ -864,16 +914,24 @@ def descargar_todos_documentos_nna(
     También es compatible con el formato anterior (una única ruta como string plano).
     """
 
+    print(f"🔍 Solicitando descarga de documentos para NNA ID: {nna_id}, campo: {campo}")
+
     nna = db.query(Nna).filter(Nna.nna_id == nna_id).first()
     if not nna:
         raise HTTPException(status_code=404, detail="NNA no encontrado")
 
     valor = getattr(nna, campo)
+
+    print(f"📄 Valor del campo {campo}: {valor}")
+
+
     try:
         if valor:
             if valor.strip().startswith("["):
                 archivos = json.loads(valor)
+                print(f"✅ Campo contiene JSON válido: {archivos}")
             else:
+                print("⚠️ Campo contiene una única ruta como string plano")
                 # Es una única ruta como string plano (modo anterior)
                 archivos = [{"ruta": valor}]
         else:
@@ -887,19 +945,25 @@ def descargar_todos_documentos_nna(
     # Solo un archivo → lo devuelvo directamente
     if len(archivos) == 1:
         ruta = archivos[0]["ruta"]
+        print(f"📁 Un solo archivo detectado: {ruta}")
         if not os.path.exists(ruta):
             raise HTTPException(status_code=404, detail="Archivo no encontrado en disco")
         return FileResponse(path=ruta, filename=os.path.basename(ruta), media_type="application/octet-stream")
 
     # Más de un archivo → crear un ZIP temporal
     try:
+        print(f"📦 Se encontraron múltiples archivos, creando ZIP temporal...")
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
         with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zipf:
             for archivo in archivos:
                 ruta = archivo.get("ruta")
+                print(f"➕ Agregando al ZIP: {ruta}")
                 if ruta and os.path.exists(ruta):
                     nombre_en_zip = os.path.basename(ruta)
                     zipf.write(ruta, arcname=nombre_en_zip)
+                else:
+                    print(f"⚠️ Ruta inexistente o vacía: {ruta}")
+        print(f"✅ ZIP creado exitosamente: {tmp.name}")
         return FileResponse(
             path=tmp.name,
             filename=f"{campo}_{nna_id}.zip",
