@@ -179,6 +179,15 @@ def get_nnas(
             estado = "Disponible"
             comentarios_estado = ""
 
+            # Ver si tiene hermanos (sin incluirse a sí mismo)
+            tiene_hermanos = False
+            if nna.hermanos_id is not None:
+                otros_hermanos = db.query(Nna).filter(
+                    Nna.hermanos_id == nna.hermanos_id,
+                    Nna.nna_id != nna.nna_id
+                ).first()
+                tiene_hermanos = otros_hermanos is not None
+
             
             nnas_list.append({
                 "nna_id": nna.nna_id,
@@ -202,6 +211,7 @@ def get_nnas(
                 "nna_archivado": nna.nna_archivado,
                 "estado": nna.nna_estado,
                 "comentarios_estado": comentarios_estado,
+                "tiene_hermanos": tiene_hermanos
             })
 
         return {
