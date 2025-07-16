@@ -197,6 +197,7 @@ def get_nnas(
                 "nna_dni": nna.nna_dni,
                 "nna_fecha_nacimiento": nna.nna_fecha_nacimiento,
                 "nna_edad": edad_como_texto(nna.nna_fecha_nacimiento),
+                "nna_edad_texto": edad_como_texto(nna.nna_fecha_nacimiento),
                 "nna_edad_num": edad,
                 "subregistro_por_edad": subregistro_por_edad,
                 "nna_calle_y_nro": nna.nna_calle_y_nro,
@@ -518,129 +519,6 @@ def delete_nna(nna_id: int, db: Session = Depends(get_db)):
     except SQLAlchemyError as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al eliminar el NNA: {str(e)}")
-
-
-
-# @nna_router.post("/upsert", response_model = dict,
-#     dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
-# def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
-#     """
-#     🔁 Inserta o actualiza un NNA según el `nna_dni`.
-
-#     Si ya existe un NNA con ese DNI, se actualizan sus datos.  
-#     Si no existe, se crea un nuevo registro.
-
-#     📥 JSON esperado:
-#     ```json
-#     {
-#         "nna_nombre": "Lucía",
-#         "nna_apellido": "Gómez",
-#         "nna_dni": "30123456",
-#         "nna_fecha_nacimiento": "2015-07-12",
-#         "nna_calle_y_nro": "Av. Siempre Viva 123",
-#         "nna_depto_etc": "B",
-#         "nna_barrio": "Centro",
-#         "nna_localidad": "Córdoba",
-#         "nna_provincia": "Córdoba",
-#         "nna_subregistro_salud": "a",
-#         "nna_en_convocatoria": "Y",
-#         "nna_archivado": "N"
-#     }
-#     ```
-
-#     """
-#     try:
-#         # Validar y normalizar DNI
-#         dni = normalizar_y_validar_dni(nna_data.get("nna_dni"))
-#         if not dni:
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "rojo",
-#                 "mensaje": "Debe proporcionar un DNI válido de 6 a 9 dígitos",
-#                 "tiempo_mensaje": 6,
-#                 "next_page": "actual"
-#             }
-
-#         # Buscar si existe
-#         nna_existente = db.query(Nna).filter(Nna.nna_dni == dni).first()
-        
-
-#         campos = [
-#             "nna_nombre", "nna_apellido", "nna_fecha_nacimiento", "nna_calle_y_nro",
-#             "nna_depto_etc", "nna_barrio", "nna_localidad", "nna_provincia",
-#             "nna_subregistro_salud", "nna_en_convocatoria", "nna_archivado",
-#             "nna_5A", "nna_5B", "nna_no_disponible"
-#         ]
-
-#         if nna_existente:
-#             # 1) Si viene el flag `nna_no_disponible`…
-#             flag = nna_data.get("nna_no_disponible")
-#             if flag == "Y":
-#                 # sólo permitimos pasar a no_disponible si viene de disponible o ya está en no_disponible
-#                 if nna_existente.nna_estado in ("disponible", "no_disponible"):
-#                     nna_existente.nna_estado = "no_disponible"
-#                 else:
-#                     return {
-#                         "success": False,
-#                         "tipo_mensaje": "rojo",
-#                         "mensaje": "Sólo se puede marcar como no disponible a NNA en estado 'disponible'.",
-#                         "tiempo_mensaje": 6,
-#                         "next_page": "actual"
-#                     }
-#             elif flag == "N":
-#                 # Si el payload dice 'N', lo forzamos a 'disponible'
-#                 nna_existente.nna_estado = "disponible"
-
-
-#             # 2) Actualizar el resto de campos habituales
-#             for campo in campos:
-#                 if campo in ("nna_no_disponible",):  # ya lo manejamos arriba
-#                     continue
-#                 if campo in nna_data:
-#                     setattr(nna_existente, campo, nna_data[campo])
-
-#             db.commit()
-#             db.refresh(nna_existente)
-#             return {
-#                 "success": True,
-#                 "tipo_mensaje": "verde",
-#                 "mensaje": "NNA actualizado correctamente",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual",
-#                 "nna_id": nna_existente.nna_id
-#             }
-
-#         # —————— CREAR NUEVO NNA SI NO EXISTE ——————
-#         # Ignoramos nna_no_disponible y forzamos estado "disponible"
-#         nuevo_nna = Nna(
-#             nna_dni=dni,
-#             nna_estado="disponible",   # <- siempre disponible al crear
-#             **{campo: nna_data.get(campo)
-#                for campo in campos
-#                if campo not in ("nna_no_disponible",)}
-#         )
-#         db.add(nuevo_nna)
-#         db.commit()
-#         db.refresh(nuevo_nna)
-        
-#         return {
-#             "success": True,
-#             "tipo_mensaje": "verde",
-#             "mensaje": "NNA creado correctamente",
-#             "tiempo_mensaje": 5,
-#             "next_page": "actual",
-#             "nna_id": nuevo_nna.nna_id
-#         }
-
-#     except SQLAlchemyError as e:
-#         db.rollback()
-#         return {
-#             "success": False,
-#             "tipo_mensaje": "rojo",
-#             "mensaje": f"Error en upsert de NNA: {str(e)}",
-#             "tiempo_mensaje": 6,
-#             "next_page": "actual"
-#         }
 
 
 
@@ -1105,7 +983,7 @@ def definir_hermanos(
         return {
             "success": True,
             "tipo_mensaje": "verde",
-            "mensaje": f"Se definieron {len(nnas)} NNAs como hermanos.",
+            "mensaje": f"{len(nnas)} NNAs como hermanos.",
             "tiempo_mensaje": 5,
             "next_page": "actual"
         }
@@ -1226,7 +1104,8 @@ def get_hermanos_de_nna(nna_id: int, db: Session = Depends(get_db)):
                 "nna_dni": h.nna_dni,
                 "nna_fecha_nacimiento": h.nna_fecha_nacimiento,
                 "nna_localidad": h.nna_localidad,
-                "nna_provincia": h.nna_provincia
+                "nna_provincia": h.nna_provincia,
+                "nna_edad_texto": edad_como_texto(h.nna_fecha_nacimiento)
             }
             for h in hermanos
         ]
