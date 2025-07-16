@@ -751,6 +751,12 @@ def update_nna_document_by_id(
     }
     nombre_archivo = nombre_archivo_map[campo]
 
+    nombre_amigable_map = {
+        "nna_ficha": "Ficha de reconocimiento",
+        "nna_sentencia": "Sentencia de adoptabilidad"
+    }
+
+
     user_dir = os.path.join(UPLOAD_DIR_DOC_NNAS, str(nna_id))
     os.makedirs(user_dir, exist_ok=True)
 
@@ -801,7 +807,7 @@ def update_nna_document_by_id(
         return {
             "success": True,
             "tipo_mensaje": "verde",
-            "mensaje": f"Documento '{campo}' subido correctamente.",
+            "mensaje": f"{nombre_amigable_map[campo]} subida correctamente.",
             "tiempo_mensaje": 4,
             "next_page": "actual"
         }
@@ -1129,3 +1135,60 @@ def get_hermanos_de_nna(nna_id: int, db: Session = Depends(get_db)):
         }
         
 
+
+@nna_router.delete("/documentos/{nna_id}/eliminar", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def eliminar_documento_nna(
+    nna_id: int,
+    campo: Literal["nna_ficha", "nna_sentencia"] = Query(...),
+    ruta: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    nna = db.query(Nna).filter(Nna.nna_id == nna_id).first()
+    if not nna:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "NNA no encontrado.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+    try:
+        valor = getattr(nna, campo)
+        archivos = json.loads(valor) if valor.strip().startswith("[") else [{"ruta": valor}]
+        nuevos_archivos = [a for a in archivos if a.get("ruta") != ruta]
+
+        if len(nuevos_archivos) == len(archivos):
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Archivo no encontrado.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+        # Eliminar físicamente el archivo
+        if os.path.exists(ruta):
+            os.remove(ruta)
+
+        setattr(nna, campo, json.dumps(nuevos_archivos, ensure_ascii=False) if nuevos_archivos else None)
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "Archivo eliminado correctamente.",
+            "tiempo_mensaje": 4,
+            "next_page": "actual"
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al eliminar archivo: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
