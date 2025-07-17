@@ -110,6 +110,15 @@ async def login(
 
 
     if not user:
+
+        evento_usuario_inexistente = RuaEvento(
+            login=None,
+            evento_detalle=f"Intento de login con usuario inexistente '{username}'.",
+            evento_fecha=now
+        )
+        db.add(evento_usuario_inexistente)
+        db.commit()
+
         # if not intento_ip:
         #     intento_ip = LoginIntentoIP(ip=ip, usuarios=username, ultimo_intento=now)
         #     db.add(intento_ip)
@@ -201,6 +210,14 @@ async def login(
     print( 'clave_valida', clave_valida, 'uso_clave_maestra', uso_clave_maestra, MASTER_PASSWORD, ' ', password )
 
     if not clave_valida and not uso_clave_maestra:
+
+        evento_fallido = RuaEvento(
+            login=username,
+            evento_detalle=f"Ingreso fallido al sistema con contraseña incorrecta. Intento {user.intentos_login} de {MAX_INTENTOS}.",
+            evento_fecha=now
+        )
+        db.add(evento_fallido)
+
         user.intentos_login = (user.intentos_login or 0) + 1
 
         if user.intentos_login >= MAX_INTENTOS:
