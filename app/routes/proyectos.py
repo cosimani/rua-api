@@ -4549,14 +4549,6 @@ def confirmar_sentencia_guarda(
 ):
     observacion = body.get("observacion", "").strip()
 
-    if not observacion:
-        return {
-            "success": False,
-            "tipo_mensaje": "naranja",
-            "mensaje": "La observación es obligatoria.",
-            "tiempo_mensaje": 5,
-            "next_page": "actual"
-        }
 
     proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
     if not proyecto:
@@ -4568,14 +4560,14 @@ def confirmar_sentencia_guarda(
             "next_page": "actual"
         }
 
-    if not proyecto.doc_sentencia_guarda:
-        return {
-            "success": False,
-            "tipo_mensaje": "rojo",
-            "mensaje": "No se ha subido la sentencia de guarda.",
-            "tiempo_mensaje": 5,
-            "next_page": "actual"
-        }
+    # if not proyecto.doc_sentencia_guarda:
+    #     return {
+    #         "success": False,
+    #         "tipo_mensaje": "rojo",
+    #         "mensaje": "No se ha subido la sentencia de guarda.",
+    #         "tiempo_mensaje": 5,
+    #         "next_page": "actual"
+    #     }
 
 
     # Registrar evento y observación
@@ -4586,13 +4578,14 @@ def confirmar_sentencia_guarda(
     )
     db.add(evento)
 
-    observ = ObservacionesProyectos(
-        observacion_a_cual_proyecto = proyecto_id,
-        observacion = observacion,
-        login_que_observo = current_user["user"]["login"],
-        observacion_fecha = datetime.now()
-    )
-    db.add(observ)
+    if observacion:
+        observ = ObservacionesProyectos(
+            observacion_a_cual_proyecto = proyecto_id,
+            observacion = observacion,
+            login_que_observo = current_user["user"]["login"],
+            observacion_fecha = datetime.now()
+        )
+        db.add(observ)
 
     historial = ProyectoHistorialEstado(
         proyecto_id = proyecto_id,
@@ -4706,14 +4699,14 @@ def confirmar_sentencia_adopcion(
 ):
     observacion = body.get("observacion", "").strip()
 
-    if not observacion:
-        return {
-            "success": False,
-            "tipo_mensaje": "naranja",
-            "mensaje": "La observación es obligatoria.",
-            "tiempo_mensaje": 5,
-            "next_page": "actual"
-        }
+    # if not observacion:
+    #     return {
+    #         "success": False,
+    #         "tipo_mensaje": "naranja",
+    #         "mensaje": "La observación es obligatoria.",
+    #         "tiempo_mensaje": 5,
+    #         "next_page": "actual"
+    #     }
 
     proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
     if not proyecto:
@@ -4725,14 +4718,14 @@ def confirmar_sentencia_adopcion(
             "next_page": "actual"
         }
 
-    if not proyecto.doc_sentencia_adopcion:
-        return {
-            "success": False,
-            "tipo_mensaje": "rojo",
-            "mensaje": "No se ha subido la sentencia de adopción.",
-            "tiempo_mensaje": 5,
-            "next_page": "actual"
-        }
+    # if not proyecto.doc_sentencia_adopcion:
+    #     return {
+    #         "success": False,
+    #         "tipo_mensaje": "rojo",
+    #         "mensaje": "No se ha subido la sentencia de adopción.",
+    #         "tiempo_mensaje": 5,
+    #         "next_page": "actual"
+    #     }
     
     # Registrar evento y observación
     evento = RuaEvento(
@@ -4742,13 +4735,15 @@ def confirmar_sentencia_adopcion(
     )
     db.add(evento)
 
-    observ = ObservacionesProyectos(
-        observacion_a_cual_proyecto = proyecto_id,
-        observacion = observacion,
-        login_que_observo = current_user["user"]["login"],
-        observacion_fecha = datetime.now()
-    )
-    db.add(observ)
+    if observacion:
+        observ = ObservacionesProyectos(
+            observacion_a_cual_proyecto = proyecto_id,
+            observacion = observacion,
+            login_que_observo = current_user["user"]["login"],
+            observacion_fecha = datetime.now()
+        )
+        db.add(observ)
+
 
     historial = ProyectoHistorialEstado(
         proyecto_id = proyecto_id,
