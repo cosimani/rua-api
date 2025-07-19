@@ -1076,6 +1076,13 @@ async def reconfirmar_subregistros(
         if key in data:
             setattr(ddjj, key, data[key])
 
+    # Registrar evento en RuaEvento
+    db.add(RuaEvento(
+        login=login,
+        evento_detalle="Reconfirmación de subregistros de DDJJ.",
+        evento_fecha=datetime.now()
+    ))
+
 
     db.commit()
 
