@@ -4179,102 +4179,114 @@ def notificar_usuario_inactivo(db: Session = Depends(get_db)):
 
 
 
-
-def procesar_envio_masivo(lineas: List[str], db: Session):    
-    resultados = {"total": 0, "mails_enviados": 0, "errores": []}
-
-    protocolo = get_setting_value(db, "protocolo") or "https"
-    host = get_setting_value(db, "donde_esta_alojado") or "osmvision.com.ar"
-    puerto = get_setting_value(db, "puerto_tcp")
-    endpoint = "/reconfirmar-subregistros"
-
-    puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
-    host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
-
-    os.makedirs(UPLOAD_DIR_DOC_PRETENSOS, exist_ok=True)
-    log_path = os.path.join(UPLOAD_DIR_DOC_PRETENSOS, "envios_exitosos.txt")
-
-    for idx, linea in enumerate(lineas, start=1):
-        resultados["total"] += 1
-        partes = linea.split("::")
-
-        if len(partes) != 4:
-            resultados["errores"].append(f"Línea {idx}: formato inválido")
-            continue
-
-        login, nombre, apellido, mail = [p.strip() for p in partes]
-
-        if not (login and nombre and apellido and mail):
-            resultados["errores"].append(f"Línea {idx}: campos vacíos")
-            continue
-
-        ddjj = db.query(DDJJ).filter(DDJJ.login == login).first()
-        if not ddjj:
-            resultados["errores"].append(f"{login}: no tiene DDJJ registrada")
-            continue
+def procesar_envio_masivo(lineas: List[str]):
+    db = SessionLocal()
+    try:
+        resultados = {"total": 0, "mails_enviados": 0, "errores": []}
 
         try:
-            login_base64 = base64.b64encode(login.encode()).decode()
-            link_final = f"{protocolo}://{host_con_puerto}{endpoint}?user={login_base64}"
+            protocolo = get_setting_value(db, "protocolo") or "https"
+            host = get_setting_value(db, "donde_esta_alojado") or "osmvision.com.ar"
+            puerto = get_setting_value(db, "puerto_tcp")
+            endpoint = "/reconfirmar-subregistros"
 
-            asunto = "Confirmación sobre flexibilidad adoptiva - RUA"
-            cuerpo_html = f"""
-            <html>
-              <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-                <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-                  <tr>
-                    <td align="center">
-                      <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: Arial, sans-serif; color: #333333; box-shadow: 0 0 10px rgba(0,0,0,0.05);">
-                        <tr>
-                          <td style="font-size: 18px; padding-bottom: 20px;">
-                            ¡Hola! nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.
-                          </td>
-                        </tr>
-                        <tr>
-                          <td style="font-size: 16px; padding-bottom: 10px; line-height: 1.6;">
-                            Te contactamos porque tenemos registrado que al momento de completar el formulario de inscripción señalaste, además de tu preferencia en las condiciones de niñas, niños y adolescentes que consideraste que podrías adoptar, la opción de <strong>“flexibilidad adoptiva”</strong> en relación a otras condiciones de niñas, niños y adolescentes que están esperando una familia.
-                          </td>
-                        </tr>
-                        <tr>
-                          <td style="font-size: 16px; padding: 10px 0;">
-                            Es por eso que en esta oportunidad te pedimos que nos especifiques tu elección de flexibilidad haciendo clic en el siguiente botón:
-                          </td>
-                        </tr>
-                        <tr>
-                          <td align="center" style="padding: 20px 0;">
-                            <a href="{link_final}"
-                                style="display: inline-block; padding: 12px 24px; font-size: 16px;
-                                      color: #ffffff; background-color: #0d6efd; text-decoration: none;
-                                      border-radius: 6px; font-weight: bold;"
-                                target="_blank">
-                              Ir al formulario
-                            </a>
-                          </td>
-                        </tr>
-                        <tr>
-                          <td style="font-size: 16px; padding-top: 10px;">
-                            ¡Muchas gracias por continuar formando parte del Registro Único de Adopciones de Córdoba!
-                          </td>
-                        </tr>
-                      </table>
-                    </td>
-                  </tr>
-                </table>
-              </body>
-            </html>
-            """
+            puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
+            host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
 
-            enviar_mail(destinatario=mail, asunto=asunto, cuerpo=cuerpo_html)
-            resultados["mails_enviados"] += 1
-
-            with open(log_path, "a", encoding="utf-8") as log_file:
-                ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                log_file.write(f"[{ahora}] Enviado a {login} ({mail})\n")
-
-            time.sleep(5)
-
+            os.makedirs(UPLOAD_DIR_DOC_PRETENSOS, exist_ok=True)
+            log_path = os.path.join(UPLOAD_DIR_DOC_PRETENSOS, "envios_exitosos.txt")
         except Exception as e:
-            resultados["errores"].append(f"{login} ({mail}): {e}")
+            print(f"[ERROR GLOBAL] Fallo en configuración inicial: {e}")
+            return  # cortás aquí si no podés ni siquiera armar el entorno
+
+        for idx, linea in enumerate(lineas, start=1):
+            resultados["total"] += 1
+            partes = linea.split("::")
+
+            if len(partes) != 4:
+                resultados["errores"].append(f"Línea {idx}: formato inválido")
+                continue
+
+            login, nombre, apellido, mail = [p.strip() for p in partes]
+
+            if not (login and nombre and apellido and mail):
+                resultados["errores"].append(f"Línea {idx}: campos vacíos")
+                continue
+
+            ddjj = db.query(DDJJ).filter(DDJJ.login == login).first()
+            if not ddjj:
+                resultados["errores"].append(f"{login}: no tiene DDJJ registrada")
+                continue
+
+            try:
+                login_base64 = base64.b64encode(login.encode()).decode()
+                link_final = f"{protocolo}://{host_con_puerto}{endpoint}?user={login_base64}"
+
+                asunto = "Confirmación sobre flexibilidad adoptiva - RUA"
+                cuerpo_html = f"""
+                <html>
+                  <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                    <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                      <tr>
+                        <td align="center">
+                          <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: Arial, sans-serif; color: #333333; box-shadow: 0 0 10px rgba(0,0,0,0.05);">
+                            <tr>
+                              <td style="font-size: 18px; padding-bottom: 20px;">
+                                ¡Hola! nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="font-size: 16px; padding-bottom: 10px; line-height: 1.6;">
+                                Te contactamos porque tenemos registrado que al momento de completar el formulario de inscripción señalaste, además de tu preferencia en las condiciones de niñas, niños y adolescentes que consideraste que podrías adoptar, la opción de <strong>“flexibilidad adoptiva”</strong> en relación a otras condiciones de niñas, niños y adolescentes que están esperando una familia.
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="font-size: 16px; padding: 10px 0;">
+                                Es por eso que en esta oportunidad te pedimos que nos especifiques tu elección de flexibilidad haciendo clic en el siguiente botón:
+                              </td>
+                            </tr>
+                            <tr>
+                              <td align="center" style="padding: 20px 0;">
+                                <a href="{link_final}"
+                                    style="display: inline-block; padding: 12px 24px; font-size: 16px;
+                                          color: #ffffff; background-color: #0d6efd; text-decoration: none;
+                                          border-radius: 6px; font-weight: bold;"
+                                    target="_blank">
+                                  Ir al formulario
+                                </a>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="font-size: 16px; padding-top: 10px;">
+                                ¡Muchas gracias por continuar formando parte del Registro Único de Adopciones de Córdoba!
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  </body>
+                </html>
+                """
+
+
+                enviar_mail(destinatario=mail, asunto=asunto, cuerpo=cuerpo_html)
+                resultados["mails_enviados"] += 1
+
+                with open(log_path, "a", encoding="utf-8") as log_file:
+                    ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    log_file.write(f"[{ahora}] Enviado a {login} ({mail})\n")
+
+                time.sleep(5)
+
+            except Exception as e:
+                resultados["errores"].append(f"{login} ({mail}): {e}")
+
+    except Exception as fatal:
+        print(f"[ERROR FATAL] {fatal}")
+
+    finally:
+        db.close()
 
 
 
@@ -4290,7 +4302,6 @@ def procesar_envio_masivo(lineas: List[str], db: Session):
 async def notificar_desde_txt(
     background_tasks: BackgroundTasks,  # 👈 primero los que no tienen valor por defecto
     archivo: UploadFile = File(...),
-    db: Session = Depends(get_db),
 ):
     if not archivo.filename.lower().endswith(".txt"):
         raise HTTPException(status_code=400, detail="El archivo debe tener extensión .txt")
@@ -4302,10 +4313,11 @@ async def notificar_desde_txt(
         raise HTTPException(status_code=500, detail=f"Error al leer el archivo: {e}")
 
     # Agregamos la tarea en segundo plano
-    background_tasks.add_task(procesar_envio_masivo, lineas, db)
+    background_tasks.add_task(procesar_envio_masivo, lineas)
 
     return {
         "tipo_mensaje": "verde",
         "mensaje": f"Se está procesando el envío de {len(lineas)} correos en segundo plano.",
         "errores": []
     }
+
