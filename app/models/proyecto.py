@@ -173,6 +173,7 @@ class Proyecto(Base):
     subreg_5B3E3 = Column(String(1))
     subreg_5B3E4 = Column(String(1))
     subreg_5B3ET = Column(String(1))
+    subreg_F5S = Column(String(1)) 
     subreg_F5E1 = Column(String(1))
     subreg_F5E2 = Column(String(1))
     subreg_F5E3 = Column(String(1))
