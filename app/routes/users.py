@@ -853,7 +853,8 @@ def get_user_by_login(
             "ddjj_procesos_judiciales": ddjj_checks["ddjj_procesos_judiciales"],
             "ddjj_disponibilidad_adoptiva": ddjj_checks["ddjj_disponibilidad_adoptiva"],
             "ddjj_tramo_final": ddjj_checks["ddjj_tramo_final"],
-            "ddjj_firmada": bool(user.ddjj_acepto_1 and user.ddjj_acepto_2 and user.ddjj_acepto_3 and user.ddjj_acepto_4),
+            # "ddjj_firmada": bool(user.ddjj_acepto_1 and user.ddjj_acepto_2 and user.ddjj_acepto_3 and user.ddjj_acepto_4),
+            "ddjj_firmada": user.doc_adoptante_ddjj_firmada == "Y",
 
             "mostrar_boton_proyecto": bool(user.proyecto_id),
 
@@ -3313,9 +3314,20 @@ def notificar_pretenso_mensaje(
                                     </div>
                                   </td>
                                 </tr>
+
+                                <tr>
+                                  <td style="padding-top: 30px; font-size: 16px; text-align: center;">
+                                    <p>Ingresá al sistema para más detalles:</p>
+                                    <a href="https://rua.justiciacordoba.gob.ar" target="_blank"
+                                      style="display: inline-block; margin-top: 10px; padding: 12px 24px; font-size: 16px; font-weight: bold; color: #ffffff; background-color: #007bff; border-radius: 6px; text-decoration: none;">
+                                      Sistema RUA
+                                    </a>
+                                  </td>
+                                </tr>
+
                                 <tr>
                                   <td style="padding-top: 30px; font-size: 17px;">
-                                    <p>¡Saludos!</p>
+                                    <p>¡Muchas gracias por querer formar parte del Registro Único de Adopciones de Córdoba!</p>
                                   </td>
                                 </tr>
                               </table>
@@ -3344,9 +3356,20 @@ def notificar_pretenso_mensaje(
                                     {mensaje}
                                   </td>
                                 </tr>
+
+                                <tr>
+                                  <td style="padding-top: 30px; font-size: 16px; text-align: center;">
+                                    <p>Ingresá al sistema para más detalles:</p>
+                                    <a href="https://rua.justiciacordoba.gob.ar" target="_blank"
+                                      style="display: inline-block; margin-top: 10px; padding: 12px 24px; font-size: 16px; font-weight: bold; color: #ffffff; background-color: #007bff; border-radius: 6px; text-decoration: none;">
+                                      Sistema RUA
+                                    </a>
+                                  </td>
+                                </tr>
+
                                 <tr>
                                   <td style="padding-top: 30px; font-size: 17px;">
-                                    <p>¡Saludos!</p>
+                                    <p>¡Muchas gracias por querer formar parte del Registro Único de Adopciones de Córdoba!</p>
                                   </td>
                                 </tr>
                               </table>
@@ -3382,9 +3405,20 @@ def notificar_pretenso_mensaje(
                                     </div>
                                   </td>
                                 </tr>
+
+                                <tr>
+                                  <td style="padding-top: 30px; font-size: 16px; text-align: center;">
+                                    <p>Ingresá al sistema para más detalles:</p>
+                                    <a href="https://rua.justiciacordoba.gob.ar" target="_blank"
+                                      style="display: inline-block; margin-top: 10px; padding: 12px 24px; font-size: 16px; font-weight: bold; color: #ffffff; background-color: #007bff; border-radius: 6px; text-decoration: none;">
+                                      Sistema RUA
+                                    </a>
+                                  </td>
+                                </tr>
+
                                 <tr>
                                   <td style="padding-top: 30px; font-size: 17px;">
-                                    <p>¡Saludos!</p>
+                                    <p>¡Muchas gracias por querer formar parte del Registro Único de Adopciones de Córdoba!</p>
                                   </td>
                                 </tr>
                               </table>
