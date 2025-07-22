@@ -12,6 +12,8 @@ from security.security import get_current_user, require_roles, verify_api_key, g
 
 from helpers.utils import convertir_booleans_a_string, normalizar_celular, capitalizar_nombre
 
+from helpers.notificaciones_utils import crear_notificacion_individual
+
 
 ddjj_router = APIRouter()
 
@@ -1001,6 +1003,25 @@ def reabrir_ddjj(
             evento_fecha=datetime.now()
         ))
 
+        # ✅ Si quien reabre es otro usuario (no el mismo adoptante), crear notificación
+        if login_actual != login:
+            mensaje = """
+            Se reabrió tu Declaración Jurada para que puedas editarla y es necesario volver a firmarla.
+            """
+            resultado = crear_notificacion_individual(
+                db=db,
+                login_destinatario=login,
+                mensaje=mensaje.strip(),
+                link="/menu_adoptantes/alta_ddjj",  # o el link que corresponda
+                # data_json={"accion": "reabrir_ddjj"},
+                tipo_mensaje="naranja",
+                enviar_por_whatsapp=False,
+                login_que_notifico=login_actual
+            )
+            if not resultado["success"]:
+                raise Exception("Error al crear la notificación")
+
+        
         db.commit()
 
         return {
