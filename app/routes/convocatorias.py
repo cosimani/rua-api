@@ -285,6 +285,7 @@ def upsert_convocatoria(
                 convocatoria_residencia_postulantes=convocatoria_data.get("convocatoria_residencia_postulantes"),
                 convocatoria_descripcion=convocatoria_data.get("convocatoria_descripcion"),
                 convocatoria_juzgado_interviniente=convocatoria_data.get("convocatoria_juzgado_interviniente"),
+                convocatoria_fecha_publicacion = datetime.now().date(),
                 convocatoria_online=convocatoria_online
             )
             db.add(convocatoria)
