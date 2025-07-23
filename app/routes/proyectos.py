@@ -4773,10 +4773,9 @@ def confirmar_sentencia_adopcion(
 
 @proyectos_router.post("/crear-proyecto-completo", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["adoptante"]))])
-def crear_proyecto_completo(
-    data: dict = Body(...),
+def crear_proyecto_completo( data: dict = Body(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)  
 ):
     
     try:
@@ -4861,8 +4860,9 @@ def crear_proyecto_completo(
                     "success": False,
                     "tipo_mensaje": "naranja",
                     "mensaje": (
-                        f"El usuario con DNI {login_2} no tiene su documentación personal aprobada en el sistema. "
-                        "Debe completarla y obtener la aprobación antes de poder sumarse al proyecto."
+                        f"El usuario con DNI {login_2} no puede unirse al proyecto porque su documentación personal aún "
+                        "no fue aprobada. Primero debe completar y aprobar la documentación en el sistema. "
+                        "Una vez que esté en condiciones, realizar esta solicitud nuevamente."
                     ),               
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
@@ -4991,6 +4991,7 @@ def crear_proyecto_completo(
 
             if user1 and user2:
                 nombre_completo = f"{user1.nombre} {user1.apellido} y {user2.nombre} {user2.apellido}"
+
             elif user1:
                 nombre_completo = f"{user1.nombre} {user1.apellido}"
             else:
@@ -5089,71 +5090,68 @@ def crear_proyecto_completo(
                     link_aceptar = f"{protocolo}://{host_con_puerto}{endpoint}?invitacion={aceptado_code}&respuesta=Y"
                     link_rechazar = f"{protocolo}://{host_con_puerto}{endpoint}?invitacion={aceptado_code}&respuesta=N"
 
-                    print( '9', link_aceptar )
-
                     cuerpo = f"""
-                        <html>
-                        <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-                            <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-                            <tr>
-                                <td align="center">
-                                <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-                                    <tr>
-                                    <td style="font-size: 24px; color: #007bff;">
-                                        <strong>Invitación a Proyecto Adoptivo</strong>
-                                    </td>
-                                    </tr>
-                                    <tr>
-                                    <td style="padding-top: 20px; font-size: 17px;">
-                                        <p>Has sido invitado/a a conformar un proyecto adoptivo junto a <strong>{nombre_1} {apellido_1}</strong> (DNI: {login_1}).</p>
-                                        <p>Por favor, confirmá tu participación haciendo clic en uno de los siguientes botones:</p>
-                                    </td>
-                                    </tr>
-                                    <tr>
-                                    <td align="center" style="padding: 30px 0;">
-                                        <table cellpadding="0" cellspacing="0" style="text-align: center;">
-                                        <tr>
-                                            <td style="padding-bottom: 10px;">
-                                            <a href="{link_aceptar}"
-                                                style="display: inline-block; padding: 12px 20px; background-color: #28a745; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
-                                                ✅ Acepto la invitación
-                                            </a>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td>
-                                            <a href="{link_rechazar}"
-                                                style="display: inline-block; padding: 12px 20px; background-color: #dc3545; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
-                                                ❌ Rechazo la invitación
-                                            </a>
-                                            </td>
-                                        </tr>
-                                        </table>
-                                    </td>
-                                    </tr>
-                                    <tr>
-                                    <td align="center" style="font-size: 17px;">
-                                        <p><strong>Muchas gracias</strong></p>
-                                    </td>
-                                    </tr>
-                                    <tr>
-                                    <td style="padding-top: 30px;">
-                                        <hr style="border: none; border-top: 1px solid #dee2e6;">
-                                        <p style="font-size: 15px; color: #6c757d; margin-top: 20px;">
-                                        <strong>Registro Único de Adopciones de Córdoba</strong>
-                                        </p>
-                                    </td>
-                                    </tr>
-                                </table>
-                                </td>
-                            </tr>
-                            </table>
-                        </body>
-                        </html>
-                        """
+                    <html>
+                      <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                          <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                          <tr>
+                            <td align="center">
+                              <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                <tr>
+                                  <td style="font-size: 24px; color: #007bff;">
+                                      <strong>¡Hola {login_2_user.nombre}!</strong>
+                                  </td>
+                                </tr>
+
+                                <tr>
+                                  <td style="padding-top: 20px; font-size: 17px;">
+                                    <p>Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+                                    <p><strong>{nombre_1} {apellido_1}</strong> (DNI: {login_1}) te invitó a conformar un 
+                                      proyecto adoptivo en conjunto.</p>
+                                    <p>Te pedimos que confirmes tu participación para poder avanzar:</p>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td align="center" style="padding: 30px 0;">
+                                    <table cellpadding="0" cellspacing="0" style="text-align: center;">
+                                      <tr>
+                                        <td style="padding-bottom: 10px;">
+                                          <a href="{link_aceptar}"
+                                              style="display: inline-block; padding: 12px 20px; background-color: #28a745; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+                                              ✅ Acepto la invitación
+                                          </a>
+                                        </td>
+                                      </tr>
+                                      <tr>
+                                        <td>
+                                          <a href="{link_rechazar}"
+                                              style="display: inline-block; padding: 12px 20px; background-color: #dc3545; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+                                              ❌ Rechazo la invitación
+                                          </a>
+                                        </td>
+                                      </tr>
+                                    </table>
+                                  </td>
+                                </tr>
+
+                                <tr>
+                                  <td style="padding-top: 30px; font-size: 17px;">
+                                    <p>¡Muchas gracias por querer formar parte del Registro Único de Adopciones de Córdoba!</p>
+                                  </td>
+                                </tr>
+                                  
+                              </table>
+                              </td>
+                          </tr>
+                          </table>
+                      </body>
+                    </html>
+                    """
 
                     try:
-                        enviar_mail(destinatario=login_2_user.mail, asunto="Invitación a proyecto adoptivo - RUA", cuerpo=cuerpo)
+                        enviar_mail(destinatario=login_2_user.mail, 
+                                    asunto="Invitación a conformar proyecto adoptivo en pareja", 
+                                    cuerpo=cuerpo)
                         print("✅ Correo enviado correctamente")
                     except Exception as e:
                         print(f"❌ Error al enviar correo: {e}")

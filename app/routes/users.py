@@ -3019,7 +3019,6 @@ def get_estado_usuario(
                 motivo_baja = estado.replace('_', ' ').capitalize()
                 mensaje_para_portada = f"""
                     <h4>Proyecto dado de baja</h4>
-                    <h5>Motivo: {motivo_baja}.</h5>
                     <h6>Para más información, contacte al equipo técnico.</h6>
                 """
 

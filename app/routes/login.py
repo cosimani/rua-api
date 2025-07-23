@@ -602,54 +602,116 @@ def aceptar_invitacion(
                         "<p>Te invitamos a ingresar al sistema si deseás presentar un nuevo proyecto adoptivo.</p>"
                     )
 
+                # cuerpo = f"""
+                # <html>
+                # <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                #     <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                #     <tr>
+                #         <td align="center">
+                #         <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                #             <tr>
+                #             <td style="font-size: 22px; color: #007bff;">
+                #                 <strong>Respuesta a la invitación</strong>
+                #             </td>
+                #             </tr>
+                #             <tr>
+                #             <td style="padding-top: 20px; font-size: 16px;">
+                #                 <p>{user2.nombre} {user2.apellido} (DNI: {login_2}) ha <strong>{estado_respuesta}</strong> la invitación al proyecto adoptivo.</p>
+                #                 {mensaje_personalizado}
+                #             </td>
+                #             </tr>
+                #             <tr>
+                #             <td align="center" style="padding: 20px 0;">
+                #                 <a href="{link}"
+                #                     style="display: inline-block; padding: 12px 25px; font-size: 16px; color: #ffffff; background-color: {color}; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                #                     {texto_botón}
+                #                 </a>
+                #             </td>
+                #             </tr>
+                #             <tr>
+                #             <td align="center" style="font-size: 16px;">
+                #                 <p><strong>Muchas gracias</strong></p>
+                #             </td>
+                #             </tr>
+                #             <tr>
+                #             <td style="padding-top: 30px;">
+                #                 <hr style="border: none; border-top: 1px solid #dee2e6;">
+                #                 <p style="font-size: 14px; color: #6c757d; margin-top: 20px;">
+                #                 <strong>Registro Único de Adopciones de Córdoba</strong>
+                #                 </p>
+                #             </td>
+                #             </tr>
+                #         </table>
+                #         </td>
+                #     </tr>
+                #     </table>
+                # </body>
+                # </html>
+                # """
+
+                verbo_respuesta = "aceptó" if respuesta == "Y" else "rechazó"
+
+                mensaje_invito = (
+                    "Los/as invitamos a continuar con el proceso de inscripción:"
+                    if respuesta == "Y"
+                    else "Los/as invitamos a conformar nuevamente un proyecto para continuar con el proceso de inscripción:"
+                )
+
+
                 cuerpo = f"""
+
                 <html>
-                <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                  <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
                     <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-                    <tr>
+                      <tr>
                         <td align="center">
-                        <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                          <table cellpadding="0" cellspacing="0" width="600"
+                            style="background-color: #ffffff; border-radius: 10px; padding: 30px;
+                                  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40;
+                                  box-shadow: 0 0 10px rgba(0,0,0,0.1);">
                             <tr>
-                            <td style="font-size: 22px; color: #007bff;">
-                                <strong>Respuesta a la invitación</strong>
-                            </td>
+                              <td style="font-size: 24px; color: #007bff;">
+                                <strong>¡Hola {user1.nombre}!</strong>
+                              </td>
+                            </tr>
+
+                            <tr>
+                              <td style="padding-top: 20px; font-size: 17px;">
+                                <p>Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+                                <p><strong>{user2.nombre} {user2.apellido}</strong> (DNI: {login_2}) <strong>{verbo_respuesta}</strong> tu invitación para conformar el proyecto adoptivo.</p>
+                              </td>
                             </tr>
                             <tr>
-                            <td style="padding-top: 20px; font-size: 16px;">
-                                <p>{user2.nombre} {user2.apellido} (DNI: {login_2}) ha <strong>{estado_respuesta}</strong> la invitación al proyecto adoptivo.</p>
-                                {mensaje_personalizado}
-                            </td>
+                              <td style="padding-top: 10px; font-size: 17px;">
+                                <p>{mensaje_invito}</p>
+                              </td>
                             </tr>
+
                             <tr>
-                            <td align="center" style="padding: 20px 0;">
-                                <a href="{link}"
-                                    style="display: inline-block; padding: 12px 25px; font-size: 16px; color: #ffffff; background-color: {color}; text-decoration: none; border-radius: 8px; font-weight: bold;">
-                                    {texto_botón}
+                              <td align="center" style="padding: 30px 0;">
+                                <a href="https://rua.justiciacordoba.gob.ar" target="_blank"
+                                  style="display: inline-block; padding: 12px 24px; background-color: #007bff;
+                                          color: #ffffff; border-radius: 8px; text-decoration: none;
+                                          font-weight: bold; font-size: 16px;">
+                                  Ir al sistema RUA
                                 </a>
-                            </td>
+                              </td>
                             </tr>
+                  
                             <tr>
-                            <td align="center" style="font-size: 16px;">
-                                <p><strong>Muchas gracias</strong></p>
-                            </td>
+                              <td style="font-size: 17px; padding-top: 20px;">
+                                ¡Muchas gracias por querer formar parte del Registro Único de Adopciones de Córdoba!
+                              </td>
                             </tr>
-                            <tr>
-                            <td style="padding-top: 30px;">
-                                <hr style="border: none; border-top: 1px solid #dee2e6;">
-                                <p style="font-size: 14px; color: #6c757d; margin-top: 20px;">
-                                <strong>Registro Único de Adopciones de Córdoba</strong>
-                                </p>
-                            </td>
-                            </tr>
-                        </table>
+                          </table>
                         </td>
-                    </tr>
+                      </tr>
                     </table>
-                </body>
+                  </body>
                 </html>
                 """
 
-                enviar_mail(destinatario=user1.mail, asunto="Respuesta a la invitación - RUA", cuerpo=cuerpo)
+                enviar_mail(destinatario=user1.mail, asunto="Respuesta de conformación de proyecto adoptivo", cuerpo=cuerpo)
 
 
         except Exception as e:
@@ -888,7 +950,7 @@ async def recuperar_clave(
                 "<p>Se envió un correo para recuperar tu contraseña.</p>"
                 "<p>Revisá tu bandeja de entrada y correo no deseado.</p>"
             ),
-            "tiempo_mensaje": 6,
+            "tiempo_mensaje": 4,
             "next_page": "login"
         }
 
