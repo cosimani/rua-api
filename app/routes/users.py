@@ -3908,18 +3908,26 @@ def descargar_documentos_usuario(
 
 
 
-@users_router.post("/notificar-inactivos")
-def notificar_usuario_inactivo(db: Session = Depends(get_db)):
+
+@users_router.post( "/notificar-inactivos", # response_model=dict, 
+                   dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador"])) ], )
+def notificar_usuario_inactivo(
+  db: Session = Depends(get_db),
+):
     # fechas de referencia
     hoy = datetime.now()
     hace_180 = hoy - timedelta(days=180)
     hace_7 = hoy - timedelta(days=7)
 
+    print("📅 Hoy:", hoy)
+    print("📅 Hace 180 días:", hace_180)
+    print("📅 Hace 7 días:", hace_7)
+
     # subconsulta: logins que tuvieron "inicio de sesión" en los últimos 180 días
     subq_activos = (
         db.query(RuaEvento.login)
           .filter(
-              RuaEvento.evento_detalle.ilike("%inicio de sesión%"),
+              RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"),
               RuaEvento.evento_fecha >= hace_180
           )
           .distinct()
@@ -3940,8 +3948,16 @@ def notificar_usuario_inactivo(db: Session = Depends(get_db)):
           .filter(~login_0900.in_(subq_activos))
           .filter(
               or_(
-                  UsuarioNotificadoInactivo.mail_enviado_4 == None,
-                  UsuarioNotificadoInactivo.mail_enviado_4 <= hace_7
+                  UsuarioNotificadoInactivo.mail_enviado_1 == None,
+                  and_(
+                      UsuarioNotificadoInactivo.dado_de_baja == None,
+                      func.greatest(
+                          func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
+                          func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
+                          func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
+                          func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
+                      ) <= hace_7
+                  )
               )
           )
           .order_by(User.fecha_alta.asc())
@@ -3950,8 +3966,10 @@ def notificar_usuario_inactivo(db: Session = Depends(get_db)):
     )
 
     if not usuario or not usuario.mail:
-        raise HTTPException(status_code=404,
-                            detail="No hay usuarios inactivos pendientes de notificar.")
+        print("❌ No se encontró ningún usuario inactivo para notificar.")
+        raise HTTPException(status_code=404, detail="No hay usuarios inactivos pendientes de notificar.")
+
+    print(f"👤 Usuario inactivo encontrado: {usuario.login} - {usuario.mail}")
 
     # obtener o crear registro de notificaciones
     notificacion = (
@@ -3961,23 +3979,31 @@ def notificar_usuario_inactivo(db: Session = Depends(get_db)):
     )
 
     if not notificacion:
+        # Primer aviso
         notificacion = UsuarioNotificadoInactivo(
             login=usuario.login,
             mail_enviado_1=hoy
         )
         db.add(notificacion)
         nro_envio = 1
+
     elif notificacion.mail_enviado_2 is None:
+        # Segundo aviso
         notificacion.mail_enviado_2 = hoy
         nro_envio = 2
+
     elif notificacion.mail_enviado_3 is None:
+        # Tercer aviso
         notificacion.mail_enviado_3 = hoy
         nro_envio = 3
+
     elif notificacion.mail_enviado_4 is None:
+        # Cuarto aviso
         notificacion.mail_enviado_4 = hoy
         nro_envio = 4
+
     else:
-        # tras 4 avisos, damos de baja
+        # 🔴 Quinto llamado: ya recibió los 4 avisos -> se desactiva
         usuario.operativo = 'N'
         notificacion.dado_de_baja = hoy
         evento_baja = RuaEvento(
@@ -3989,79 +4015,65 @@ def notificar_usuario_inactivo(db: Session = Depends(get_db)):
         db.commit()
         return {"message": f"Usuario {usuario.login} dado de baja por inactividad."}
 
+
     # enviamos el mail
     try:
         cuerpo_html = f"""
-            <html>
-            <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-                <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-                <tr>
-                    <td align="center">
-                    <table cellpadding="0" cellspacing="0" width="600"
-                        style="background-color: #ffffff; border-radius: 10px; padding: 30px;
-                                font-family: Arial, sans-serif; color: #333333;
-                                box-shadow: 0 0 10px rgba(0,0,0,0.05);">
-                        <tr>
-                        <td style="font-size: 18px; padding-bottom: 20px;">
-                            Hola <strong>{usuario.nombre}</strong>,
-                        </td>
-                        </tr>
-                        <tr>
-                        <td style="font-size: 17px; padding-bottom: 10px;">
-                            Detectamos que no utilizás el Sistema RUA desde hace más de 6 meses.
-                        </td>
-                        </tr>
-                        <tr>
-                        <td style="font-size: 17px; padding-bottom: 10px;">
-                            Este es el aviso número <strong>{nro_envio}</strong>.
-                        </td>
-                        </tr>
-                        <tr>
-                        <td>
-                            <table cellpadding="0" cellspacing="0" width="100%">
-                            <tr>
-                                <td style="border-left: 4px solid #ccc; padding-left: 12px;
-                                        font-size: 17px; color: #555555; background-color: #f9f9f9;
-                                        padding: 12px; border-radius: 4px;">
-                                    Ingresá al sistema RUA para conservar tu cuenta:<br>
-                                    <a href="https://rua.justiciacordoba.gob.ar" target="_blank">
-                                        https://rua.justiciacordoba.gob.ar
-                                    </a>
-                                </td>
-                            </tr>
-                            </table>
-                        </td>
-                        </tr>
-                        <tr>
-                        <td style="font-size: 17px; color: #d48806; padding-top: 20px;">
-                            📄 Si no ingresás nuevamente, tu cuenta será desactivada luego de 4 avisos semanales.
-                        </td>
-                        </tr>
-                        <tr>
-                        <td style="padding-top: 30px; font-size: 16px;">
-                            Saludos cordiales,<br><strong>Equipo RUA</strong>
-                        </td>
-                        </tr>
-                    </table>
-                    </td>
-                </tr>
-                </table>
-            </body>
-            </html>
-            """
+        <html>
+          <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+            <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+              <tr>
+                <td align="center">
+                  <table cellpadding="0" cellspacing="0" width="600"
+                    style="background-color: #ffffff; border-radius: 10px; padding: 30px;
+                          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40;
+                          box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                    <tr>
+                      <td style="font-size: 20px; color: #007bff;">
+                        <strong>{nro_envio}° aviso:</strong>
+                      </td>
+                    </tr>
 
+                    <tr>
+                      <td style="padding-top: 20px; font-size: 17px;">
+                        <p>¡Hola, <strong>{usuario.nombre}</strong>! Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+                        <p>Te contactamos porque hace más de 6 meses que no hay actividad en tu cuenta.</p>
+                        <p>¿Necesitás ayuda con los pasos para continuar con tu inscripción? Comunicate con nosotros al siguiente correo: <a href="mailto:registroadopcion@justiciacordoba.gob.ar">registroadopcion@justiciacordoba.gob.ar</a> o al teléfono: (0351) 44 81 000 - interno: 13181.</p>
+                        <p><strong>¡Te invitamos a que ingreses al sistema para conservar tu cuenta y continuar con el proceso de inscripción!</strong></p>
+                        <p><em>Luego del cuarto aviso se desactivará automáticamente tu cuenta.</em></p>
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td align="center" style="padding: 30px 0;">
+                        <a href="https://rua.justiciacordoba.gob.ar/login/" target="_blank"
+                          style="display: inline-block; padding: 12px 24px; background-color: #007bff;
+                                  color: #ffffff; border-radius: 8px; text-decoration: none;
+                                  font-weight: bold; font-size: 16px;">
+                          Ir al sistema RUA
+                        </a>
+                      </td>
+                    </tr>
+          
+                    <tr>
+                      <td style="font-size: 17px; padding-top: 20px;">
+                        ¡Muchas gracias!
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </body>
+        </html>
+        """
+      
         enviar_mail(
             destinatario=usuario.mail,
             asunto="Aviso por inactividad - Sistema RUA",
             cuerpo=cuerpo_html
         )
 
-        evento_mail = RuaEvento(
-            login=usuario.login,
-            evento_detalle=f"Notificación de inactividad enviada (envío #{nro_envio}).",
-            evento_fecha=hoy
-        )
-        db.add(evento_mail)
         db.commit()
         return {"message": f"Notificación enviada a {usuario.login} (envío #{nro_envio})."}
 
@@ -4070,145 +4082,6 @@ def notificar_usuario_inactivo(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500,
                             detail=f"Error al enviar mail: {str(e)}")
 
-
-
-
-
-# @users_router.post(
-#     "/usuarios/notificar-desde-txt",
-#     response_model=dict,
-#     dependencies=[
-#         Depends(verify_api_key),
-#         Depends(require_roles(["administrador"]))
-#     ],
-# )
-# async def notificar_desde_txt(
-#     archivo: UploadFile = File(...),
-#     db: Session = Depends(get_db),
-# ):
-#     if not archivo.filename.lower().endswith(".txt"):
-#         raise HTTPException(status_code=400, detail="El archivo debe tener extensión .txt")
-
-#     resultados = {"total": 0, "mails_enviados": 0, "errores": []}
-
-#     try:
-#         contenido = (await archivo.read()).decode("utf-8")
-#         lineas = [l.strip() for l in contenido.splitlines() if l.strip()]
-
-#         # Obtener dominio desde config
-#         protocolo = get_setting_value(db, "protocolo") or "https"
-#         host = get_setting_value(db, "donde_esta_alojado") or "osmvision.com.ar"
-#         puerto = get_setting_value(db, "puerto_tcp")
-#         endpoint = "/reconfirmar-subregistros"
-
-#         # Determinar si incluir el puerto
-#         puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
-#         host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
-
-#         log_path = os.path.join(UPLOAD_DIR_DOC_PRETENSOS, "envios_exitosos.txt")
-
-#         for idx, linea in enumerate(lineas, start=1):
-#             resultados["total"] += 1
-#             partes = linea.split("::")
-
-#             if len(partes) != 4:
-#                 resultados["errores"].append(f"Línea {idx}: formato inválido")
-#                 continue
-
-#             login, nombre, apellido, mail = [p.strip() for p in partes]
-
-#             if not (login and nombre and apellido and mail):
-#                 resultados["errores"].append(f"Línea {idx}: campos vacíos")
-#                 continue
-
-#             ddjj = db.query(DDJJ).filter(DDJJ.login == login).first()
-#             if not ddjj:
-#                 resultados["errores"].append(f"{login}: no tiene DDJJ registrada")
-#                 continue
-
-
-#             try:
-#                 # Codificar login en base64
-#                 login_base64 = base64.b64encode(login.encode()).decode()
-#                 link_final = f"{protocolo}://{host_con_puerto}{endpoint}?user={login_base64}"
-
-#                 asunto = "Confirmación sobre flexibilidad adoptiva - RUA"
-
-#                 cuerpo_html = f"""
-#                 <html>
-#                   <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-#                     <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-#                       <tr>
-#                         <td align="center">
-#                           <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: Arial, sans-serif; color: #333333; box-shadow: 0 0 10px rgba(0,0,0,0.05);">
-#                             <tr>
-#                               <td style="font-size: 18px; padding-bottom: 20px;">
-#                                 ¡Hola, <strong>{nombre}</strong>! nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.
-#                               </td>
-#                             </tr>
-#                             <tr>
-#                               <td style="font-size: 16px; padding-bottom: 10px; line-height: 1.6;">
-#                                 Te contactamos porque tenemos registrado que al momento de completar el formulario de inscripción señalaste, además de tu preferencia en las condiciones de niñas, niños y adolescentes que consideraste que podrías adoptar, la opción de <strong>“flexibilidad adoptiva”</strong> en relación a otras condiciones de niñas, niños y adolescentes que están esperando una familia.
-#                               </td>
-#                             </tr>
-#                             <tr>
-#                               <td style="font-size: 16px; padding: 10px 0;">
-#                                 Es por eso que en esta oportunidad te pedimos que nos especifiques tu elección de flexibilidad haciendo clic en el siguiente botón:
-#                               </td>
-#                             </tr>
-#                             <tr>
-#                               <td align="center" style="padding: 20px 0;">
-#                                 <a href="{link_final}"
-#                                    style="display: inline-block; padding: 12px 24px; font-size: 16px;
-#                                           color: #ffffff; background-color: #0d6efd; text-decoration: none;
-#                                           border-radius: 6px; font-weight: bold;"
-#                                    target="_blank">
-#                                   Ir al formulario
-#                                 </a>
-#                               </td>
-#                             </tr>
-#                             <tr>
-#                               <td style="font-size: 16px; padding-top: 10px;">
-#                                 ¡Muchas gracias por continuar formando parte del Registro Único de Adopciones de Córdoba!
-#                               </td>
-#                             </tr>
-#                           </table>
-#                         </td>
-#                       </tr>
-#                     </table>
-#                   </body>
-#                 </html>
-#                 """
-
-#                 enviar_mail(
-#                     destinatario=mail,
-#                     asunto=asunto,
-#                     cuerpo=cuerpo_html
-#                 )
-#                 resultados["mails_enviados"] += 1
-
-                
-
-#                 # ✅ Registrar en log
-#                 with open(log_path, "a", encoding="utf-8") as log_file:
-#                     ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-#                     log_file.write(f"[{ahora}] Enviado a {login} ({mail})\n")
-
-#                 # ✅ Pausa
-#                 time.sleep(2)
-
-
-#             except Exception as e:
-#                 resultados["errores"].append(f"{login} ({mail}): {e}")
-
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Error al procesar el TXT: {e}")
-
-#     return {
-#         "tipo_mensaje": "verde",
-#         "mensaje": f"Procesados: {resultados['total']}, Enviados: {resultados['mails_enviados']}",
-#         "errores": resultados["errores"]
-#     }
 
 
 
@@ -4324,14 +4197,8 @@ def procesar_envio_masivo(lineas: List[str]):
 
 
 
-@users_router.post(
-    "/usuarios/notificar-desde-txt",
-    response_model=dict,
-    dependencies=[
-        Depends(verify_api_key),
-        Depends(require_roles(["administrador"]))
-    ],
-)
+@users_router.post( "/usuarios/notificar-desde-txt", response_model=dict, 
+                   dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador"])) ], )
 async def notificar_desde_txt(
     background_tasks: BackgroundTasks,  # 👈 primero los que no tienen valor por defecto
     archivo: UploadFile = File(...),
