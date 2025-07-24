@@ -6287,6 +6287,7 @@ def descargar_pdf_proyecto(
 
 
 
+
 @proyectos_router.put("/informe-vinculacion/{proyecto_id}", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def subir_informe_vinculacion(
