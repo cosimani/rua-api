@@ -104,8 +104,8 @@ def get_nnas(
         # Subregistros
         subregistro_field_map = {
             "1": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 0 AND 3"),
-            "2": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 4 AND 7"),
-            "3": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 8 AND 12"),
+            "2": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 4 AND 6"),
+            "3": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 7 AND 12"),
             "4": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 13 AND 17"),
             "Mayor": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) >= 18"),
             "5A": Nna.nna_5A == "Y",
@@ -171,7 +171,7 @@ def get_nnas(
 
             subregistro_por_edad = (
                 "1" if edad <= 3 else
-                "2" if edad <= 7 else
+                "2" if edad <= 6 else
                 "3" if edad <= 12 else
                 "4" if edad <= 17 else "Mayor"
             )
@@ -246,9 +246,9 @@ def get_nna_by_id(nna_id: int, db: Session = Depends(get_db)):
         # Subregistro por edad
         if edad <= 3:
             subregistro_por_edad = "1"
-        elif 4 <= edad <= 7:
+        elif 4 <= edad <= 6:
             subregistro_por_edad = "2"
-        elif 8 <= edad <= 12:
+        elif 7 <= edad <= 12:
             subregistro_por_edad = "3"
         elif 13 <= edad <= 17:
             subregistro_por_edad = "4"
@@ -414,7 +414,7 @@ def get_nnas_por_ids(nna_ids: List[int] = Body(...), db: Session = Depends(get_d
 
             subregistro_por_edad = (
                 "1" if edad <= 3 else
-                "2" if edad <= 7 else
+                "2" if edad <= 6 else
                 "3" if edad <= 12 else
                 "4" if edad <= 17 else "Mayor"
             )
