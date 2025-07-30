@@ -7069,21 +7069,32 @@ def update_domicilio_de_proyecto(
 
 
 
-@proyectos_router.get("/ratificar/proyectos_que_deben_ratificar_al_dia_de_hoy", response_model=list,
-    dependencies=[Depends(verify_api_key), Depends(require_roles([
-        "administrador", "supervision", "supervisora", "profesional", "coordinadora"
-    ]))])
-def get_proyectos_para_ratificar_al_dia_de_hoy(
+@proyectos_router.get(
+    "/ratificar/proyectos_que_deben_ratificar_al_dia_del_parametro",
+    response_model=list,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles([
+                      "administrador", "supervision", "supervisora", "profesional", "coordinadora"
+                  ]))]
+)
+def get_proyectos_para_ratificar_al_dia_del_parametro(
     request: Request,
+    fecha_parametro: Optional[str] = Query(None, description="Fecha en formato YYYY-MM-DD para calcular ratificación"),
     db: Session = Depends(get_db)
 ):
     """
-    Devuelve los proyectos que deben ratificar al día de hoy.
-    Se consideran proyectos en estado 'viable' y con ingreso 'rua',
-    cuya fecha de ratificación (max entre ultimo_cambio_de_estado
-    y última transición a viable) + 356 días es menor a hoy.
+    Devuelve los proyectos que deben ratificar a la fecha indicada o al día de hoy si no se pasa parámetro.
     """
     try:
+        # Si no se pasa la fecha, usar la fecha actual
+        if fecha_parametro:
+            try:
+                fecha_limite = datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de fecha inválido. Use YYYY-MM-DD.")
+        else:
+            fecha_limite = date.today()
+
         proyectos = db.query(Proyecto).filter(
             Proyecto.estado_general == "viable",
             Proyecto.ingreso_por == "rua"
@@ -7117,7 +7128,8 @@ def get_proyectos_para_ratificar_al_dia_de_hoy(
             fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
             fecha_ratificacion = (fecha_cambio_final + timedelta(days=356)) if fecha_cambio_final else None
 
-            if fecha_ratificacion and fecha_ratificacion.date() <= date.today():
+            # Comparar con la fecha límite
+            if fecha_ratificacion and fecha_ratificacion.date() <= fecha_limite:
                 resultado.append({
                     "proyecto_id": proyecto.proyecto_id,
                     "login_1": proyecto.login_1,
