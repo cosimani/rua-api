@@ -42,3 +42,18 @@ class UsuarioNotificadoInactivo(Base):
 
     user = relationship("User", backref="notificacion_inactividad")
 
+
+class UsuarioNotificadoRatificacion(Base):
+    __tablename__ = "usuarios_notificados_ratificacion"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    proyecto_id = Column(Integer, ForeignKey("proyecto.proyecto_id"), nullable=False)
+    login = Column(String(190), ForeignKey("sec_users.login"), nullable=False)
+    mail_enviado_1 = Column(DateTime, nullable=True)
+    mail_enviado_2 = Column(DateTime, nullable=True)
+    mail_enviado_3 = Column(DateTime, nullable=True)
+    mail_enviado_4 = Column(DateTime, nullable=True)
+    ratificado = Column(DateTime, nullable=True)
+
+    user = relationship("User", backref="notificaciones_ratificacion")
+    proyecto = relationship("Proyecto", backref="notificaciones_ratificacion")
