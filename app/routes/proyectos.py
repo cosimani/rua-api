@@ -5,7 +5,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import func, case, and_, or_, Integer, literal_column
 
 
-from datetime import datetime, date
+from datetime import datetime, timedelta, date, time
+
 from models.proyecto import Proyecto, ProyectoHistorialEstado, DetalleEquipoEnProyecto, AgendaEntrevistas, FechaRevision
 from models.carpeta import Carpeta, DetalleProyectosEnCarpeta, DetalleNNAEnCarpeta
 from models.notif_y_observaciones import ObservacionesProyectos, ObservacionesPretensos, NotificacionesRUA
@@ -848,6 +849,53 @@ def get_proyecto_por_id(
         if not proyecto:
             raise HTTPException(status_code=404, detail=f"Proyecto con ID {proyecto_id} no encontrado.")
 
+
+        # 🔹 Obtener última fecha viable → viable
+        fecha_viable_a_viable = (
+            db.query(func.max(ProyectoHistorialEstado.fecha_hora))
+            .filter(
+                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                ProyectoHistorialEstado.estado_anterior == "viable",
+                ProyectoHistorialEstado.estado_nuevo == "viable"
+            )
+            .scalar()
+        )
+
+        # 🔹 Obtener última fecha para_valorar → viable
+        fecha_para_valorar_a_viable = (
+            db.query(func.max(ProyectoHistorialEstado.fecha_hora))
+            .filter(
+                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                ProyectoHistorialEstado.estado_anterior == "para_valorar",
+                ProyectoHistorialEstado.estado_nuevo == "viable"
+            )
+            .scalar()
+        )
+
+        # 🔹 Normalizar fechas a datetime
+        fechas_posibles = []
+
+        if proyecto.ultimo_cambio_de_estado:
+            fechas_posibles.append(
+                datetime.combine(proyecto.ultimo_cambio_de_estado, time.min)
+            )
+        if fecha_viable_a_viable:
+            fechas_posibles.append(fecha_viable_a_viable)
+        if fecha_para_valorar_a_viable:
+            fechas_posibles.append(fecha_para_valorar_a_viable)
+
+        # 🔹 Fecha más reciente
+        fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
+
+        # 🔹 Sumar 356 días si corresponde
+        fecha_desde_que_necesita_ratificar = (
+            (fecha_cambio_final + timedelta(days=365))
+            if fecha_cambio_final
+            and proyecto.estado_general == "viable"
+            and proyecto.ingreso_por == "rua"
+            else None
+        )
+
         
         # Obtener celulares directamente desde sec_users
         login_1_user = db.query(User).filter(User.login == proyecto.login_1).first()
@@ -923,6 +971,7 @@ def get_proyecto_por_id(
 
             "fecha_asignacion_nro_orden": parse_date(proyecto.fecha_asignacion_nro_orden),
             "ultimo_cambio_de_estado": parse_date(proyecto.ultimo_cambio_de_estado),
+            "fecha_desde_que_necesita_ratificar": fecha_desde_que_necesita_ratificar.strftime("%Y-%m-%d") if fecha_desde_que_necesita_ratificar else None,
 
             "doc_proyecto_convivencia_o_estado_civil": proyecto.doc_proyecto_convivencia_o_estado_civil,
             "informe_profesionales": proyecto.informe_profesionales,
@@ -6840,3 +6889,244 @@ def update_domicilio_de_proyecto(
         "tiempo_mensaje": 4,
         "next_page": "actual"
     }
+
+
+
+
+
+
+
+
+# @proyectos_router.post( "/notificar-para-ratificar", # response_model=dict, 
+#                    dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador"])) ], )
+# def notificar_para_ratificar(
+#   db: Session = Depends(get_db),
+# ):
+#     # fechas de referencia
+#     hoy = datetime.now()
+#     hace_180 = hoy - timedelta(days=180)
+#     hace_7 = hoy - timedelta(days=7)
+
+#     # subconsulta: logins que tuvieron "inicio de sesión" en los últimos 180 días
+#     subq_activos = (
+#         db.query(RuaEvento.login)
+#           .filter(
+#               RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"),
+#               RuaEvento.evento_fecha >= hace_180
+#           )
+#           .distinct()
+#           .subquery()
+#     )
+
+#     # para evitar el “Illegal mix of collations” al comparar login
+#     login_0900 = User.login.collate('utf8mb4_0900_ai_ci')
+
+#     # buscamos el primer usuario operativo inactivo y que no haya recibido aviso en los últimos 7 días
+#     usuario = (
+#         db.query(User)
+#           .outerjoin(
+#               UsuarioNotificadoInactivo,
+#               login_0900 == UsuarioNotificadoInactivo.login
+#           )
+#           .filter(User.operativo == 'Y')
+#           .filter(~login_0900.in_(subq_activos))
+#           .filter(
+#               or_(
+#                   UsuarioNotificadoInactivo.mail_enviado_1 == None,
+#                   and_(
+#                       UsuarioNotificadoInactivo.dado_de_baja == None,
+#                       func.greatest(
+#                           func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
+#                           func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
+#                           func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
+#                           func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
+#                       ) <= hace_7
+#                   )
+#               )
+#           )
+#           .order_by(User.fecha_alta.asc())
+#           .limit(1)
+#           .first()
+#     )
+
+#     if not usuario or not usuario.mail:
+#         print("❌ No se encontró ningún usuario inactivo para notificar.")
+#         raise HTTPException(status_code=404, detail="No hay usuarios inactivos pendientes de notificar.")
+
+#     print(f"👤 Usuario inactivo encontrado: {usuario.login} - {usuario.mail}")
+
+#     # obtener o crear registro de notificaciones
+#     notificacion = (
+#         db.query(UsuarioNotificadoInactivo)
+#           .filter(UsuarioNotificadoInactivo.login == usuario.login)
+#           .first()
+#     )
+
+#     if not notificacion:
+#         # Primer aviso
+#         notificacion = UsuarioNotificadoInactivo(
+#             login=usuario.login,
+#             mail_enviado_1=hoy
+#         )
+#         db.add(notificacion)
+#         nro_envio = 1
+
+#     elif notificacion.mail_enviado_2 is None:
+#         # Segundo aviso
+#         notificacion.mail_enviado_2 = hoy
+#         nro_envio = 2
+
+#     elif notificacion.mail_enviado_3 is None:
+#         # Tercer aviso
+#         notificacion.mail_enviado_3 = hoy
+#         nro_envio = 3
+
+#     elif notificacion.mail_enviado_4 is None:
+#         # Cuarto aviso
+#         notificacion.mail_enviado_4 = hoy
+#         nro_envio = 4
+
+#     else:
+#         # 🔴 Quinto llamado: ya recibió los 4 avisos -> se desactiva
+#         usuario.operativo = 'N'
+#         notificacion.dado_de_baja = hoy
+#         evento_baja = RuaEvento(
+#             login=usuario.login,
+#             evento_detalle="Usuario dado de baja por inactividad prolongada.",
+#             evento_fecha=hoy
+#         )
+#         db.add(evento_baja)
+#         db.commit()
+#         return {"message": f"Usuario {usuario.login} dado de baja por inactividad."}
+
+
+#     # enviamos el mail
+#     try:
+#         cuerpo_html = f"""
+#         <html>
+#           <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+#             <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+#               <tr>
+#                 <td align="center">
+#                   <table cellpadding="0" cellspacing="0" width="600"
+#                     style="background-color: #ffffff; border-radius: 10px; padding: 30px;
+#                           font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40;
+#                           box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+#                     <tr>
+#                       <td style="font-size: 20px; color: #007bff;">
+#                         <strong>{nro_envio}° aviso:</strong>
+#                       </td>
+#                     </tr>
+
+#                     <tr>
+#                       <td style="padding-top: 20px; font-size: 17px;">
+#                         <p>¡Hola, <strong>{usuario.nombre}</strong>! Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+#                         <p>Te contactamos porque hace más de 6 meses que no hay actividad en tu cuenta.</p>
+#                         <p>¿Necesitás ayuda con los pasos para continuar con tu inscripción? Comunicate con nosotros al siguiente correo: <a href="mailto:registroadopcion@justiciacordoba.gob.ar">registroadopcion@justiciacordoba.gob.ar</a> o al teléfono: (0351) 44 81 000 - interno: 13181.</p>
+#                         <p><strong>¡Te invitamos a que ingreses al sistema para conservar tu cuenta y continuar con el proceso de inscripción!</strong></p>
+#                         <p><em>Luego del cuarto aviso se desactivará automáticamente tu cuenta.</em></p>
+#                       </td>
+#                     </tr>
+
+#                     <tr>
+#                       <td align="center" style="padding: 30px 0;">
+#                         <a href="https://rua.justiciacordoba.gob.ar/login/" target="_blank"
+#                           style="display: inline-block; padding: 12px 24px; background-color: #007bff;
+#                                   color: #ffffff; border-radius: 8px; text-decoration: none;
+#                                   font-weight: bold; font-size: 16px;">
+#                           Ir al sistema RUA
+#                         </a>
+#                       </td>
+#                     </tr>
+          
+#                     <tr>
+#                       <td style="font-size: 17px; padding-top: 20px;">
+#                         ¡Muchas gracias!
+#                       </td>
+#                     </tr>
+#                   </table>
+#                 </td>
+#               </tr>
+#             </table>
+#           </body>
+#         </html>
+#         """
+      
+#         enviar_mail(
+#             destinatario=usuario.mail,
+#             asunto="Aviso por inactividad - Sistema RUA",
+#             cuerpo=cuerpo_html
+#         )
+
+#         db.commit()
+#         return {"message": f"Notificación enviada a {usuario.login} (envío #{nro_envio})."}
+
+#     except Exception as e:
+#         db.rollback()
+#         raise HTTPException(status_code=500,
+#                             detail=f"Error al enviar mail: {str(e)}")
+
+
+
+
+@proyectos_router.get("/ratificar/proyectos_que_deben_ratificar_al_dia_de_hoy", response_model=list,
+    dependencies=[Depends(verify_api_key), Depends(require_roles([
+        "administrador", "supervision", "supervisora", "profesional", "coordinadora"
+    ]))])
+def get_proyectos_para_ratificar_al_dia_de_hoy(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Devuelve los proyectos que deben ratificar al día de hoy.
+    Se consideran proyectos en estado 'viable' y con ingreso 'rua',
+    cuya fecha de ratificación (max entre ultimo_cambio_de_estado
+    y última transición a viable) + 356 días es menor a hoy.
+    """
+    try:
+        proyectos = db.query(Proyecto).filter(
+            Proyecto.estado_general == "viable",
+            Proyecto.ingreso_por == "rua"
+        ).all()
+
+        resultado = []
+
+        for proyecto in proyectos:
+            # Fechas de historial
+            fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                ProyectoHistorialEstado.estado_anterior == "viable",
+                ProyectoHistorialEstado.estado_nuevo == "viable"
+            ).scalar()
+
+            fecha_para_valorar_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                ProyectoHistorialEstado.estado_anterior == "para_valorar",
+                ProyectoHistorialEstado.estado_nuevo == "viable"
+            ).scalar()
+
+            # Normalizar fechas
+            fechas_posibles = []
+            if proyecto.ultimo_cambio_de_estado:
+                fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
+            if fecha_viable_a_viable:
+                fechas_posibles.append(fecha_viable_a_viable)
+            if fecha_para_valorar_a_viable:
+                fechas_posibles.append(fecha_para_valorar_a_viable)
+
+            fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
+            fecha_ratificacion = (fecha_cambio_final + timedelta(days=356)) if fecha_cambio_final else None
+
+            if fecha_ratificacion and fecha_ratificacion.date() <= date.today():
+                resultado.append({
+                    "proyecto_id": proyecto.proyecto_id,
+                    "login_1": proyecto.login_1,
+                    "login_2": proyecto.login_2,
+                    "fecha_cambio_final": fecha_cambio_final.strftime("%Y-%m-%d %H:%M:%S") if fecha_cambio_final else None,
+                    "fecha_ratificacion": fecha_ratificacion.strftime("%Y-%m-%d") if fecha_ratificacion else None
+                })
+
+        return resultado
+
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Error al recuperar proyectos para ratificar: {str(e)}")
