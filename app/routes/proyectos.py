@@ -3706,44 +3706,6 @@ def valorar_proyecto_final(
 
         estado_anterior = proyecto.estado_general
 
-        # subregistros_map = {
-        #     "1": "subregistro_1",
-        #     "2": "subregistro_2",
-        #     "3": "subregistro_3",
-        #     "4": "subregistro_4",
-        #     "FE1": "flex_edad_1",
-        #     "FE2": "flex_edad_2",
-        #     "FE3": "flex_edad_3",
-        #     "FE4": "flex_edad_4",
-        #     "FET": "flex_edad_todos",
-        #     "5A1": "discapacidad_1",
-        #     "5A2": "discapacidad_2",
-        #     "5A1E1": "edad_discapacidad_0",
-        #     "5A1E2": "edad_discapacidad_1",
-        #     "5A1E3": "edad_discapacidad_2",
-        #     "5A1E4": "edad_discapacidad_3",
-        #     "5A1ET": "edad_discapacidad_4",
-        #     "F5S": "flex_condiciones_salud",
-        #     "F5E1": "flex_salud_edad_0",
-        #     "F5E2": "flex_salud_edad_1",
-        #     "F5E3": "flex_salud_edad_2",
-        #     "F5E4": "flex_salud_edad_3",
-        #     "F5ET": "flex_salud_edad_4",
-        #     "61": "hermanos_comp_1",
-        #     "62": "hermanos_comp_2",
-        #     "63": "hermanos_comp_3",
-        #     "61E1": "hermanos_edad_0",
-        #     "61E2": "hermanos_edad_1",
-        #     "61E3": "hermanos_edad_2",
-        #     "61ET": "hermanos_edad_3",
-        #     "FQ1": "flex_hermanos_comp_1",
-        #     "FQ2": "flex_hermanos_comp_2",
-        #     "FQ3": "flex_hermanos_comp_3",
-        #     "F6E1": "flex_hermanos_edad_0",
-        #     "F6E2": "flex_hermanos_edad_1",
-        #     "F6E3": "flex_hermanos_edad_2",
-        #     "F6ET": "flex_hermanos_edad_3"
-        # }
 
         subregistros_definitivos_map = {
             "1": "subreg_1",
@@ -3765,6 +3727,21 @@ def valorar_proyecto_final(
             "5A2E3": "subreg_5A2E3",
             "5A2E4": "subreg_5A2E4",
             "5A2ET": "subreg_5A2ET",
+            "5B1E1": "subreg_5B1E1",
+            "5B1E2": "subreg_5B1E2",
+            "5B1E3": "subreg_5B1E3",
+            "5B1E4": "subreg_5B1E4",
+            "5B1ET": "subreg_5B1ET",
+            "5B2E1": "subreg_5B2E1",
+            "5B2E2": "subreg_5B2E2",
+            "5B2E3": "subreg_5B2E3",
+            "5B2E4": "subreg_5B2E4",
+            "5B2ET": "subreg_5B2ET",
+            "5B3E1": "subreg_5B3E1",
+            "5B3E2": "subreg_5B3E2",
+            "5B3E3": "subreg_5B3E3",
+            "5B3E4": "subreg_5B3E4",
+            "5B3ET": "subreg_5B3ET",
             "F5S": "subreg_F5S",
             "F5E1": "subreg_F5E1",
             "F5E2": "subreg_F5E2",
@@ -3775,6 +3752,14 @@ def valorar_proyecto_final(
             "61E2": "subreg_61E2",
             "61E3": "subreg_61E3",
             "61ET": "subreg_61ET",
+            "62E1": "subreg_62E1",
+            "62E2": "subreg_62E2",
+            "62E3": "subreg_62E3",
+            "62ET": "subreg_62ET",
+            "63E1": "subreg_63E1",
+            "63E2": "subreg_63E2",
+            "63E3": "subreg_63E3",
+            "63ET": "subreg_63ET",
             "FQ1": "subreg_FQ1",
             "FQ2": "subreg_FQ2",
             "FQ3": "subreg_FQ3",
@@ -3786,25 +3771,44 @@ def valorar_proyecto_final(
 
 
         if estado_final == "viable":
-            # # Primero limpiamos todo
-            # for campo in set(subregistros_map.values()):
-            #     setattr(proyecto, campo, "N")
+            # ✅ Limpiar todos los campos subreg_* a "N"
+            for campo in subregistros_definitivos_map.values():
+                campo_normalizado = str(campo).strip()
+                if hasattr(proyecto, campo_normalizado):
+                    setattr(proyecto, campo_normalizado, "N")
 
-            # # Luego activamos los seleccionados
-            # for codigo in subregistros_raw:
-            #     campo = subregistros_map.get(codigo)
-            #     if campo:
-            #         setattr(proyecto, campo, "Y")
-
-            # Limpiar todos los subreg_...
-            for campo in set(subregistros_definitivos_map.values()):
-                setattr(proyecto, campo, "N")
-
-            # Activar los seleccionados
+            # ✅ Activar solo los seleccionados
             for codigo in subregistros_raw:
-                campo = subregistros_definitivos_map.get(codigo)
+                codigo_normalizado = str(codigo).strip().upper()  # limpiar espacios y forzar mayúsculas
+                campo = subregistros_definitivos_map.get(codigo_normalizado)
                 if campo:
-                    setattr(proyecto, campo, "Y")
+                    campo_normalizado = str(campo).strip()
+                    if hasattr(proyecto, campo_normalizado):
+                        setattr(proyecto, campo_normalizado, "Y")
+
+
+
+
+        # if estado_final == "viable":
+        #     # # Primero limpiamos todo
+        #     # for campo in set(subregistros_map.values()):
+        #     #     setattr(proyecto, campo, "N")
+
+        #     # # Luego activamos los seleccionados
+        #     # for codigo in subregistros_raw:
+        #     #     campo = subregistros_map.get(codigo)
+        #     #     if campo:
+        #     #         setattr(proyecto, campo, "Y")
+
+        #     # Limpiar todos los subreg_...
+        #     for campo in set(subregistros_definitivos_map.values()):
+        #         setattr(proyecto, campo, "N")
+
+        #     # Activar los seleccionados
+        #     for codigo in subregistros_raw:
+        #         campo = subregistros_definitivos_map.get(codigo)
+        #         if campo:
+        #             setattr(proyecto, campo, "Y")
 
 
         elif estado_final == "en_suspenso":
