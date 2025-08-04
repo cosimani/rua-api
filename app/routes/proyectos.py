@@ -6527,13 +6527,8 @@ def descargar_informe_seguimiento_guarda(
 
 
 
-@proyectos_router.put(
-    "/modificar/{proyecto_id}/actualizar-nro-orden",
-    dependencies=[
-        Depends(verify_api_key),
-        Depends(require_roles(["administrador", "supervision", "supervisora"]))
-    ]
-)
+@proyectos_router.put("/modificar/{proyecto_id}/actualizar-nro-orden",
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def actualizar_nro_orden(
     proyecto_id: int,
     data: dict = Body(...),
@@ -6898,14 +6893,9 @@ def update_domicilio_de_proyecto(
 
 
 
-@proyectos_router.get(
-    "/ratificar/proyectos_que_deben_ratificar_al_dia_del_parametro",
-    response_model=list,
+@proyectos_router.get("/ratificar/proyectos_que_deben_ratificar_al_dia_del_parametro", response_model=list,
     dependencies=[Depends(verify_api_key),
-                  Depends(require_roles([
-                      "administrador", "supervision", "supervisora", "profesional", "coordinadora"
-                  ]))]
-)
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
 def get_proyectos_para_ratificar_al_dia_del_parametro(
     request: Request,
     fecha_parametro: Optional[str] = Query(None, description="Fecha en formato YYYY-MM-DD para calcular ratificación"),
@@ -6974,191 +6964,7 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
 
 
 
-# @proyectos_router.post(
-#     "/ratificar/notificar-siguiente-proyecto",
-#     dependencies=[Depends(verify_api_key),
-#                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
-# def notificar_siguiente_proyecto_para_ratificar(
-#     request: Request,
-#     fecha_parametro: Optional[str] = Query(None, description="Fecha en formato YYYY-MM-DD para calcular ratificación"),
-#     db: Session = Depends(get_db)
-# ):
-#     """
-#     Busca automáticamente el proyecto viable más próximo a necesitar ratificación,
-#     envía mail a login_1 y login_2 (si existe) y registra el envío.
-#     """
-#     try:
-#         # Fecha límite (hoy o parámetro)
-#         if fecha_parametro:
-#             try:
-#                 fecha_limite = datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
-#             except ValueError:
-#                 raise HTTPException(status_code=400, detail="Formato de fecha inválido. Use YYYY-MM-DD.")
-#         else:
-#             fecha_limite = date.today()
-
-#         # Obtener todos los proyectos viables
-#         proyectos = db.query(Proyecto).filter(
-#             Proyecto.estado_general == "viable",
-#             Proyecto.ingreso_por == "rua"
-#         ).all()
-
-#         candidatos = []
-
-#         for proyecto in proyectos:
-#             # Obtener fechas del historial
-#             fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-#                 ProyectoHistorialEstado.estado_anterior == "viable",
-#                 ProyectoHistorialEstado.estado_nuevo == "viable"
-#             ).scalar()
-
-#             fecha_para_valorar_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-#                 ProyectoHistorialEstado.estado_anterior == "para_valorar",
-#                 ProyectoHistorialEstado.estado_nuevo == "viable"
-#             ).scalar()
-
-#             fechas_posibles = []
-#             if proyecto.ultimo_cambio_de_estado:
-#                 fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
-#             if fecha_viable_a_viable:
-#                 fechas_posibles.append(fecha_viable_a_viable)
-#             if fecha_para_valorar_a_viable:
-#                 fechas_posibles.append(fecha_para_valorar_a_viable)
-
-#             fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
-#             if not fecha_cambio_final:
-#                 continue
-
-#             fecha_ratificacion = fecha_cambio_final + timedelta(days=356)
-#             if fecha_ratificacion.date() <= fecha_limite:
-#                 candidatos.append((proyecto, fecha_ratificacion))
-
-#         if not candidatos:
-#             raise HTTPException(status_code=404, detail="No hay proyectos pendientes de ratificar.")
-
-#         # Ordenar por fecha más próxima
-#         candidatos.sort(key=lambda x: x[1])
-#         proyecto_obj, fecha_ratif = candidatos[0]
-
-#         logins = [proyecto_obj.login_1, proyecto_obj.login_2] if proyecto_obj.login_2 else [proyecto_obj.login_1]
-#         enviados = []
-
-#         for login in logins:
-#             if not login:
-#                 continue
-
-#             usuario = db.query(User).filter(User.login == login).first()
-#             if not usuario or not usuario.mail:
-#                 continue
-
-#             # Obtener o crear registro
-#             notificacion = db.query(UsuarioNotificadoRatificacion).filter_by(
-#                 proyecto_id=proyecto_obj.proyecto_id,
-#                 login=login
-#             ).first()
-
-#             hoy = datetime.now()
-#             if not notificacion:
-#                 notificacion = UsuarioNotificadoRatificacion(
-#                     proyecto_id=proyecto_obj.proyecto_id,
-#                     login=login,
-#                     mail_enviado_1=hoy
-#                 )
-#                 db.add(notificacion)
-#                 nro_envio = 1
-#             elif notificacion.mail_enviado_2 is None:
-#                 notificacion.mail_enviado_2 = hoy
-#                 nro_envio = 2
-#             elif notificacion.mail_enviado_3 is None:
-#                 notificacion.mail_enviado_3 = hoy
-#                 nro_envio = 3
-#             elif notificacion.mail_enviado_4 is None:
-#                 notificacion.mail_enviado_4 = hoy
-#                 nro_envio = 4
-#             else:
-#                 enviados.append({"login": login, "mensaje": "Máximo de notificaciones alcanzado"})
-#                 continue
-
-#             primer_nombre = usuario.nombre.split()[0] if usuario.nombre else ""
-
-#             # Enviar correo
-#             cuerpo_html = f"""
-#             <html>
-#               <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-#                 <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-#                   <tr>
-#                     <td align="center">
-#                       <table cellpadding="0" cellspacing="0" width="600"
-#                         style="background-color: #ffffff; border-radius: 10px; padding: 30px;
-#                               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40;
-#                               box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-#                         <tr>
-#                           <td style="padding-top: 20px; font-size: 17px;">
-#                             <p>¡Hola, <strong>{primer_nombre}</strong>! Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
-#                             <p>Te informamos que se cumple un año de tu inscripción en el Registro Único de Adopciones 
-#                               de Córdoba. Por indicaciones del artículo 14 de la ley 25.854 necesitamos que
-#                               confirmes tu voluntad de continuar inscripta/o ingresando al Sistema RUA y haciendo clic 
-#                               en el botón de Ratificación que estará disponible durante los próximos 30 días dentro del Sistema RUA:
-#                             </p>
-
-#                             <p><em>
-#                               Transcurrido ese plazo sin que nos confirmes tu continuidad, el sistema te excluye
-#                               automáticamente del Registro y para volver a formar parte tendrás que iniciar el trámite
-#                               nuevamente.
-#                             </em></p>
-#                           </td>
-#                         </tr>
-
-#                         <tr>
-#                           <td align="center" style="padding: 30px 0;">
-#                             <a href="https://rua.justiciacordoba.gob.ar/login/" target="_blank"
-#                               style="display: inline-block; padding: 12px 24px; background-color: #007bff;
-#                                       color: #ffffff; border-radius: 8px; text-decoration: none;
-#                                       font-weight: bold; font-size: 16px;">
-#                               Ir al sistema RUA
-#                             </a>
-#                           </td>
-#                         </tr>
-              
-#                         <tr>
-#                           <td style="font-size: 17px; padding-top: 20px;">
-#                             ¡Muchas gracias por seguir en el Registro Único de Adopciones de Córdoba!
-#                           </td>
-#                         </tr>
-#                       </table>
-#                     </td>
-#                   </tr>
-#                 </table>
-#               </body>
-#             </html>
-#             """            
-
-#             enviar_mail(
-#                 destinatario=usuario.mail,
-#                 asunto="Ratificación de inscripción",
-#                 cuerpo=cuerpo_html
-#             )
-
-#             enviados.append({"login": login, "mail": usuario.mail, "proyecto_id": proyecto_obj.proyecto_id, "envio": nro_envio})
-
-#         db.commit()
-#         return {
-#             "message": f"Se enviaron {len(enviados)} notificaciones para el proyecto {proyecto_obj.proyecto_id}.",
-#             "fecha_ratificacion": fecha_ratif.strftime("%Y-%m-%d"),
-#             "detalles": enviados
-#         }
-
-#     except SQLAlchemyError as e:
-#         db.rollback()
-#         raise HTTPException(status_code=500, detail=f"Error al enviar notificaciones: {str(e)}")
-
-
-
-@proyectos_router.post(
-    "/ratificar/notificar-siguiente-proyecto",
-    dependencies=[Depends(verify_api_key),
+@proyectos_router.post("/ratificar/notificar-siguiente-proyecto", dependencies=[Depends(verify_api_key),
                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
 def notificar_siguiente_proyecto_para_ratificar(
     request: Request,
@@ -7294,7 +7100,7 @@ def notificar_siguiente_proyecto_para_ratificar(
                             <p>Te informamos que se cumple un año de tu inscripción en el Registro Único de Adopciones 
                               de Córdoba. Por indicaciones del artículo 14 de la ley 25.854 necesitamos que
                               confirmes tu voluntad de continuar inscripta/o ingresando al Sistema RUA y haciendo clic 
-                              en el botón de Ratificación que estará disponible durante los próximos 30 días dentro del Sistema RUA:
+                              en el botón de Ratificación que estará disponible durante los próximos 30 días dentro del Sistema RUA.
                             </p>
 
                             <p><em>
@@ -7335,6 +7141,14 @@ def notificar_siguiente_proyecto_para_ratificar(
                 cuerpo=cuerpo_html
             )
 
+            # Registrar evento en RuaEvento
+            evento = RuaEvento(
+                login=login,
+                evento_fecha=hoy,
+                evento_detalle=f"Notificación de ratificación enviada (intento {nro_envio}) al mail {usuario.mail}"
+            )
+            db.add(evento)
+
             enviados.append({"login": login, "mail": usuario.mail, "proyecto_id": proyecto_obj.proyecto_id, "envio": nro_envio})
 
         db.commit()
@@ -7351,138 +7165,93 @@ def notificar_siguiente_proyecto_para_ratificar(
 
 
 
-# @proyectos_router.post(
-#     "/ratificar/notificar-proyectos-para-ratificar",
-#     dependencies=[Depends(verify_api_key),
-#                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))]
-# )
-# def notificar_proyectos_para_ratificar(
-#     request: Request,
-#     fecha_parametro: Optional[str] = Query(None, description="Fecha en formato YYYY-MM-DD para calcular ratificación"),
-#     db: Session = Depends(get_db)
-# ):
-#     """
-#     Envía un mail a los pretensos de cada proyecto que deba ratificar a la fecha indicada 
-#     (o a la fecha de hoy si no se pasa parámetro).
-#     """
-#     try:
-#         # Determinar fecha límite
-#         if fecha_parametro:
-#             try:
-#                 fecha_limite = datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
-#             except ValueError:
-#                 raise HTTPException(status_code=400, detail="Formato de fecha inválido. Use YYYY-MM-DD.")
-#         else:
-#             fecha_limite = date.today()
+@proyectos_router.post("/proyectos/ratificar", response_model=dict, dependencies=[Depends(verify_api_key)])
+def ratificar_proyecto(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Ratifica la continuidad del proyecto del usuario. Registra un cambio simbólico viable → viable.
+    """
+    login = current_user["user"]["login"]
 
-#         proyectos = db.query(Proyecto).filter(
-#             Proyecto.estado_general == "viable",
-#             Proyecto.ingreso_por == "rua"
-#         ).all()
+    # Buscar el proyecto asociado
+    proyecto = db.query(Proyecto).filter(
+        (Proyecto.login_1 == login) | (Proyecto.login_2 == login),
+        Proyecto.estado_general == "viable"
+    ).first()
 
-#         enviados = []
+    if not proyecto:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": f"No se encontró un proyecto viable para ratificar.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
 
-#         for proyecto in proyectos:
-#             # Buscar fechas de ratificación
-#             fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-#                 ProyectoHistorialEstado.estado_anterior == "viable",
-#                 ProyectoHistorialEstado.estado_nuevo == "viable"
-#             ).scalar()
+    try:      
+        
+        ahora = datetime.now()
 
-#             fecha_para_valorar_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-#                 ProyectoHistorialEstado.estado_anterior == "para_valorar",
-#                 ProyectoHistorialEstado.estado_nuevo == "viable"
-#             ).scalar()
+        # Registrar historial simbólico
+        historial = ProyectoHistorialEstado(
+            proyecto_id=proyecto.proyecto_id,
+            fecha_hora=ahora,
+            estado_anterior="viable",
+            estado_nuevo="viable",
+            comentarios="Ratificación de continuidad en el registro"
+        )
+        db.add(historial)
 
-#             fechas_posibles = []
-#             if proyecto.ultimo_cambio_de_estado:
-#                 fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
-#             if fecha_viable_a_viable:
-#                 fechas_posibles.append(fecha_viable_a_viable)
-#             if fecha_para_valorar_a_viable:
-#                 fechas_posibles.append(fecha_para_valorar_a_viable)
+        # Buscar notificación existente (si existe)
+        notificacion = db.query(UsuarioNotificadoRatificacion).filter_by(
+            proyecto_id=proyecto.proyecto_id,
+            login=login
+        ).first()
 
-#             fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
-#             fecha_ratificacion = (fecha_cambio_final + timedelta(days=356)) if fecha_cambio_final else None
 
-#             if not fecha_ratificacion or fecha_ratificacion.date() > fecha_limite:
-#                 continue
+        if not notificacion:
+            # Crear nuevo registro si no existe
+            notificacion = UsuarioNotificadoRatificacion(
+                proyecto_id=proyecto.proyecto_id,
+                login=login,
+                ratificado=ahora
+            )
+            db.add(notificacion)
+        else:
+            # Actualizar ratificado y limpiar avisos
+            notificacion.ratificado = ahora
+            notificacion.mail_enviado_1 = None
+            notificacion.mail_enviado_2 = None
+            notificacion.mail_enviado_3 = None
+            notificacion.mail_enviado_4 = None
 
-#             # --- Buscar usuarios del proyecto
-#             logins = [proyecto.login_1, proyecto.login_2] if proyecto.login_2 else [proyecto.login_1]
-#             for login in logins:
-#                 if not login:
-#                     continue
-#                 usuario = db.query(User).filter(User.login == login).first()
-#                 if not usuario or not usuario.mail:
-#                     continue
+        # Registrar evento en RuaEvento
+        evento = RuaEvento(
+            login=login,
+            evento_fecha=ahora,
+            evento_detalle=f"Ratificación realizada para el proyecto {proyecto.proyecto_id}"
+        )
+        db.add(evento)
 
-#                 # --- Enviar mail
 
-#                 cuerpo_html = f"""
-#                 <html>
-#                   <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-#                     <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-#                       <tr>
-#                         <td align="center">
-#                           <table cellpadding="0" cellspacing="0" width="600"
-#                             style="background-color: #ffffff; border-radius: 10px; padding: 30px;
-#                                   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40;
-#                                   box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-#                             <tr>
-#                               <td style="padding-top: 20px; font-size: 17px;">
-#                                 <p>¡Hola, <strong>{usuario.nombre}</strong>! Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
-#                                 <p>Te informamos que se cumple un año de tu inscripción en el Registro Único de Adopciones 
-#                                   de Córdoba. Por indicaciones del artículo 14 de la ley 25.854 necesitamos que
-#                                   confirmes tu voluntad de continuar inscripta/o ingresando al Sistema RUA y haciendo clic 
-#                                   en el botón de Ratificación que estará disponible durante los próximos 30 días dentro del Sistema RUA:
-#                                 </p>
+        db.commit()
+        
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "<p>Se ha registrado correctamente la ratificación de su proyecto.</p>",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
 
-#                                 <p><em>
-#                                   Transcurrido ese plazo sin que nos confirmes tu continuidad, el sistema te excluye
-#                                   automáticamente del Registro y para volver a formar parte tendrás que iniciar el trámite
-#                                   nuevamente.
-#                                 </em></p>
-#                               </td>
-#                             </tr>
-
-#                             <tr>
-#                               <td align="center" style="padding: 30px 0;">
-#                                 <a href="https://rua.justiciacordoba.gob.ar/login/" target="_blank"
-#                                   style="display: inline-block; padding: 12px 24px; background-color: #007bff;
-#                                           color: #ffffff; border-radius: 8px; text-decoration: none;
-#                                           font-weight: bold; font-size: 16px;">
-#                                   Ir al sistema RUA
-#                                 </a>
-#                               </td>
-#                             </tr>
-                  
-#                             <tr>
-#                               <td style="font-size: 17px; padding-top: 20px;">
-#                                 ¡Muchas gracias por seguir en el Registro Único de Adopciones de Córdoba!
-#                               </td>
-#                             </tr>
-#                           </table>
-#                         </td>
-#                       </tr>
-#                     </table>
-#                   </body>
-#                 </html>
-#                 """
-
-#                 enviar_mail(
-#                     destinatario=usuario.mail,
-#                     asunto="Ratificación de inscripción",
-#                     cuerpo=cuerpo_html
-#                 )
-
-#                 enviados.append({"login": login, "mail": usuario.mail, "proyecto_id": proyecto.proyecto_id})
-
-#         db.commit()
-#         return {"message": f"Se enviaron {len(enviados)} notificaciones.", "detalles": enviados}
-
-#     except SQLAlchemyError as e:
-#         db.rollback()
-#         raise HTTPException(status_code=500, detail=f"Error al enviar notificaciones: {str(e)}")
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": f"Error al registrar la ratificación: {str(e)}",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }

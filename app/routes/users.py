@@ -2840,6 +2840,8 @@ def get_estado_usuario(
 
     mensaje_para_portada = ""
     tipo_mensaje = "info"
+    en_fecha_de_ratificar = False
+
 
     # 🧠 Curso para adoptantes
     curso_aprobado = user.doc_adoptante_curso_aprobado or "N"
@@ -3007,7 +3009,7 @@ def get_estado_usuario(
                             </div>
                         """
 
-
+            
             if estado in estados_mensajes:
                 titulo, mensaje, detalle = estados_mensajes[estado]
                 mensaje_para_portada = f"""
@@ -3022,7 +3024,44 @@ def get_estado_usuario(
                     <h6>Para más información, contacte al equipo técnico.</h6>
                 """
 
+            if estado == "viable":
+                # Buscar fechas relevantes de cambio a viable
+                fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+                    ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                    ProyectoHistorialEstado.estado_anterior == "viable",
+                    ProyectoHistorialEstado.estado_nuevo == "viable"
+                ).scalar()
 
+                fecha_para_valorar_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+                    ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                    ProyectoHistorialEstado.estado_anterior == "para_valorar",
+                    ProyectoHistorialEstado.estado_nuevo == "viable"
+                ).scalar()
+
+                fechas_posibles = []
+                if proyecto.ultimo_cambio_de_estado:
+                    fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, dt_time.min))
+                if fecha_viable_a_viable:
+                    fechas_posibles.append(fecha_viable_a_viable)
+                if fecha_para_valorar_a_viable:
+                    fechas_posibles.append(fecha_para_valorar_a_viable)
+
+                if fechas_posibles:
+                    fecha_cambio_final = max(fechas_posibles)
+                    fecha_ratificacion = fecha_cambio_final + timedelta(days=356)
+                    hoy = datetime.now()
+
+                    if hoy.date() >= fecha_ratificacion.date():
+                        tipo_mensaje = "naranja"
+                        mensaje_para_portada += """
+                            <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
+                                <h5>🔔 Ratificación requerida</h5>
+                                <p>Ha pasado más de un año desde la última valoración favorable de su proyecto.</p>
+                                <p>Por favor, es necesario ratificar su voluntad de continuar en el Registro Único de Adopciones.</p>
+                            </div>
+                        """
+
+                en_fecha_de_ratificar = hoy.date() >= fecha_ratificacion.date()
 
 
     return {
@@ -3031,7 +3070,9 @@ def get_estado_usuario(
         "curso_aprobado": curso_aprobado,
         "ddjj_firmada": user.doc_adoptante_ddjj_firmada,
         "doc_adoptante_estado": user.doc_adoptante_estado,
-        "datos_domicilio_faltantes": not (user.calle_y_nro or user.localidad)
+        "datos_domicilio_faltantes": not (user.calle_y_nro or user.localidad),
+        "en_fecha_de_ratificar": en_fecha_de_ratificar,
+        "fecha_ratificacion": fecha_ratificacion.strftime("%Y-%m-%d") if 'fecha_ratificacion' in locals() else None
     }
 
 
@@ -3809,44 +3850,6 @@ def descargar_documentos_usuario(
 
         # Línea decorativa inferior
         page.draw_line(p1=(60, y_pos + 10), p2=(page.rect.width - 60, y_pos + 10), color=(0.5, 0.5, 0.5), width=0.6)
-
-
-
-        # # Página inicial con datos personales del pretenso
-        # page = merged.new_page(pno=0, width=595, height=842)
-
-        # # Encabezado centrado grande
-        # page.insert_textbox(
-        #     rect=fitz.Rect(0, 60, page.rect.width, 100),
-        #     buffer="Documentación del Pretenso Adoptante",
-        #     fontname="helv",
-        #     fontsize=22,
-        #     align=1
-        # )
-
-        # # Datos personales: insertados bien visibles más abajo
-        # datos = [
-        #     f"Nombre: {user.nombre} {user.apellido}",
-        #     f"DNI: {user.login}",
-        #     f"Correo electrónico: {user.mail or 'No registrado'}",
-        #     f"Celular: {user.celular or 'No registrado'}"
-        # ]
-
-        # # Espaciado vertical correcto
-        # y_pos = 120
-        # for linea in datos:
-        #     rect_linea = fitz.Rect(60, y_pos, page.rect.width - 60, y_pos + 25)
-        #     page.insert_textbox(
-        #         rect=rect_linea,
-        #         buffer=linea,
-        #         fontname="helv",
-        #         fontsize=14,
-        #         align=0  # alineado a la izquierda
-        #     )
-        #     y_pos += 35  # mayor espaciado para visibilidad
-
-        # # Línea decorativa final
-        # page.draw_line(p1=(60, y_pos), p2=(page.rect.width - 60, y_pos), color=(0.5, 0.5, 0.5), width=0.8)
 
 
 
