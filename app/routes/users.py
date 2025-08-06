@@ -15,6 +15,8 @@ from helpers.notificaciones_utils import crear_notificacion_masiva_por_rol, crea
 
 import base64
 from fastapi import BackgroundTasks
+import csv
+import io
 
 
 from models.users import User, Group, UserGroup 
@@ -4200,6 +4202,7 @@ def procesar_envio_masivo(lineas: List[str]):
 
 
 
+
 @users_router.post( "/usuarios/notificar-desde-txt", response_model=dict, 
                    dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador"])) ], )
 async def notificar_desde_txt(
@@ -4227,4 +4230,231 @@ async def notificar_desde_txt(
 
 
 
+
+
+
+def procesar_envio_masivo_postulantes_desde_csv(contenido_csv: str):
+    print("[TAREA] Comenzando procesamiento del CSV...")  # 👈
+    lector_csv = csv.DictReader(io.StringIO(contenido_csv))
+    db: Session = SessionLocal()
+    try:
+        resultados = {"total": 0, "mails_enviados": 0, "errores": []}
+
+        # Configuración general
+        protocolo = get_setting_value(db, "protocolo") or "https"
+        host = get_setting_value(db, "donde_esta_alojado") or "osmvision.com.ar"
+        puerto = get_setting_value(db, "puerto_tcp")
+        endpoint = "/reconfirmar-subregistros-postulantes"
+        puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
+        host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
+
+        print(f"[TAREA] UPLOAD_DIR_DOC_PRETENSOS = {UPLOAD_DIR_DOC_PRETENSOS}")
+
+        os.makedirs(UPLOAD_DIR_DOC_PRETENSOS, exist_ok=True)
+        log_path = os.path.join(UPLOAD_DIR_DOC_PRETENSOS, "envios_exitosos_postulantes.txt")
+
+       
+
+
+        for idx, fila in enumerate(lector_csv, start=2):
+            print(f"[TAREA] Procesando línea {idx}...")
+
+            resultados["total"] += 1
+
+            try:
+                login = fila.get("login", "").strip()
+                nombre = fila.get("nombre", "").strip()
+                apellido = fila.get("apellido", "").strip()
+                mail = fila.get("mail", "").strip()
+                fecha_nacimiento = fila.get("fecha_nacimiento", "").strip()
+                nacionalidad = fila.get("nacionalidad", "").strip()
+                sexo = fila.get("sexo", "").strip()
+                estado_civil = fila.get("estado_civil", "").strip()
+                calle_y_nro = fila.get("calle_y_nro", "").strip()
+                depto = fila.get("depto", "") or None
+                barrio = fila.get("barrio", "").strip()
+                localidad = fila.get("localidad", "").strip()
+                cp = fila.get("cp", "").strip()
+                provincia = fila.get("provincia", "").strip()
+                telefono_contacto = fila.get("telefono_contacto", "").strip()
+                ocupacion = fila.get("ocupacion", "").strip()
+
+                # Validación básica
+                if not (login and nombre and apellido and mail):
+                    resultados["errores"].append(f"Línea {idx}: campos obligatorios vacíos")
+                    continue
+
+                user_existente = db.query(User).filter(User.login == login).first()
+                ddjj_existente = db.query(DDJJ).filter(DDJJ.login == login).first()
+
+                if user_existente and ddjj_existente:
+                    print(f"[TAREA] Usuario y DDJJ ya existen para login {login}. No se hace nada.")
+                    continue
+
+                if not user_existente:
+                    # Crear usuario
+                    user = User(
+                        login=login,
+                        clave=login,
+                        nombre=nombre,
+                        apellido=apellido,
+                        mail=mail,
+                        fecha_nacimiento=datetime.strptime(fecha_nacimiento, "%Y-%m-%d").date() if fecha_nacimiento else None,
+                        celular=telefono_contacto,
+                        calle_y_nro=calle_y_nro,
+                        depto_etc=depto,
+                        barrio=barrio,
+                        localidad=localidad,
+                        provincia=provincia,
+                        profesion=ocupacion,
+                        fecha_alta=datetime.now().date(),
+                        active="Y",
+                        convocatoria="S"
+                    )
+                    db.add(user)
+
+                    grupo = db.query(Group).filter(Group.description.ilike("%adoptante%")).first()
+                    if grupo:
+                        db.add(UserGroup(login=login, group_id=grupo.group_id))
+                    else:
+                        resultados["errores"].append(f"Línea {idx}: No se encontró el grupo 'Adoptante'")
+                        continue
+
+                # Crear DDJJ si no existe
+                if not ddjj_existente:
+                    ddjj = DDJJ(
+                        login=login,
+                        ddjj_nombre=nombre,
+                        ddjj_apellido=apellido,
+                        ddjj_correo_electronico=mail,
+                        ddjj_fecha_nac=datetime.strptime(fecha_nacimiento, "%Y-%m-%d").date() if fecha_nacimiento else None,
+                        ddjj_telefono=telefono_contacto,
+                        ddjj_calle=calle_y_nro,
+                        ddjj_depto=depto,
+                        ddjj_barrio=barrio,
+                        ddjj_localidad=localidad,
+                        ddjj_cp=cp,
+                        ddjj_provincia=provincia,
+                        ddjj_estado_civil=estado_civil,
+                        ddjj_nacionalidad=nacionalidad,
+                        ddjj_sexo=sexo,
+                        ddjj_ocupacion=ocupacion,
+                        ddjj_fecha_ultimo_cambio=datetime.now().strftime("%Y-%m-%d")
+                    )
+                    db.add(ddjj)
+
+                db.commit()
+
+                # Enviar mail siempre que la DDJJ NO existía
+                if not ddjj_existente:
+                    login_base64 = base64.b64encode(login.encode()).decode()
+                    link_final = f"{protocolo}://{host_con_puerto}{endpoint}?user={login_base64}"
+                    asunto = "Consulta por disponibilidad adoptiva"
+
+                    cuerpo_html = f"""
+                    <html>
+                      <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                        <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                          <tr>
+                            <td align="center">
+                              <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: Arial, sans-serif; color: #333333; box-shadow: 0 0 10px rgba(0,0,0,0.05);">
+                                <tr>
+                                  <td style="font-size: 18px; padding-bottom: 20px;">
+                                    ¡Hola! nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td style="font-size: 16px; padding-bottom: 10px; line-height: 1.6;">
+                                    Te contactamos porque te has postulado a una convocatoria pública de adopción. Queremos saber 
+                                    si tienes interés en ser consultado/a para búsquedas específicas de niñas, niños o adolescentes 
+                                    en situación de adoptabilidad.
+
+                                    <br />
+
+                                    Además, nos gustaría que nos indiques en qué subregistros estarías disponible para 
+                                    ser considerado/a en futuras convocatorias o búsquedas.
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td style="font-size: 16px; padding: 10px 0;">
+                                    Te invitamos a completar el siguiente formulario, donde podrás registrar tu disponibilidad:
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td align="center" style="padding: 20px 0;">
+                                    <a href="{link_final}"
+                                        style="display: inline-block; padding: 12px 24px; font-size: 16px;
+                                              color: #ffffff; background-color: #0d6efd; text-decoration: none;
+                                              border-radius: 6px; font-weight: bold;"
+                                        target="_blank">
+                                      Ir al formulario
+                                    </a>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td style="font-size: 16px; padding-top: 10px;">
+                                    ¡Muchas gracias!
+                                  </td>
+                                </tr>
+                              </table>
+                            </td>
+                          </tr>
+                        </table>
+                      </body>
+                    </html>
+                    """
+
+                    try:
+                        enviar_mail(destinatario=mail, asunto=asunto, cuerpo=cuerpo_html)
+                        print(f"[TAREA] Mail enviado a {mail}")
+                    except Exception as mail_error:
+                        print(f"[ERROR] Fallo al enviar mail a {mail}: {mail_error}")
+
+                    with open(log_path, "a", encoding="utf-8") as log_file:
+                        ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        log_file.write(f"[{ahora}] Enviado a {login} ({mail})\n")
+
+                    resultados["mails_enviados"] += 1
+                    time.sleep(5)
+
+            except Exception as e:
+                db.rollback()
+                resultados["errores"].append(f"Línea {idx} ({login}): {str(e)}")
+
+    except Exception as fatal:
+        print(f"[ERROR FATAL] {fatal}")
+    finally:
+        db.close()
+
+    print(f"[TAREA] Proceso finalizado. Mails enviados: {resultados['mails_enviados']}, Total: {resultados['total']}")
+
+    return resultados
+
+
+
+
+
+@users_router.post(
+    "/usuarios/notificar-desde-csv-postulantes",
+    response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],
+)
+async def notificar_desde_csv_postulantes(
+    background_tasks: BackgroundTasks,
+    archivo: UploadFile = File(...),
+):
+    if not archivo.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="El archivo debe tener extensión .csv")
+
+    try:
+        contenido = (await archivo.read()).decode("utf-8")  # 👈 leemos el contenido antes de que se cierre
+        background_tasks.add_task(procesar_envio_masivo_postulantes_desde_csv, contenido)
+
+        return {
+            "tipo_mensaje": "verde",
+            "mensaje": "Se está procesando el archivo CSV en segundo plano.",
+            "errores": []
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al iniciar el procesamiento: {e}")
 
