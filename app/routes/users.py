@@ -1101,39 +1101,54 @@ async def create_user(
         raise HTTPException(status_code=400, detail="El grupo seleccionado no existe en la base de datos.")
 
 
-
+    
     if group_description == "adoptante":
         try:
-            if existe_mail_en_moodle(mail, db):
+            dni_en_moodle = existe_dni_en_moodle(dni, db)
+            mail_en_moodle = existe_mail_en_moodle(mail, db)
+
+            if dni_en_moodle and mail_en_moodle:
+                # ✅ Caso 1: Ambos existen → Actualizar contraseña en Moodle
+                actualizar_clave_en_moodle(mail, clave, db)
+
+            elif dni_en_moodle and not mail_en_moodle:
+                # ❌ Caso 2: Existe el usuario con ese DNI pero otro mail → error
                 return {
                     "tipo_mensaje": "naranja",
                     "mensaje": (
-                        "<p>Ya existe un usuario con ese mail en nuestro sistema de capacitación (Moodle).</p>"
-                        "<p>Por favor, comunicarse con personal del RUA.</p>"
+                        "<p><strong>Ya tenés una cuenta creada en nuestro sistema de capacitación (Moodle) con este DNI.</strong></p>"
+                        "<p>Para completar tu inscripción en el Sistema RUA, debés utilizar el mismo correo electrónico que está asociado a tu cuenta en Moodle.</p>"
+                        "<p>Si no recordás qué correo usaste, ingresá a <a href='https://campusvirtual2.justiciacordoba.gob.ar/login/index.php' target='_blank'>https://campusvirtual2.justiciacordoba.gob.ar</a> y usá tu DNI como nombre de usuario.</p>"
+                        "<p>Desde allí vas a poder acceder a tu cuenta, recuperar tu contraseña si lo necesitás, y verificar o actualizar el correo electrónico desde tu perfil.</p>"
+                        "<p>Cuando tengas acceso a tu cuenta y sepas qué mail está asociado, volvé a esta página e ingresalo para continuar con tu registro en el Sistema RUA.</p>"
                     ),
-                    "tiempo_mensaje": 5,
+                    "tiempo_mensaje": 7,
                     "next_page": "actual"
                 }
 
-            if existe_dni_en_moodle(dni, db):
+            elif not dni_en_moodle and mail_en_moodle:
+                # ❌ Caso 3: Existe el mail, pero no el DNI (username) → error
                 return {
                     "tipo_mensaje": "naranja",
                     "mensaje": (
-                        "<p>Ya existe un usuario con ese DNI en nuestro sistema de capacitación (Moodle).</p>"
-                        "<p>Por favor, comunicarse con personal del RUA.</p>"
+                        "<p><strong>El correo electrónico que ingresaste ya está siendo utilizado en nuestro sistema de capacitación (Moodle).</strong></p>"
+                        "<p>Esto significa que ya existe una cuenta en Moodle asociada a ese correo, posiblemente con otro DNI como nombre de usuario.</p>"
+                        "<p>Por motivos de seguridad y para evitar conflictos, necesitás registrar un correo diferente que no esté en uso en Moodle.</p>"
+                        "<p>Si querés verificar qué cuentas tenés en Moodle, podés ingresar a <a href='https://campusvirtual2.justiciacordoba.gob.ar/login/index.php' target='_blank'>https://campusvirtual2.justiciacordoba.gob.ar</a> usando tus datos habituales.</p>"
+                        "<p>Una vez que tengas identificado un correo alternativo, volvé a esta página e ingresalo para completar tu registro en el Sistema RUA.</p>"
                     ),
-                    "tiempo_mensaje": 5,
+                    "tiempo_mensaje": 7,
                     "next_page": "actual"
                 }
 
-            retorno = crear_usuario_en_moodle(dni, clave, nombre, apellido, mail, db)
-            print('crear_usuario_en_moodle', retorno)
+            else:
+                # ✅ Caso 4: No existe el usuario en Moodle → crearlo
+                crear_usuario_en_moodle(dni, clave, nombre, apellido, mail, db)
 
+            # En todos los casos válidos: obtener ID y enrolar
             id_curso = get_idcurso(db)
             id_usuario = get_idusuario_by_mail(mail, db)
-
-            retorno = enrolar_usuario(id_curso, id_usuario, db)
-            print('enrolar_usuario', retorno)
+            enrolar_usuario(id_curso, id_usuario, db)
 
         except HTTPException as e:
             return {
@@ -1146,6 +1161,53 @@ async def create_user(
                 "tiempo_mensaje": 10,
                 "next_page": "actual"
             }
+
+
+
+    # if group_description == "adoptante":
+    #     try:
+    #         if existe_mail_en_moodle(mail, db):
+    #             return {
+    #                 "tipo_mensaje": "naranja",
+    #                 "mensaje": (
+    #                     "<p>Ya existe un usuario con ese mail en nuestro sistema de capacitación (Moodle).</p>"
+    #                     "<p>Por favor, comunicarse con personal del RUA.</p>"
+    #                 ),
+    #                 "tiempo_mensaje": 5,
+    #                 "next_page": "actual"
+    #             }
+
+    #         if existe_dni_en_moodle(dni, db):
+    #             return {
+    #                 "tipo_mensaje": "naranja",
+    #                 "mensaje": (
+    #                     "<p>Ya existe un usuario con ese DNI en nuestro sistema de capacitación (Moodle).</p>"
+    #                     "<p>Por favor, comunicarse con personal del RUA.</p>"
+    #                 ),
+    #                 "tiempo_mensaje": 5,
+    #                 "next_page": "actual"
+    #             }
+
+    #         retorno = crear_usuario_en_moodle(dni, clave, nombre, apellido, mail, db)
+    #         print('crear_usuario_en_moodle', retorno)
+
+    #         id_curso = get_idcurso(db)
+    #         id_usuario = get_idusuario_by_mail(mail, db)
+
+    #         retorno = enrolar_usuario(id_curso, id_usuario, db)
+    #         print('enrolar_usuario', retorno)
+
+    #     except HTTPException as e:
+    #         return {
+    #             "tipo_mensaje": "rojo",
+    #             "mensaje": (
+    #                 "<p>No se pudo completar el registro en el sistema de capacitación (Moodle).</p>"
+    #                 f"<p>Detalle técnico: {e.detail}</p>"
+    #                 "<p>Por favor, intente más tarde o comuníquese con personal del RUA.</p>"
+    #             ),
+    #             "tiempo_mensaje": 10,
+    #             "next_page": "actual"
+    #         }
 
 
     # Generar código de activación aleatorio
