@@ -39,6 +39,8 @@ import zipfile
 
 from helpers.notificaciones_utils import crear_notificacion_masiva_por_rol, crear_notificacion_individual
 
+import re
+
 
 
 
@@ -67,6 +69,63 @@ os.makedirs(DIR_PDF_GENERADOS, exist_ok=True)
 
 
 proyectos_router = APIRouter()
+
+
+
+
+
+MAX_FILE_MB = 25
+ALLOWED_EXT = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"}
+LEGACY_DEFAULT_DATE = "2025-06-23 00:00:00"  # ← “23 de junio de 2025” normalizado
+
+# Campos reales de la tabla Proyecto (columnas)
+REAL_FIELDS = {
+    "doc_proyecto_convivencia_o_estado_civil",
+    "informe_profesionales",
+    "doc_informe_vinculacion",
+    "doc_informe_seguimiento_guarda",
+    "doc_sentencia_guarda",
+    "doc_sentencia_adopcion",
+}
+
+# Alias aceptados desde el front → columna real
+ALIASES = {
+    "sentencia_adopcion": "doc_sentencia_adopcion",
+    "sentencia_guarda": "doc_sentencia_guarda",
+    # sumá más si necesitás
+}
+
+def _resolve_field(campo: str) -> str:
+    real = ALIASES.get(campo, campo)
+    if real not in REAL_FIELDS:
+        raise HTTPException(status_code=400, detail=f"Campo no permitido: {campo}")
+    return real
+
+def _sanitize(s: str) -> str:
+    s = (s or "").strip().lower()
+    return re.sub(r"[^a-z0-9_]", "_", s) or "archivo"
+
+def _ensure_dir(path: str):
+    os.makedirs(path, exist_ok=True)
+
+def _load_archivos(valor: Optional[str]):
+    """
+    Devuelve lista [{'ruta':..., 'fecha':...}] a partir del valor en DB.
+    Soporta formato legacy (string plano con la ruta).
+    """
+    if not valor:
+        return []
+    try:
+        if isinstance(valor, str) and valor.strip().startswith("["):
+            return json.loads(valor)
+        # legacy: una sola ruta en string
+        return [{"ruta": valor, "fecha": LEGACY_DEFAULT_DATE}]
+    except Exception:
+        # si está corrupto, devolvemos vacío
+        return []
+
+def _dump_archivos(items):
+    return json.dumps(items, ensure_ascii=False)
 
 
 
@@ -7255,3 +7314,257 @@ def ratificar_proyecto(
             "tiempo_mensaje": 5,
             "next_page": "actual"
         }
+
+
+
+
+
+
+# ---------- PUT: subir / migrar a multi ----------
+@proyectos_router.put("/proyectos/documentos/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), 
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))],)
+def subir_documento_proyecto(
+    proyecto_id: int,
+    campo: str = Form(...),         # acepta alias o nombre real
+    file: UploadFile = File(...),
+    prefijo: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    real_field = _resolve_field(campo)
+
+    _, ext = os.path.splitext(file.filename.lower())
+    if ext not in ALLOWED_EXT:
+        return {
+            "success": False, "tipo_mensaje": "rojo",
+            "mensaje": f"Extensión de archivo no permitida: {ext}",
+            "tiempo_mensaje": 6, "next_page": "actual"
+        }
+
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        return {
+            "success": False, "tipo_mensaje": "rojo",
+            "mensaje": "Proyecto no encontrado.",
+            "tiempo_mensaje": 6, "next_page": "actual"
+        }
+
+    # tamaño
+    file.file.seek(0, os.SEEK_END)
+    size = file.file.tell()
+    file.file.seek(0)
+    if size > MAX_FILE_MB * 1024 * 1024:
+        return {
+            "success": False, "tipo_mensaje": "rojo",
+            "mensaje": f"El archivo excede el tamaño máximo permitido de {MAX_FILE_MB}MB.",
+            "tiempo_mensaje": 6, "next_page": "actual"
+        }
+
+    carpeta = os.path.join(UPLOAD_DIR_DOC_PROYECTOS, str(proyecto_id))
+    _ensure_dir(carpeta)
+
+    nombre_base = _sanitize(prefijo) if prefijo else _sanitize(real_field)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    final_filename = f"{nombre_base}_{timestamp}{ext}"
+    destino = os.path.join(carpeta, final_filename)
+
+    try:
+        with open(destino, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+
+        # ---- migrar si es legacy (string) y luego agregar el nuevo ----
+        valor_actual = getattr(proyecto, real_field, None)
+        archivos = _load_archivos(valor_actual)  # si era string, ya mete la ruta con fecha LEGACY_DEFAULT_DATE
+        archivos.append({"ruta": destino, "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        setattr(proyecto, real_field, _dump_archivos(archivos))
+
+        # Evento (opcional)
+        try:
+            db.add(RuaEvento(
+                login=current_user["user"]["login"],
+                evento_detalle=f"Subió documento en '{real_field}' para proyecto #{proyecto_id}: {os.path.basename(destino)}",
+                evento_fecha=datetime.now()
+            ))
+        except Exception:
+            pass
+
+        db.commit()
+        return {
+            "success": True, "tipo_mensaje": "verde",
+            "mensaje": "Documento subido correctamente.",
+            "tiempo_mensaje": 4, "next_page": "actual"
+        }
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False, "tipo_mensaje": "rojo",
+            "mensaje": f"Error al guardar el documento: {str(e)}",
+            "tiempo_mensaje": 6, "next_page": "actual"
+        }
+
+
+# ---------- GET: descargar uno o todos ----------
+@proyectos_router.get("/proyectos/documentos/{proyecto_id}/descargar-todos", response_class=FileResponse,
+    dependencies=[Depends(verify_api_key), 
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))],)
+def descargar_todos_documentos_proyecto(
+    proyecto_id: int,
+    campo: str = Query(...),        # acepta alias o nombre real
+    db: Session = Depends(get_db),
+):
+    real_field = _resolve_field(campo)
+
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    valor = getattr(proyecto, real_field, None)
+    archivos = _load_archivos(valor)
+
+    if not archivos:
+        raise HTTPException(status_code=404, detail="No hay documentos registrados")
+
+    if len(archivos) == 1:
+        ruta = archivos[0].get("ruta")
+        if not (ruta and os.path.exists(ruta)):
+            raise HTTPException(status_code=404, detail="Archivo no encontrado en disco")
+        return FileResponse(path=ruta, filename=os.path.basename(ruta), media_type="application/octet-stream")
+
+    # varios → zip
+    try:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for a in archivos:
+                ruta = a.get("ruta")
+                if ruta and os.path.exists(ruta):
+                    zipf.write(ruta, arcname=os.path.basename(ruta))
+        return FileResponse(
+            path=tmp.name,
+            filename=f"{real_field}_{proyecto_id}.zip",
+            media_type="application/zip"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al generar el ZIP: {str(e)}")
+
+
+
+# ---------- DELETE: eliminar (soporta legacy) ----------
+@proyectos_router.delete("/proyectos/documentos/{proyecto_id}/eliminar", response_model=dict,
+    dependencies=[Depends(verify_api_key), 
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))],)
+def eliminar_documento_proyecto(
+    proyecto_id: int,
+    campo: str = Query(...),        # acepta alias o nombre real
+    ruta: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    real_field = _resolve_field(campo)
+
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        return {
+            "success": False, "tipo_mensaje": "rojo",
+            "mensaje": "Proyecto no encontrado.",
+            "tiempo_mensaje": 6, "next_page": "actual"
+        }
+
+    try:
+        valor = getattr(proyecto, real_field, None)
+
+        # Si es legacy string y coincide con la ruta → eliminar y dejar None
+        if valor and isinstance(valor, str) and not valor.strip().startswith("["):
+            legacy_path = valor
+            if legacy_path != ruta:
+                return {
+                    "success": False, "tipo_mensaje": "naranja",
+                    "mensaje": "Archivo no encontrado.",
+                    "tiempo_mensaje": 5, "next_page": "actual"
+                }
+            if os.path.exists(ruta):
+                try:
+                    os.remove(ruta)
+                except Exception as e:
+                    return {
+                        "success": False, "tipo_mensaje": "naranja",
+                        "mensaje": f"No se pudo eliminar el archivo físico: {e}",
+                        "tiempo_mensaje": 5, "next_page": "actual"
+                    }
+            setattr(proyecto, real_field, None)
+            db.commit()
+            return {
+                "success": True, "tipo_mensaje": "verde",
+                "mensaje": "Archivo eliminado correctamente.",
+                "tiempo_mensaje": 4, "next_page": "actual"
+            }
+
+        # Caso JSON (multi)
+        archivos = _load_archivos(valor)
+        objetivo = next((a for a in archivos if a.get("ruta") == ruta), None)
+        if not objetivo:
+            return {
+                "success": False, "tipo_mensaje": "naranja",
+                "mensaje": "Archivo no encontrado.",
+                "tiempo_mensaje": 5, "next_page": "actual"
+            }
+
+        if os.path.exists(ruta):
+            try:
+                os.remove(ruta)
+            except Exception as e:
+                return {
+                    "success": False, "tipo_mensaje": "naranja",
+                    "mensaje": f"No se pudo eliminar el archivo físico: {e}",
+                    "tiempo_mensaje": 5, "next_page": "actual"
+                }
+
+        nuevos = [a for a in archivos if a.get("ruta") != ruta]
+        setattr(proyecto, real_field, _dump_archivos(nuevos) if nuevos else None)
+        db.commit()
+
+        return {
+            "success": True, "tipo_mensaje": "verde",
+            "mensaje": "Archivo eliminado correctamente.",
+            "tiempo_mensaje": 4, "next_page": "actual"
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False, "tipo_mensaje": "rojo",
+            "mensaje": f"Error al eliminar archivo: {str(e)}",
+            "tiempo_mensaje": 6, "next_page": "actual"
+        }
+
+
+
+@proyectos_router.get("/proyectos/documentos/{proyecto_id}/descargar-uno", response_class=FileResponse,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def descargar_un_documento_proyecto(
+    proyecto_id: int,
+    campo: str = Query(...),
+    ruta: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    real_field = _resolve_field(campo)
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    valor = getattr(proyecto, real_field, None)
+    archivos = _load_archivos(valor)
+
+    # seguridad: la ruta debe existir dentro de ese campo del proyecto
+    objetivo = next((a for a in archivos if a.get("ruta") == ruta), None)
+    if not objetivo:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado en el proyecto")
+
+    if not os.path.exists(ruta):
+        raise HTTPException(status_code=404, detail="Archivo no encontrado en disco")
+
+    return FileResponse(
+        path=ruta,
+        filename=os.path.basename(ruta),
+        media_type="application/octet-stream"
+    )
