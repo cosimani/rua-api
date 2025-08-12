@@ -73,11 +73,9 @@ class Proyecto(Base):
     doc_dictamen = Column(String(1024), nullable=True)
     doc_informe_vinculacion = Column(Text, nullable=True)
     doc_informe_seguimiento_guarda = Column(Text, nullable=True)
-
     doc_sentencia_guarda = Column(String(1024), nullable=True)
+    doc_informe_conclusivo = Column(Text, nullable=True)
     doc_sentencia_adopcion = Column(String(1024), nullable=True)
-
-
     
     
 

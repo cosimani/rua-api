@@ -86,6 +86,7 @@ REAL_FIELDS = {
     "doc_informe_vinculacion",
     "doc_informe_seguimiento_guarda",
     "doc_sentencia_guarda",
+    "doc_informe_conclusivo",
     "doc_sentencia_adopcion",
 }
 
@@ -778,8 +779,8 @@ def get_proyecto_por_id(
 
                 Proyecto.doc_informe_vinculacion.label("doc_informe_vinculacion"),
                 Proyecto.doc_informe_seguimiento_guarda.label("doc_informe_seguimiento_guarda"),
-
                 Proyecto.doc_sentencia_guarda.label("doc_sentencia_guarda"),
+                Proyecto.doc_informe_conclusivo.label("doc_informe_conclusivo"),
                 Proyecto.doc_sentencia_adopcion.label("doc_sentencia_adopcion"),
 
                 Proyecto.subregistro_1.label("subregistro_1"),
@@ -1062,6 +1063,7 @@ def get_proyecto_por_id(
             "doc_informe_seguimiento_guarda": proyecto.doc_informe_seguimiento_guarda,
 
             "doc_sentencia_guarda": proyecto.doc_sentencia_guarda,
+            "doc_informe_conclusivo": proyecto.doc_informe_conclusivo,
             "doc_sentencia_adopcion": proyecto.doc_sentencia_adopcion,
 
             "boton_solicitar_actualizacion_proyecto": proyecto.estado_general == "en_revision" and \
