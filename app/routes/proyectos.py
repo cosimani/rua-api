@@ -128,6 +128,25 @@ def _dump_archivos(items):
     return json.dumps(items, ensure_ascii=False)
 
 
+def _parse_fecha(fecha_str: str) -> Optional[datetime]:
+    """Intenta parsear varias variantes 'YYYY-MM-DD HH:MM:SS' o ISO."""
+    if not fecha_str:
+        return None
+    s = fecha_str.strip()
+    # normalizar espacio/T
+    s = s.replace("T", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
+
+def _dentro_24h(dt: Optional[datetime]) -> bool:
+    if not dt:
+        return False
+    return (datetime.now() - dt) <= timedelta(hours=24)
+
 
 
 
@@ -7449,10 +7468,10 @@ def descargar_todos_documentos_proyecto(
 
 
 
-# ---------- DELETE: eliminar (soporta legacy) ----------
+# ---------- DELETE: eliminar (sólo si ≤ 24h, soporta legacy) ----------
 @proyectos_router.delete("/proyectos/documentos/{proyecto_id}/eliminar", response_model=dict,
-    dependencies=[Depends(verify_api_key), 
-                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))],)
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def eliminar_documento_proyecto(
     proyecto_id: int,
     campo: str = Query(...),        # acepta alias o nombre real
@@ -7472,7 +7491,7 @@ def eliminar_documento_proyecto(
     try:
         valor = getattr(proyecto, real_field, None)
 
-        # Si es legacy string y coincide con la ruta → eliminar y dejar None
+        # === Caso LEGACY: un string plano con la ruta ===
         if valor and isinstance(valor, str) and not valor.strip().startswith("["):
             legacy_path = valor
             if legacy_path != ruta:
@@ -7481,6 +7500,24 @@ def eliminar_documento_proyecto(
                     "mensaje": "Archivo no encontrado.",
                     "tiempo_mensaje": 5, "next_page": "actual"
                 }
+
+            # Intentar inferir "fecha de subida" con mtime del archivo
+            fecha_subida = None
+            if os.path.exists(ruta):
+                try:
+                    fecha_subida = datetime.fromtimestamp(os.path.getmtime(ruta))
+                except Exception:
+                    fecha_subida = None
+
+            # Si no hay forma de verificar la fecha, bloquear
+            if not fecha_subida or not _dentro_24h(fecha_subida):
+                return {
+                    "success": False, "tipo_mensaje": "naranja",
+                    "mensaje": "No se puede eliminar el archivo porque han pasado más de 24 horas desde su subida (o no es posible verificar la fecha en formato antiguo).",
+                    "tiempo_mensaje": 6, "next_page": "actual"
+                }
+
+            # Dentro de 24h → eliminar
             if os.path.exists(ruta):
                 try:
                     os.remove(ruta)
@@ -7490,6 +7527,7 @@ def eliminar_documento_proyecto(
                         "mensaje": f"No se pudo eliminar el archivo físico: {e}",
                         "tiempo_mensaje": 5, "next_page": "actual"
                     }
+
             setattr(proyecto, real_field, None)
             db.commit()
             return {
@@ -7498,7 +7536,7 @@ def eliminar_documento_proyecto(
                 "tiempo_mensaje": 4, "next_page": "actual"
             }
 
-        # Caso JSON (multi)
+        # === Caso JSON (multi-archivo) ===
         archivos = _load_archivos(valor)
         objetivo = next((a for a in archivos if a.get("ruta") == ruta), None)
         if not objetivo:
@@ -7508,6 +7546,22 @@ def eliminar_documento_proyecto(
                 "tiempo_mensaje": 5, "next_page": "actual"
             }
 
+        # Validar antigüedad: primero con "fecha" del JSON, si no existe o es inválida, intentar mtime
+        fecha_subida = _parse_fecha(objetivo.get("fecha", ""))
+        if not fecha_subida and os.path.exists(ruta):
+            try:
+                fecha_subida = datetime.fromtimestamp(os.path.getmtime(ruta))
+            except Exception:
+                fecha_subida = None
+
+        if not fecha_subida or not _dentro_24h(fecha_subida):
+            return {
+                "success": False, "tipo_mensaje": "naranja",
+                "mensaje": "No se puede eliminar el archivo porque han pasado más de 24 horas desde su subida.",
+                "tiempo_mensaje": 5, "next_page": "actual"
+            }
+
+        # Dentro de 24h → eliminar físico y actualizar DB
         if os.path.exists(ruta):
             try:
                 os.remove(ruta)
