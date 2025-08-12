@@ -3,6 +3,7 @@ from typing import List, Optional, Literal, Tuple
 from sqlalchemy.orm import Session, aliased, joinedload
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import func, case, and_, or_, Integer, literal_column
+from urllib.parse import unquote
 
 
 from datetime import datetime, timedelta, date, time
@@ -95,6 +96,7 @@ ALIASES = {
     # sumá más si necesitás
 }
 
+
 def _resolve_field(campo: str) -> str:
     real = ALIASES.get(campo, campo)
     if real not in REAL_FIELDS:
@@ -146,6 +148,7 @@ def _dentro_24h(dt: Optional[datetime]) -> bool:
     if not dt:
         return False
     return (datetime.now() - dt) <= timedelta(hours=24)
+
 
 
 
@@ -7513,7 +7516,7 @@ def eliminar_documento_proyecto(
             if not fecha_subida or not _dentro_24h(fecha_subida):
                 return {
                     "success": False, "tipo_mensaje": "naranja",
-                    "mensaje": "No se puede eliminar el archivo porque han pasado más de 24 horas desde su subida (o no es posible verificar la fecha en formato antiguo).",
+                    "mensaje": "No se puede eliminar el archivo porque han pasado más de 24 horas desde su subida (o no es posible verificar la fecha).",
                     "tiempo_mensaje": 6, "next_page": "actual"
                 }
 
@@ -7592,7 +7595,9 @@ def eliminar_documento_proyecto(
 
 
 
-@proyectos_router.get("/proyectos/documentos/{proyecto_id}/descargar-uno", response_class=FileResponse,
+@proyectos_router.get(
+    "/proyectos/documentos/{proyecto_id}/descargar-uno",
+    response_class=FileResponse,
     dependencies=[Depends(verify_api_key),
                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def descargar_un_documento_proyecto(
@@ -7602,6 +7607,8 @@ def descargar_un_documento_proyecto(
     db: Session = Depends(get_db),
 ):
     real_field = _resolve_field(campo)
+    ruta_param = unquote(ruta).replace("\\", "/")  # ← decodificar y normalizar
+
     proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
     if not proyecto:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
@@ -7610,15 +7617,39 @@ def descargar_un_documento_proyecto(
     archivos = _load_archivos(valor)
 
     # seguridad: la ruta debe existir dentro de ese campo del proyecto
-    objetivo = next((a for a in archivos if a.get("ruta") == ruta), None)
+    objetivo = next((a for a in archivos if (a.get("ruta") or "") == ruta_param), None)
     if not objetivo:
-        raise HTTPException(status_code=404, detail="Archivo no encontrado en el proyecto")
+        disponibles = [os.path.basename(a.get("ruta", "")) for a in archivos][:5]
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "Archivo no encontrado en el proyecto",
+                "buscado": ruta_param,
+                "disponibles_ejemplo": disponibles,
+            }
+        )
 
-    if not os.path.exists(ruta):
-        raise HTTPException(status_code=404, detail="Archivo no encontrado en disco")
+    # Usamos la ruta tal cual; si fuese relativa, la resolvemos dentro del directorio base
+    fs_path = ruta_param
+    if not os.path.isabs(fs_path):
+        fs_path = os.path.normpath(os.path.join(UPLOAD_DIR_DOC_PROYECTOS, fs_path.lstrip("/")))
+
+    if not os.path.exists(fs_path):
+        # Alternativa tentativa: mismo nombre de archivo dentro del base dir
+        alt_path = os.path.join(UPLOAD_DIR_DOC_PROYECTOS, os.path.basename(ruta_param))
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "Archivo no encontrado en disco",
+                "ruta_proyecto": ruta_param,
+                "ruta_fs_intentada": fs_path,
+                "alternativa_probada": alt_path,
+                "alternativa_existe": os.path.exists(alt_path),
+            }
+        )
 
     return FileResponse(
-        path=ruta,
-        filename=os.path.basename(ruta),
+        path=fs_path,
+        filename=os.path.basename(fs_path),
         media_type="application/octet-stream"
     )
