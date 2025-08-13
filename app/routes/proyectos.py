@@ -215,6 +215,36 @@ def _download_all(raw:str, zipname:str, proyecto_id:int):
 
 
 
+def _set_estado_nna_por_proyecto(db: Session, proyecto_id: int, nuevo_estado: str) -> int:
+    """
+    Actualiza el estado (nna_estado) de todos los NNA asociados a las carpetas
+    donde participa el proyecto dado. Devuelve la cantidad de NNA actualizados.
+    """
+    # Subconsulta con carpetas donde está el proyecto
+    subq_carpetas = (
+        db.query(DetalleProyectosEnCarpeta.carpeta_id)
+          .filter(DetalleProyectosEnCarpeta.proyecto_id == proyecto_id)
+          .subquery()
+    )
+
+    # NNA que están en esas carpetas
+    nnas_q = (
+        db.query(Nna)
+          .join(DetalleNNAEnCarpeta, DetalleNNAEnCarpeta.nna_id == Nna.nna_id)
+          .filter(DetalleNNAEnCarpeta.carpeta_id.in_(subq_carpetas))
+    )
+
+    count = 0
+    for nna in nnas_q.all():
+        if nna.nna_estado != nuevo_estado:
+            nna.nna_estado = nuevo_estado
+            count += 1
+
+    return count
+
+
+
+
 
 
 @proyectos_router.delete("/{proyecto_id}", response_model = dict,
@@ -605,7 +635,7 @@ def get_proyectos(
 
             # 2. Casos vinculacion o guarda
             # Casos vinculacion o guarda → obtener NNA de la carpeta asociada
-            elif proyecto.estado_general in ["vinculacion", "guarda", "adopcion_definitiva"]:
+            elif proyecto.estado_general in ["vinculacion", "guarda_provisoria", "guarda_confirmada", "adopcion_definitiva"]:
 
                 subquery_carpeta = db.query(DetalleProyectosEnCarpeta.carpeta_id).filter(
                     DetalleProyectosEnCarpeta.proyecto_id == proyecto.proyecto_id
@@ -1009,7 +1039,8 @@ def get_proyecto_por_id(
             "no_viable": "NO VIABLE",
             "en_carpeta": "EN CARPETA",
             "vinculacion": "VINCULACIÓN",
-            "guarda": "GUARDA",
+            "guarda_provisoria": "GUARDA PROVISORIA",
+            "guarda_confirmada": "GUARDA CONFIRMADA",
             "adopcion_definitiva": "ADOPCIÓN DEF.",
             "baja_anulacion": "P. BAJA ANUL.",
             "baja_caducidad": "P. BAJA CADUC.",
@@ -1072,7 +1103,7 @@ def get_proyecto_por_id(
             "boton_valorar_proyecto": proyecto.estado_general == "en_revision",
             "boton_para_valoracion_final_proyecto": proyecto.estado_general == "para_valorar",
             "boton_para_sentencia_guarda": proyecto.estado_general == "vinculacion",
-            "boton_para_sentencia_adopcion": proyecto.estado_general == "guarda",
+            "boton_para_sentencia_adopcion": proyecto.estado_general == "guarda_confirmada",
             "boton_agregar_a_carpeta": proyecto.estado_general == "viable",
 
             # "carpeta_ids": carpeta_ids,  # Lista de carpetas asociadas al proyecto
@@ -1416,7 +1447,8 @@ def crear_proyecto_preliminar(
                 Proyecto.login_2 == login_2,
                 Proyecto.estado_general.in_(["creado", "confeccionando", "en_revision", "actualizando", "aprobado", 
                                              "calendarizando", "entrevistando", "para_valorar",
-                                             "viable", "en_suspenso", "en_carpeta", "vinculacion", "guarda"])
+                                             "viable", "en_suspenso", "en_carpeta", "vinculacion", 
+                                             "guarda_provisoria", "guarda_confirmada"])
             ).first()
 
             if proyecto_activo:
@@ -1754,7 +1786,7 @@ def crear_proyecto(
                 Proyecto.login_1 == login_1,
                 Proyecto.estado_general.in_(["creado", "confeccionando", "en_revision", "actualizando", "aprobado", 
                                              "en_valoracion", "viable", "en_suspenso", "en_carpeta", 
-                                             "vinculacion", "guarda"])
+                                             "vinculacion", "guarda_provisoria", "guarda_confirmada"])
             )
             .first()
         )
@@ -1773,7 +1805,7 @@ def crear_proyecto(
                     Proyecto.login_2 == login_2,
                     Proyecto.estado_general.in_(["creado", "confeccionando", "en_revision", "actualizando", "aprobado", 
                                                 "en_valoracion", "viable", "en_suspenso", "en_carpeta", 
-                                                "vinculacion", "guarda"])
+                                                "vinculacion", "guarda_provisoria", "guarda_confirmada"])
                 )
                 .first()
             )
@@ -3514,8 +3546,7 @@ def entregar_informe_vinculacion(
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
-
-    if proyecto.estado_general != "guarda":
+    if proyecto.estado_general != "guarda_confirmada":
         return {
             "success": False,
             "tipo_mensaje": "naranja",
@@ -4676,9 +4707,81 @@ def descargar_sentencia_guarda(
 
 
 
+@proyectos_router.put("/confirmar-guarda-provisoria/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
+def confirmar_guarda_provisoria(
+    proyecto_id: int,
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    observacion = body.get("observacion", "").strip()
 
-@proyectos_router.put("/confirmar-sentencia-guarda/{proyecto_id}", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        return {
+            "success": False, 
+            "tipo_mensaje": "rojo", 
+            "mensaje": "Proyecto no encontrado.", 
+            "tiempo_mensaje": 5, 
+            "next_page": "actual"
+        }
+
+    try:
+        # (opcional) Validación de estado actual
+        # if proyecto.estado_general != "vinculacion":
+        #     return {"success": False, "tipo_mensaje": "amarillo", "mensaje": "El proyecto no está en 'vinculacion'.", "tiempo_mensaje": 5, "next_page": "actual"}
+
+        # Evento + observación
+        db.add(RuaEvento(
+            login=current_user["user"]["login"],
+            evento_detalle=f"Se confirmó la guarda provisoria para el proyecto #{proyecto_id}",
+            evento_fecha=datetime.now()
+        ))
+
+        if observacion:
+            db.add(ObservacionesProyectos(
+                observacion_a_cual_proyecto=proyecto_id,
+                observacion=observacion,
+                login_que_observo=current_user["user"]["login"],
+                observacion_fecha=datetime.now()
+            ))
+
+        db.add(ProyectoHistorialEstado(
+            proyecto_id=proyecto_id,
+            estado_anterior=proyecto.estado_general,  # ← mejor que hardcodear "vinculacion"
+            estado_nuevo="guarda_provisoria",
+            fecha_hora=datetime.now()
+        ))
+
+        # Actualizar PROYECTO
+        proyecto.estado_general = "guarda_provisoria"
+
+        # 🔁 Actualizar NNA asociados
+        nnas_actualizados = _set_estado_nna_por_proyecto(db, proyecto_id, "guarda_provisoria")
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": f"La guarda provisoria fue confirmada correctamente. NNA actualizados: {nnas_actualizados}.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+    except Exception:
+        db.rollback()
+        return {
+            "success": False, 
+            "tipo_mensaje": "rojo", 
+            "mensaje": "Error al confirmar la guarda provisoria.", 
+            "tiempo_mensaje": 6, 
+            "next_page": "actual"
+        }
+
+
+@proyectos_router.put("/confirmar-sentencia-guarda/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def confirmar_sentencia_guarda(
     proyecto_id: int,
     body: dict = Body(...),
@@ -4687,64 +4790,139 @@ def confirmar_sentencia_guarda(
 ):
     observacion = body.get("observacion", "").strip()
 
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        return {
+            "success": False, 
+            "tipo_mensaje": "rojo", 
+            "mensaje": "Proyecto no encontrado.", 
+            "tiempo_mensaje": 5, 
+            "next_page": "actual"
+        }
+
+    try:
+        # (opcional) Validación de estado actual
+        # if proyecto.estado_general != "guarda_provisoria":
+        #     return {"success": False, "tipo_mensaje": "amarillo", "mensaje": "El proyecto no está en 'guarda_provisoria'.", "tiempo_mensaje": 5, "next_page": "actual"}
+
+        db.add(RuaEvento(
+            login=current_user["user"]["login"],
+            evento_detalle=f"Se confirmó la sentencia de guarda para el proyecto #{proyecto_id}",
+            evento_fecha=datetime.now()
+        ))
+
+        if observacion:
+            db.add(ObservacionesProyectos(
+                observacion_a_cual_proyecto=proyecto_id,
+                observacion=observacion,
+                login_que_observo=current_user["user"]["login"],
+                observacion_fecha=datetime.now()
+            ))
+
+        db.add(ProyectoHistorialEstado(
+            proyecto_id=proyecto_id,
+            estado_anterior=proyecto.estado_general,  # ← no hardcodear
+            estado_nuevo="guarda_confirmada",
+            fecha_hora=datetime.now()
+        ))
+
+        proyecto.estado_general = "guarda_confirmada"
+
+        # 🔁 NNA asociados
+        nnas_actualizados = _set_estado_nna_por_proyecto(db, proyecto_id, "guarda_confirmada")
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": f"La sentencia de guarda fue confirmada correctamente. NNA actualizados: {nnas_actualizados}.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+    except Exception:
+        db.rollback()
+        return {
+            "success": False, 
+            "tipo_mensaje": "rojo", 
+            "mensaje": "Error al confirmar la sentencia de guarda.", 
+            "tiempo_mensaje": 6, 
+            "next_page": "actual"
+        }
+
+
+
+@proyectos_router.put("/confirmar-sentencia-adopcion/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
+def confirmar_sentencia_adopcion(
+    proyecto_id: int,
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    observacion = body.get("observacion", "").strip()
 
     proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
     if not proyecto:
         return {
-            "success": False,
-            "tipo_mensaje": "rojo",
-            "mensaje": "Proyecto no encontrado.",
-            "tiempo_mensaje": 5,
+            "success": False, 
+            "tipo_mensaje": "rojo", 
+            "mensaje": "Proyecto no encontrado.", 
+            "tiempo_mensaje": 5, 
             "next_page": "actual"
         }
 
-    # if not proyecto.doc_sentencia_guarda:
-    #     return {
-    #         "success": False,
-    #         "tipo_mensaje": "rojo",
-    #         "mensaje": "No se ha subido la sentencia de guarda.",
-    #         "tiempo_mensaje": 5,
-    #         "next_page": "actual"
-    #     }
+    try:
+        # (opcional) Validación de estado actual
+        # if proyecto.estado_general != "guarda_confirmada":
+        #     return {"success": False, "tipo_mensaje": "amarillo", "mensaje": "El proyecto no está en 'guarda_confirmada'.", "tiempo_mensaje": 5, "next_page": "actual"}
+
+        db.add(RuaEvento(
+            login=current_user["user"]["login"],
+            evento_detalle=f"Se confirmó la sentencia de adopción para el proyecto #{proyecto_id}",
+            evento_fecha=datetime.now()
+        ))
+
+        if observacion:
+            db.add(ObservacionesProyectos(
+                observacion_a_cual_proyecto=proyecto_id,
+                observacion=observacion,
+                login_que_observo=current_user["user"]["login"],
+                observacion_fecha=datetime.now()
+            ))
+
+        db.add(ProyectoHistorialEstado(
+            proyecto_id=proyecto_id,
+            estado_anterior=proyecto.estado_general,  # ← no hardcodear
+            estado_nuevo="adopcion_definitiva",
+            fecha_hora=datetime.now()
+        ))
+
+        proyecto.estado_general = "adopcion_definitiva"
+
+        # 🔁 NNA asociados
+        nnas_actualizados = _set_estado_nna_por_proyecto(db, proyecto_id, "adopcion_definitiva")
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": f"La sentencia de adopción fue confirmada correctamente. NNA actualizados: {nnas_actualizados}.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+    except Exception:
+        db.rollback()
+        return {
+            "success": False, 
+            "tipo_mensaje": "rojo", 
+            "mensaje": "Error al confirmar la sentencia de adopción.", 
+            "tiempo_mensaje": 6, 
+            "next_page": "actual"
+        }
 
 
-    # Registrar evento y observación
-    evento = RuaEvento(
-        login = current_user["user"]["login"],
-        evento_detalle = f"Se confirmó la sentencia de guarda para el proyecto #{proyecto_id}",
-        evento_fecha = datetime.now()
-    )
-    db.add(evento)
-
-    if observacion:
-        observ = ObservacionesProyectos(
-            observacion_a_cual_proyecto = proyecto_id,
-            observacion = observacion,
-            login_que_observo = current_user["user"]["login"],
-            observacion_fecha = datetime.now()
-        )
-        db.add(observ)
-
-    historial = ProyectoHistorialEstado(
-        proyecto_id = proyecto_id,
-        estado_anterior = "vinculacion",
-        estado_nuevo = "guarda",
-        fecha_hora = datetime.now()
-    )
-    db.add(historial)
-
-    proyecto.estado_general = "guarda"
-    
-    
-    db.commit()
-
-    return {
-        "success": True,
-        "tipo_mensaje": "verde",
-        "mensaje": "La sentencia de guarda fue confirmada correctamente.",
-        "tiempo_mensaje": 5,
-        "next_page": "actual"
-    }
 
 
 
@@ -4825,84 +5003,6 @@ def descargar_sentencia_adopcion(
     )
 
 
-
-
-@proyectos_router.put("/confirmar-sentencia-adopcion/{proyecto_id}", response_model = dict,
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
-def confirmar_sentencia_adopcion(
-    proyecto_id: int,
-    body: dict = Body(...),
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
-):
-    observacion = body.get("observacion", "").strip()
-
-    # if not observacion:
-    #     return {
-    #         "success": False,
-    #         "tipo_mensaje": "naranja",
-    #         "mensaje": "La observación es obligatoria.",
-    #         "tiempo_mensaje": 5,
-    #         "next_page": "actual"
-    #     }
-
-    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
-    if not proyecto:
-        return {
-            "success": False,
-            "tipo_mensaje": "rojo",
-            "mensaje": "Proyecto no encontrado.",
-            "tiempo_mensaje": 5,
-            "next_page": "actual"
-        }
-
-    # if not proyecto.doc_sentencia_adopcion:
-    #     return {
-    #         "success": False,
-    #         "tipo_mensaje": "rojo",
-    #         "mensaje": "No se ha subido la sentencia de adopción.",
-    #         "tiempo_mensaje": 5,
-    #         "next_page": "actual"
-    #     }
-    
-    # Registrar evento y observación
-    evento = RuaEvento(
-        login = current_user["user"]["login"],
-        evento_detalle = f"Se confirmó la sentencia de adopción para el proyecto #{proyecto_id}",
-        evento_fecha = datetime.now()
-    )
-    db.add(evento)
-
-    if observacion:
-        observ = ObservacionesProyectos(
-            observacion_a_cual_proyecto = proyecto_id,
-            observacion = observacion,
-            login_que_observo = current_user["user"]["login"],
-            observacion_fecha = datetime.now()
-        )
-        db.add(observ)
-
-
-    historial = ProyectoHistorialEstado(
-        proyecto_id = proyecto_id,
-        estado_anterior = "guarda",
-        estado_nuevo = "adopcion_definitiva",
-        fecha_hora = datetime.now()
-    )
-    db.add(historial)
-
-    proyecto.estado_general = "adopcion_definitiva"
-    
-    
-    db.commit()
-
-    return {
-        "success": True,
-        "tipo_mensaje": "verde",
-        "mensaje": "La sentencia de adopción fue confirmada correctamente.",
-        "tiempo_mensaje": 5,
-        "next_page": "actual"
-    }
 
 
 
@@ -5032,7 +5132,7 @@ def crear_proyecto_completo( data: dict = Body(...),
                     Proyecto.estado_general.in_([
                         'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando', 'aprobado',
                         'calendarizando', 'entrevistando', 'para_valorar', 'viable', 'viable_no_disponible',
-                        'en_suspenso', 'no_viable', 'en_carpeta', 'vinculacion', 'guarda'
+                        'en_suspenso', 'no_viable', 'en_carpeta', 'vinculacion', 'guarda_provisoria', 'guarda_confirmada'
                     ]),
                     Proyecto.ingreso_por == "rua"
                 )

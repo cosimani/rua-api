@@ -61,9 +61,9 @@ class Proyecto(Base):
     doc_proyecto_convivencia_o_estado_civil = Column(String(1024), nullable=True)
     
     estado_general = Column(Enum( 'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando', 'aprobado', 
-                                  'calendarizando', 'entrevistando', 'para_valorar',
-                                  'viable', 'viable_no_disponible', 'en_suspenso', 'no_viable', 'en_carpeta', 
-                                  'vinculacion', 'guarda', 'adopcion_definitiva', 'baja_anulacion', 'baja_caducidad', 
+                                  'calendarizando', 'entrevistando', 'para_valorar', 'viable', 'viable_no_disponible', 
+                                  'en_suspenso', 'no_viable', 'en_carpeta', 'vinculacion', 'guarda_provisoria', 
+                                  'guarda_confirmada', 'adopcion_definitiva', 'baja_anulacion', 'baja_caducidad', 
                                   'baja_por_convocatoria', 'baja_rechazo_invitacion', 'baja_interrupcion' ), nullable=True)             
 
     ingreso_por = Column(Enum( 'rua', 'oficio', 'convocatoria' ), nullable=True)         

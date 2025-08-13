@@ -266,7 +266,8 @@ def get_nna_by_id(nna_id: int, db: Session = Depends(get_db)):
         elif not esta_disponible:
             estado_map = {
                 "vinculacion": "Vinculación",
-                "guarda": "Guarda",
+                "guarda_provisoria": "Guarda provisoria",
+                "guarda_confirmada": "Guarda confirmada",
                 "adopcion_definitiva": "Adopción definitiva",
             }
 

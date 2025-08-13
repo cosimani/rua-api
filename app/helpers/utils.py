@@ -446,8 +446,12 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             Proyecto.estado_general == 'en_carpeta'
         ).count()
 
-        proyectos_en_guarda = db.query(Proyecto).filter(
-            Proyecto.estado_general == 'guarda'
+        proyectos_en_guarda_provisoria = db.query(Proyecto).filter(
+            Proyecto.estado_general == 'guarda_provisoria'
+        ).count()
+
+        proyectos_en_guarda_confirmada = db.query(Proyecto).filter(
+            Proyecto.estado_general == 'guarda_confirmada'
         ).count()
 
         proyectos_adopcion_definitiva = db.query(Proyecto).filter(
@@ -523,7 +527,7 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
             .filter(
                 Carpeta.estado_carpeta == 'proyecto_seleccionado',
-                Proyecto.estado_general == 'guarda'
+                Proyecto.estado_general == 'guarda_confirmada'
             )
             .count()
         )
@@ -584,7 +588,7 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
             .filter(
                 Carpeta.estado_carpeta == 'proyecto_seleccionado',
-                Proyecto.estado_general == 'guarda',
+                Proyecto.estado_general == 'guarda_confirmada',
                 Nna.nna_fecha_nacimiento > fecha_6
             )
             .distinct()
@@ -600,7 +604,7 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
             .filter(
                 Carpeta.estado_carpeta == 'proyecto_seleccionado',
-                Proyecto.estado_general == 'guarda',
+                Proyecto.estado_general == 'guarda_confirmada',
                 Nna.nna_fecha_nacimiento <= fecha_6,
                 Nna.nna_fecha_nacimiento > fecha_11
             )
@@ -617,7 +621,7 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
             .filter(
                 Carpeta.estado_carpeta == 'proyecto_seleccionado',
-                Proyecto.estado_general == 'guarda',
+                Proyecto.estado_general == 'guarda_confirmada',
                 Nna.nna_fecha_nacimiento <= fecha_11,
                 Nna.nna_fecha_nacimiento > fecha_18
             )
@@ -710,7 +714,9 @@ def calcular_estadisticas_generales(db: Session) -> dict:
             "proyectos_no_viables": proyectos_no_viables,
             "proyectos_en_suspenso": proyectos_en_suspenso,
             "proyectos_enviados_juzgado": proyectos_enviados_juzgado,
-            "proyectos_en_guarda": proyectos_en_guarda,
+            "proyectos_en_guarda_provisoria": proyectos_en_guarda_provisoria,
+            "proyectos_en_guarda": proyectos_en_guarda_confirmada,
+            "proyectos_en_guarda_confirmada": proyectos_en_guarda_confirmada,
             "proyectos_adopcion_definitiva": proyectos_adopcion_definitiva,
             "proyectos_en_vinculacion": proyectos_en_vinculacion,
             "convocatorias_con_adopcion_definitiva": convocatorias_con_adopcion_definitiva,

@@ -434,7 +434,8 @@ def get_users(
                 "no_viable": "No viable",
                 "en_carpeta": "En carpeta",
                 "vinculacion": "Vinculación",
-                "guarda": "Guarda",
+                "guarda_provisoria": "Guarda provisoria",
+                "guarda_confirmada": "Guarda confirmada",
                 "adopcion_definitiva": "Adopción def.",
                 "baja_anulacion": "Baja anulación",
                 "baja_caducidad": "Baja caducidad",
@@ -760,7 +761,8 @@ def get_user_by_login(
                 "no_viable": "NO VIABLE",
                 "en_carpeta": "EN CARPETA",
                 "vinculacion": "EN VINCULACIÓN",
-                "guarda": "GUARDA",
+                "guarda_provisoria": "GUARDA PROVISORIA",
+                "guarda_confirmada": "GUARDA CONFIRMADA",
                 "adopcion_definitiva": "ADOPCIÓN DEFINITIVA",
                 "baja_anulacion": "BAJA - ANULACIÓN",
                 "baja_caducidad": "BAJA - CADUCIDAD",
@@ -3039,9 +3041,14 @@ def get_estado_usuario(
                     "Se encuentra en proceso de vinculación.",
                     ""
                 ),
-                "guarda": (
-                    "Guarda otorgada",
-                    "Se ha otorgado la guarda del NNA.",
+                "guarda_provisoria": (
+                    "Guarda provisoria",
+                    "Se ha otorgado la guarda provisoria del NNA.",
+                    "¡Felicitaciones!"
+                ),
+                "guarda_confirmada": (
+                    "Guarda confirmada",
+                    "Se ha otorgado la guarda confirmada del NNA.",
                     "¡Felicitaciones!"
                 ),
                 "adopcion_definitiva": (

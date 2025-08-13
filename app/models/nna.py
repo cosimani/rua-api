@@ -36,8 +36,8 @@ class Nna(Base):
 
     nna_estado = Column(Enum( 'sin_ficha_sin_sentencia', 'con_ficha_sin_sentencia', 'sin_ficha_con_sentencia', 
                               'disponible', 'preparando_carpeta', 'enviada_a_juzgado', 'proyecto_seleccionado', 
-                              'vinculacion', 'guarda', 'adopcion_definitiva', 'interrupcion', 
-                              'mayor_sin_adopcion', 'en_convocatoria', 'no_disponible' ), nullable=True)
+                              'vinculacion', 'guarda_provisoria', 'guarda_confirmada', 'adopcion_definitiva', 
+                              'interrupcion', 'mayor_sin_adopcion', 'en_convocatoria', 'no_disponible' ), nullable=True)
 
     hermanos_id = Column(Integer, nullable=True)
     
