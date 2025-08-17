@@ -80,6 +80,7 @@ class Postulacion(Base):
     acogimiento_descripcion = Column(Text, nullable=True)
     en_rua = Column(String(1), nullable=True)
     subregistro_comentarios = Column(Text, nullable=True)
+    terminaste_inscripcion_rua = Column(String(1), nullable=True)
     otra_convocatoria = Column(String(1), nullable=True)
     otra_convocatoria_comentarios = Column(Text, nullable=True)
     antecedentes = Column(String(1), nullable=True)
