@@ -59,7 +59,7 @@ class Postulacion(Base):
     mail = Column(String(100), nullable=True)
     movilidad_propia = Column(String(1), nullable=True)
     obra_social = Column(String(64), nullable=True)
-    ocupacion = Column(String(64), nullable=True)
+    ocupacion = Column(String(100), nullable=True)
 
     # 👥 Cónyuge
     conyuge_convive = Column(String(1), nullable=True)
@@ -67,6 +67,11 @@ class Postulacion(Base):
     conyuge_apellido = Column(String(64), nullable=True)
     conyuge_dni = Column(String(15), nullable=True)
     conyuge_edad = Column(String(15), nullable=True)
+    conyuge_fecha_nacimiento = Column(String(20), nullable=True)
+    conyuge_telefono_contacto = Column(String(20), nullable=True)
+    conyuge_telefono_fijo = Column(String(20), nullable=True)
+    conyuge_mail = Column(String(100), nullable=True)
+    conyuge_ocupacion = Column(String(100), nullable=True)
     conyuge_otros_datos = Column(Text, nullable=True)
 
     # 👶 Hijos y situación
