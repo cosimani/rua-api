@@ -558,11 +558,11 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
             "telefono_contacto": "Teléfono de contacto",
             "mail": "Correo electrónico",
             "ocupacion": "Ocupación / profesión",
-            "conyuge_nombre": "Nombre del/la conviviente",
-            "conyuge_apellido": "Apellido del/la conviviente",
-            "conyuge_dni": "DNI del/la conviviente",
-            "conyuge_fecha_nacimiento": "Fecha de nacimiento del/la conviviente",
-            "conyuge_telefono_contacto": "Teléfono del/la conviviente",
+            "conyuge_nombre": "Nombre de la pareja",
+            "conyuge_apellido": "Apellido de la pareja",
+            "conyuge_dni": "DNI de la pareja",
+            "conyuge_fecha_nacimiento": "Fecha de nacimiento de la pareja",
+            "conyuge_telefono_contacto": "Teléfono de la pareja",
         }
 
         def _vacio(v):
@@ -630,6 +630,10 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
         # ───── 1. Detectar y validar DNI del cónyuge lo más temprano posible ─────
         tiene_conyuge = datos.get("conyuge_convive") == "Y" and datos.get("conyuge_dni")
         conyuge_dni = None
+
+        
+
+
         if tiene_conyuge:
             conyuge_dni = normalizar_y_validar_dni(datos["conyuge_dni"])
             if not conyuge_dni:
@@ -640,6 +644,15 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
+
+        if tiene_conyuge and conyuge_dni == dni:
+            return {
+                "success": False,
+                "tipo_mensaje": "amarillo",
+                "mensaje": "<p>El DNI del/la cónyuge no puede ser el mismo que el titular.</p>",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
 
         # ───── 2. Un solo query: proyectos “no viable” que involucren a alguno ─────
         dni_busqueda = [dni] + ([conyuge_dni] if conyuge_dni else [])
@@ -1011,7 +1024,7 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
         db.rollback()
         return {
             "success": False,
-            "tipo_mensaje": "verde",
+            "tipo_mensaje": "rojo",
             "mensaje": "<p>Error al registrar postulación.</p>",
             "tiempo_mensaje": 5,
             "next_page": "actual"
