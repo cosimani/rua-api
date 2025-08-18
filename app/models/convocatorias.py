@@ -91,6 +91,18 @@ class Postulacion(Base):
     otros_comentarios = Column(Text, nullable=True)
     inscripto_en_rua = Column(String(1), nullable=True)
 
+    # Subregistros
+    subreg_3 = Column(String(1))
+    subreg_4 = Column(String(1))
+    subreg_5A1ET = Column(String(1))
+    subreg_5A2ET = Column(String(1))
+    subreg_5B1ET = Column(String(1))
+    subreg_5B2ET = Column(String(1))
+    subreg_5B3ET = Column(String(1))
+    subreg_61ET = Column(String(1))
+    subreg_62ET = Column(String(1))
+    subreg_63ET = Column(String(1))
+
     # 🔁 Relación con proyecto
     detalle_proyecto = relationship("DetalleProyectoPostulacion", backref="postulacion", cascade="all, delete-orphan")
 
