@@ -9,7 +9,8 @@ import re
 from database.config import get_db
 from security.security import get_current_user, verify_api_key, require_roles
 
-from helpers.utils import normalizar_y_validar_dni, verificar_recaptcha, validar_correo, capitalizar_nombre
+from helpers.utils import normalizar_y_validar_dni, verificar_recaptcha, validar_correo, \
+  capitalizar_nombre, enviar_mail
 
 from datetime import datetime
 from models.convocatorias import Postulacion, Convocatoria, DetalleProyectoPostulacion, DetalleNNAEnConvocatoria  
@@ -116,6 +117,61 @@ def crear_ddjj_inicial(db: Session, *, login: str, datos: dict, es_conyuge: bool
     db.add(ddjj)
     db.flush()
     return ddjj
+
+
+
+def _plantilla_mail_postulacion(nombre: str, convocatoria: Convocatoria) -> str:
+    ref  = convocatoria.convocatoria_referencia or "-"
+    llam = convocatoria.convocatoria_llamado or "-"
+    edad = convocatoria.convocatoria_edad_es or "-"
+
+    primer_nombre = nombre.split(" ")[0].capitalize() if nombre else "Postulante"
+
+    cuerpo_html = f"""
+    <html>
+      <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+        <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+          <tr>
+            <td align="center">
+              <table cellpadding="0" cellspacing="0" width="600"
+                style="background-color: #ffffff; border-radius: 10px; padding: 30px;
+                       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40;
+                       box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                <tr>
+                  <td style="padding-top: 20px; font-size: 17px;">
+                    <p>¡Hola, <strong>{primer_nombre}</strong>! Nos comunicamos desde el 
+                       <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+
+                    <p>Recibimos tu <strong>postulación</strong> a la convocatoria:</p>
+
+                    <ul style="line-height: 1.6; padding-left: 20px;">
+                      <li><strong>Referencia:</strong> {ref}</li>
+                      <li>{llam} - {edad}</li>
+                    </ul>
+
+                    <p>
+                      En los próximos días nos vamos a contactar para coordinar una entrevista.
+                    </p>
+
+                  </td>
+                </tr>
+      
+                <tr>
+                  <td style="font-size: 17px; padding-top: 20px;">
+                    ¡Saludos!
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+    return cuerpo_html
+
+
+
 
 
 
@@ -892,6 +948,40 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
 
         # Commit final de toda la operación
         db.commit()
+
+
+        # ---- Envío de mails de confirmación ----
+        try:
+            # Mail al titular
+            mail_titular = datos_limpios.get("mail")
+            if mail_titular:
+                asunto = f"Postulación recibida – Ref. {convocatoria.convocatoria_referencia or ''}".strip()
+                cuerpo = _plantilla_mail_postulacion(
+                    nombre=capitalizar_nombre(datos_limpios.get("nombre", "")) or "Postulante",
+                    convocatoria=convocatoria
+                )
+                enviar_mail(mail_titular, asunto, cuerpo)
+
+            # Mail al cónyuge (si corresponde)
+            conyuge_mail = datos_limpios.get("conyuge_mail")
+            if tiene_conyuge_para_proyecto and conyuge_mail:
+                asunto_c = f"Postulación recibida – Ref. {convocatoria.convocatoria_referencia or ''}".strip()
+                cuerpo_c = _plantilla_mail_postulacion(
+                    nombre=capitalizar_nombre(datos_limpios.get("conyuge_nombre", "")) or "Postulante",
+                    convocatoria=convocatoria
+                )
+                enviar_mail(conyuge_mail, asunto_c, cuerpo_c)
+
+        except Exception as e:
+            # No bloquear si falla el mail → registrar evento
+            db.add(RuaEvento(
+                login=dni,
+                evento_detalle=f"Error al enviar mails de confirmación: {str(e)[:400]}",
+                evento_fecha=datetime.now()
+            ))
+            db.commit()
+        # ----------------------------------------
+
 
 
         # Enviar notificación a todas las supervisoras
