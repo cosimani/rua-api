@@ -10,6 +10,9 @@ from datetime import datetime
 from models.eventos_y_configs import RuaEvento
 from security.security import get_current_user, require_roles, verify_api_key, get_password_hash
 
+from sqlalchemy import case, func, and_, or_
+from math import ceil
+
 from helpers.utils import convertir_booleans_a_string, normalizar_celular, capitalizar_nombre
 
 from helpers.notificaciones_utils import crear_notificacion_individual
@@ -47,6 +50,83 @@ def get_subregistros_definitivos_publicos(login: str, db: Session = Depends(get_
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al recuperar la DDJJ: {str(e)}")
 
+
+
+@ddjj_router.get("/ddjjs", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles([
+        "administrador", "supervision", "supervisora", "profesional"
+    ]))])
+def get_ddjjs(
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    search: Optional[str] = Query(None),
+    provincia: Optional[str] = Query(None),
+    localidad: Optional[str] = Query(None),
+):
+    """
+    📋 Listado de DDJJ con paginación, búsqueda y filtros.
+    Devuelve solo los campos principales para la tabla del frontend.
+    """
+    try:
+        query = db.query(DDJJ).order_by(DDJJ.ddjj_fecha_ultimo_cambio.desc())
+
+        # 🔍 Búsqueda por múltiples campos
+        if search:
+            palabras = search.strip().split()
+            condiciones = []
+            for palabra in palabras:
+                like = f"%{palabra}%"
+                condiciones.append(or_(
+                    DDJJ.ddjj_nombre.ilike(like),
+                    DDJJ.ddjj_apellido.ilike(like),
+                    DDJJ.login.ilike(like),
+                    DDJJ.ddjj_localidad.ilike(like),
+                    DDJJ.ddjj_provincia.ilike(like),
+                    DDJJ.ddjj_correo_electronico.ilike(like),
+                    DDJJ.ddjj_telefono.ilike(like),
+                ))
+            query = query.filter(and_(*condiciones))
+
+        # 📍 Filtros adicionales
+        if provincia:
+            query = query.filter(DDJJ.ddjj_provincia.ilike(f"%{provincia}%"))
+        if localidad:
+            query = query.filter(DDJJ.ddjj_localidad.ilike(f"%{localidad}%"))
+
+        total_records = query.count()
+        total_pages = ceil(total_records / limit)
+
+        ddjjs = query.offset((page - 1) * limit).limit(limit).all()
+
+        datos = [{
+            "ddjj_id": d.ddjj_id,
+            "dni": d.login,
+            "nombre": d.ddjj_nombre,
+            "apellido": d.ddjj_apellido,
+            "localidad": d.ddjj_localidad,
+            "provincia": d.ddjj_provincia,
+            "correo_electronico": d.ddjj_correo_electronico,
+            "telefono": d.ddjj_telefono,
+            "fecha_ultimo_cambio": d.ddjj_fecha_ultimo_cambio,
+            "ddjj_firmada": all([
+                d.ddjj_acepto_1 == "Y",
+                d.ddjj_acepto_2 == "Y",
+                d.ddjj_acepto_3 == "Y",
+                d.ddjj_acepto_4 == "Y"
+            ])
+        } for d in ddjjs]
+
+        return {
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages,
+            "total_records": total_records,
+            "ddjjs": datos
+        }
+
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Error al recuperar DDJJ: {str(e)}")
 
 
 
