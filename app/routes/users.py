@@ -18,7 +18,6 @@ from fastapi import BackgroundTasks
 import csv
 import io
 
-
 from models.users import User, Group, UserGroup 
 
 from models.proyecto import Proyecto, ProyectoHistorialEstado, AgendaEntrevistas
@@ -778,6 +777,29 @@ def get_user_by_login(
             # texto_boton_estado_pretenso = estado_a_texto.get(user.estado_general, "DESCONOCIDO")
 
 
+        # Lista de campos subreg definitivos que importan
+        SUBREG_CAMPOS = [
+            "subreg_1", "subreg_2", "subreg_3", "subreg_4",
+            "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
+            "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
+            "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
+            "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
+            "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
+            "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
+            "subreg_F5S", "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
+            "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
+            "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
+            "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
+            "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
+            "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET",
+        ]
+
+        def disponibilidad_adoptiva(ddjj):
+            if not ddjj:
+                return False
+            return any(getattr(ddjj, campo, None) == "Y" for campo in SUBREG_CAMPOS)
+
+
 
         # Evaluar qué secciones de la DDJJ tienen datos cargados
         def tiene_datos(ddjj, campos):
@@ -794,7 +816,8 @@ def get_user_by_login(
             "ddjj_red_de_apoyo": tiene_datos(ddjj, [f"ddjj_apoyo{i}_nombre_completo" for i in range(1, 3)]),
             "ddjj_informacion_laboral": tiene_datos(ddjj, ["ddjj_ocupacion", "ddjj_horas_semanales", "ddjj_ingreso_mensual"]),
             "ddjj_procesos_judiciales": tiene_datos(ddjj, ["ddjj_causa_penal", "ddjj_juicios_filiacion", "ddjj_denunciado_violencia_familiar"]),
-            "ddjj_disponibilidad_adoptiva": tiene_datos(ddjj, ["ddjj_subregistro_1", "ddjj_subregistro_2", "ddjj_subregistro_3"]),
+            # "ddjj_disponibilidad_adoptiva": tiene_datos(ddjj, ["ddjj_subregistro_1", "ddjj_subregistro_2", "ddjj_subregistro_3"]),
+            "ddjj_disponibilidad_adoptiva": disponibilidad_adoptiva(ddjj),
             "ddjj_tramo_final": tiene_datos(ddjj, ["ddjj_guardo_1", "ddjj_guardo_2"]),
         }
 
@@ -4300,16 +4323,31 @@ async def notificar_desde_txt(
 
 
 
-
-
 def procesar_envio_masivo_postulantes_desde_csv(contenido_csv: str):
-    print("[TAREA] Comenzando procesamiento del CSV...")  # 👈
-    lector_csv = csv.DictReader(io.StringIO(contenido_csv))
+    print("[TAREA] Comenzando procesamiento del CSV...")
+
+    
+    def maybe_none(val: Optional[str]) -> Optional[str]:
+        v = (val or "").strip()
+        return None if v == "" or v.upper() == "NULL" else v
+
+    def parse_fecha(s: Optional[str]) -> Optional[date]:
+        s = (s or "").strip()
+        if not s:
+            return None
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y"):  # soporta 14/10/1955 y 4/6/1956
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                pass
+        return None
+
+    lector_csv = csv.DictReader(io.StringIO(contenido_csv), delimiter=';', quoting=csv.QUOTE_MINIMAL)
+
     db: Session = SessionLocal()
     try:
         resultados = {"total": 0, "mails_enviados": 0, "errores": []}
 
-        # Configuración general
         protocolo = get_setting_value(db, "protocolo") or "https"
         host = get_setting_value(db, "donde_esta_alojado") or "osmvision.com.ar"
         puerto = get_setting_value(db, "puerto_tcp")
@@ -4317,58 +4355,53 @@ def procesar_envio_masivo_postulantes_desde_csv(contenido_csv: str):
         puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
         host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
 
-        print(f"[TAREA] UPLOAD_DIR_DOC_PRETENSOS = {UPLOAD_DIR_DOC_PRETENSOS}")
-
         os.makedirs(UPLOAD_DIR_DOC_PRETENSOS, exist_ok=True)
         log_path = os.path.join(UPLOAD_DIR_DOC_PRETENSOS, "envios_exitosos_postulantes.txt")
+        print(f"[TAREA] UPLOAD_DIR_DOC_PRETENSOS = {UPLOAD_DIR_DOC_PRETENSOS}")
 
-       
-
-
-        for idx, fila in enumerate(lector_csv, start=2):
+        for idx, fila in enumerate(lector_csv, start=2):  # línea 2 = primera data
             print(f"[TAREA] Procesando línea {idx}...")
-
             resultados["total"] += 1
 
             try:
-                login = fila.get("login", "").strip()
-                nombre = fila.get("nombre", "").strip()
-                apellido = fila.get("apellido", "").strip()
-                mail = fila.get("mail", "").strip()
-                fecha_nacimiento = fila.get("fecha_nacimiento", "").strip()
-                nacionalidad = fila.get("nacionalidad", "").strip()
-                sexo = fila.get("sexo", "").strip()
-                estado_civil = fila.get("estado_civil", "").strip()
-                calle_y_nro = fila.get("calle_y_nro", "").strip()
-                depto = fila.get("depto", "") or None
-                barrio = fila.get("barrio", "").strip()
-                localidad = fila.get("localidad", "").strip()
-                cp = fila.get("cp", "").strip()
-                provincia = fila.get("provincia", "").strip()
-                telefono_contacto = fila.get("telefono_contacto", "").strip()
-                ocupacion = fila.get("ocupacion", "").strip()
+                # === lecturas, normalización y NULLs ===
+                login   = maybe_none(fila.get("login"))
+                nombre  = maybe_none(fila.get("nombre"))
+                apellido= maybe_none(fila.get("apellido"))
+                mail    = maybe_none(fila.get("mail"))
+                fecha_nacimiento = parse_fecha(fila.get("fecha_nacimiento"))
+                nacionalidad     = maybe_none(fila.get("nacionalidad"))
+                sexo             = maybe_none(fila.get("sexo"))
+                estado_civil     = maybe_none(fila.get("estado_civil"))
+                calle_y_nro      = maybe_none(fila.get("calle_y_nro"))
+                depto            = maybe_none(fila.get("depto"))
+                barrio           = maybe_none(fila.get("barrio"))
+                localidad        = maybe_none(fila.get("localidad"))
+                cp               = maybe_none(fila.get("cp"))
+                provincia        = maybe_none(fila.get("provincia"))
+                telefono_contacto= maybe_none(fila.get("telefono_contacto"))
+                ocupacion        = maybe_none(fila.get("ocupacion"))
 
-                # Validación básica
+
+                # Validación mínima
                 if not (login and nombre and apellido and mail):
-                    resultados["errores"].append(f"Línea {idx}: campos obligatorios vacíos")
+                    resultados["errores"].append(f"Línea {idx}: campos obligatorios vacíos (login/nombre/apellido/mail)")
                     continue
 
                 user_existente = db.query(User).filter(User.login == login).first()
                 ddjj_existente = db.query(DDJJ).filter(DDJJ.login == login).first()
 
                 if user_existente and ddjj_existente:
-                    print(f"[TAREA] Usuario y DDJJ ya existen para login {login}. No se hace nada.")
+                    print(f"[TAREA] Usuario y DDJJ ya existen para {login}.")
                     continue
 
                 if not user_existente:
-                    # Crear usuario
                     user = User(
                         login=login,
-                        clave=login,
                         nombre=nombre,
                         apellido=apellido,
                         mail=mail,
-                        fecha_nacimiento=datetime.strptime(fecha_nacimiento, "%Y-%m-%d").date() if fecha_nacimiento else None,
+                        fecha_nacimiento=fecha_nacimiento,
                         celular=telefono_contacto,
                         calle_y_nro=calle_y_nro,
                         depto_etc=depto,
@@ -4378,7 +4411,6 @@ def procesar_envio_masivo_postulantes_desde_csv(contenido_csv: str):
                         profesion=ocupacion,
                         fecha_alta=datetime.now().date(),
                         active="Y",
-                        convocatoria="S"
                     )
                     db.add(user)
 
@@ -4387,16 +4419,16 @@ def procesar_envio_masivo_postulantes_desde_csv(contenido_csv: str):
                         db.add(UserGroup(login=login, group_id=grupo.group_id))
                     else:
                         resultados["errores"].append(f"Línea {idx}: No se encontró el grupo 'Adoptante'")
+                        db.rollback()
                         continue
 
-                # Crear DDJJ si no existe
                 if not ddjj_existente:
                     ddjj = DDJJ(
                         login=login,
                         ddjj_nombre=nombre,
                         ddjj_apellido=apellido,
                         ddjj_correo_electronico=mail,
-                        ddjj_fecha_nac=datetime.strptime(fecha_nacimiento, "%Y-%m-%d").date() if fecha_nacimiento else None,
+                        ddjj_fecha_nac=fecha_nacimiento,
                         ddjj_telefono=telefono_contacto,
                         ddjj_calle=calle_y_nro,
                         ddjj_depto=depto,
@@ -4408,17 +4440,69 @@ def procesar_envio_masivo_postulantes_desde_csv(contenido_csv: str):
                         ddjj_nacionalidad=nacionalidad,
                         ddjj_sexo=sexo,
                         ddjj_ocupacion=ocupacion,
-                        ddjj_fecha_ultimo_cambio=datetime.now().strftime("%Y-%m-%d")
+                        ddjj_fecha_ultimo_cambio=datetime.now().strftime("%Y-%m-%d"),
                     )
                     db.add(ddjj)
 
                 db.commit()
 
-                # Enviar mail siempre que la DDJJ NO existía
                 if not ddjj_existente:
                     login_base64 = base64.b64encode(login.encode()).decode()
                     link_final = f"{protocolo}://{host_con_puerto}{endpoint}?user={login_base64}"
                     asunto = "Consulta por disponibilidad adoptiva"
+
+                    # cuerpo_html = f"""
+                    # <html>
+                    #   <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                    #     <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                    #       <tr>
+                    #         <td align="center">
+                    #           <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: Arial, sans-serif; color: #333333; box-shadow: 0 0 10px rgba(0,0,0,0.05);">
+                    #             <tr>
+                    #               <td style="font-size: 18px; padding-bottom: 20px;">
+                    #                 ¡Hola! nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.
+                    #               </td>
+                    #             </tr>
+                    #             <tr>
+                    #               <td style="font-size: 16px; padding-bottom: 10px; line-height: 1.6;">
+                    #                 Te contactamos porque te has postulado a una convocatoria pública de adopción. Queremos saber 
+                    #                 si tienes interés en ser consultado/a para búsquedas específicas de niñas, niños o adolescentes 
+                    #                 en situación de adoptabilidad.
+
+                    #                 <br />
+
+                    #                 Además, nos gustaría que nos indiques en qué subregistros estarías disponible para 
+                    #                 ser considerado/a en futuras convocatorias o búsquedas.
+                    #               </td>
+                    #             </tr>
+                    #             <tr>
+                    #               <td style="font-size: 16px; padding: 10px 0;">
+                    #                 Te invitamos a completar el siguiente formulario, donde podrás registrar tu disponibilidad:
+                    #               </td>
+                    #             </tr>
+                    #             <tr>
+                    #               <td align="center" style="padding: 20px 0;">
+                    #                 <a href="{link_final}"
+                    #                     style="display: inline-block; padding: 12px 24px; font-size: 16px;
+                    #                           color: #ffffff; background-color: #0d6efd; text-decoration: none;
+                    #                           border-radius: 6px; font-weight: bold;"
+                    #                     target="_blank">
+                    #                   Ir al formulario
+                    #                 </a>
+                    #               </td>
+                    #             </tr>
+                    #             <tr>
+                    #               <td style="font-size: 16px; padding-top: 10px;">
+                    #                 ¡Muchas gracias!
+                    #               </td>
+                    #             </tr>
+                    #           </table>
+                    #         </td>
+                    #       </tr>
+                    #     </table>
+                    #   </body>
+                    # </html>
+                    # """
 
                     cuerpo_html = f"""
                     <html>
@@ -4429,24 +4513,20 @@ def procesar_envio_masivo_postulantes_desde_csv(contenido_csv: str):
                               <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: Arial, sans-serif; color: #333333; box-shadow: 0 0 10px rgba(0,0,0,0.05);">
                                 <tr>
                                   <td style="font-size: 18px; padding-bottom: 20px;">
-                                    ¡Hola! nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.
+                                    ¡Hola! Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.
                                   </td>
                                 </tr>
                                 <tr>
                                   <td style="font-size: 16px; padding-bottom: 10px; line-height: 1.6;">
-                                    Te contactamos porque te has postulado a una convocatoria pública de adopción. Queremos saber 
-                                    si tienes interés en ser consultado/a para búsquedas específicas de niñas, niños o adolescentes 
-                                    en situación de adoptabilidad.
-
-                                    <br />
-
-                                    Además, nos gustaría que nos indiques en qué subregistros estarías disponible para 
-                                    ser considerado/a en futuras convocatorias o búsquedas.
+                                    Como ya te anotaste en una convocatoria pública de adopción, nos interesa saber si querés que te contactemos
+                                    para informarte de las próximas búsquedas de familias para niñas, niños y adolescentes que esperan ser adoptados.
+                                    <br /><br />
+                                    Si estás de acuerdo, nos gustaría que nos especifiques en qué tipo de futuros llamados estarías interesada/o.
                                   </td>
                                 </tr>
                                 <tr>
                                   <td style="font-size: 16px; padding: 10px 0;">
-                                    Te invitamos a completar el siguiente formulario, donde podrás registrar tu disponibilidad:
+                                    Te invitamos a completar el siguiente formulario:
                                   </td>
                                 </tr>
                                 <tr>
@@ -4473,11 +4553,12 @@ def procesar_envio_masivo_postulantes_desde_csv(contenido_csv: str):
                     </html>
                     """
 
+
                     try:
                         enviar_mail(destinatario=mail, asunto=asunto, cuerpo=cuerpo_html)
                         print(f"[TAREA] Mail enviado a {mail}")
                     except Exception as mail_error:
-                        print(f"[ERROR] Fallo al enviar mail a {mail}: {mail_error}")
+                        resultados["errores"].append(f"Línea {idx} ({login}): error al enviar mail: {mail_error}")
 
                     with open(log_path, "a", encoding="utf-8") as log_file:
                         ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -4488,7 +4569,7 @@ def procesar_envio_masivo_postulantes_desde_csv(contenido_csv: str):
 
             except Exception as e:
                 db.rollback()
-                resultados["errores"].append(f"Línea {idx} ({login}): {str(e)}")
+                resultados["errores"].append(f"Línea {idx} ({fila.get('login','?')}): {e}")
 
     except Exception as fatal:
         print(f"[ERROR FATAL] {fatal}")
@@ -4496,18 +4577,15 @@ def procesar_envio_masivo_postulantes_desde_csv(contenido_csv: str):
         db.close()
 
     print(f"[TAREA] Proceso finalizado. Mails enviados: {resultados['mails_enviados']}, Total: {resultados['total']}")
-
     return resultados
 
 
 
 
 
-@users_router.post(
-    "/usuarios/notificar-desde-csv-postulantes",
-    response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],
-)
+
+@users_router.post("/usuarios/notificar-desde-csv-postulantes", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))], )
 async def notificar_desde_csv_postulantes(
     background_tasks: BackgroundTasks,
     archivo: UploadFile = File(...),
@@ -4516,8 +4594,23 @@ async def notificar_desde_csv_postulantes(
         raise HTTPException(status_code=400, detail="El archivo debe tener extensión .csv")
 
     try:
-        contenido = (await archivo.read()).decode("utf-8")  # 👈 leemos el contenido antes de que se cierre
+
+        raw = await archivo.read()  # bytes
+
+        def decode_csv_bytes(data: bytes) -> Tuple[str, str]:
+            for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+                try:
+                    return data.decode(enc), enc
+                except UnicodeDecodeError:
+                    continue
+            # último recurso
+            return data.decode("utf-8", errors="replace"), "utf-8(replace)"
+
+        contenido, encoding_usado = decode_csv_bytes(raw)
+        print(f"[CSV] Decodificado con: {encoding_usado}")
+
         background_tasks.add_task(procesar_envio_masivo_postulantes_desde_csv, contenido)
+
 
         return {
             "tipo_mensaje": "verde",
