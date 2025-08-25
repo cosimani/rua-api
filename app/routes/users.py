@@ -115,9 +115,13 @@ def get_users(
     proyecto_tipo: Optional[Literal["Monoparental", "Matrimonio", "Unión convivencial"]] = Query(
         None, description="Filtrar por tipo de proyecto (Monoparental, Matrimonio, Unión convivencial)" ),
     curso_aprobado: Optional[bool] = Query(None, description="Filtrar por curso aprobado"),
-    doc_adoptante_estado: Optional[Literal["inicial_cargando", "pedido_revision", 
-                                           "actualizando", "aprobado", "rechazado"]] = Query(
-                                               None, description="Filtrar por estado de documentación personal"),
+    # doc_adoptante_estado: Optional[Literal["inicial_cargando", "pedido_revision", 
+    #                                        "actualizando", "aprobado", "rechazado"]] = Query(
+    #                                            None, description="Filtrar por estado de documentación personal"),
+    doc_adoptante_estado: Optional[Literal[
+        "inicial_cargando", "pedido_revision", "actualizando", "aprobado", "rechazado", "inactivo"
+    ]] = Query(None, description="Filtrar por estado de documentación personal (incluye 'inactivo')"),
+                                          
 
     nro_orden_rua: Optional[int] = Query(None, description="Filtrar por número de orden"),
 
@@ -166,6 +170,7 @@ def get_users(
                 User.provincia.label("provincia"),
                 User.fecha_nacimiento.label("fecha_nacimiento"),
                 User.fecha_alta.label("fecha_alta"),
+                User.active.label("active"),
                 User.doc_adoptante_curso_aprobado.label("doc_adoptante_curso_aprobado"),
                 User.doc_adoptante_estado.label("doc_adoptante_estado"),
                 User.doc_adoptante_ddjj_firmada.label("doc_adoptante_ddjj_firmada"),
@@ -281,8 +286,21 @@ def get_users(
             query = query.filter(User.doc_adoptante_curso_aprobado == ("Y" if curso_aprobado else "N"))
 
         # Filtro por estado de documentación personal
+        # if doc_adoptante_estado:
+        #     query = query.filter(User.doc_adoptante_estado == doc_adoptante_estado)
+
+        # Filtro por estado de documentación personal
         if doc_adoptante_estado:
-            query = query.filter(User.doc_adoptante_estado == doc_adoptante_estado)
+            if doc_adoptante_estado == "inactivo":
+                # 'inactivo' es un estado virtual: se filtra por active = 'N'
+                query = query.filter(User.active == "N")
+            else:
+                # Estados reales del enum; además, excluimos inactivos para no mezclar
+                query = query.filter(
+                    User.doc_adoptante_estado == doc_adoptante_estado,
+                    or_(User.active == None, User.active != "N")  # activos o null
+                )
+
 
         # Filtro por nro de orden
         if nro_orden_rua:
@@ -420,6 +438,7 @@ def get_users(
                 "actualizando": "Actualizando doc.",
                 "aprobado": "Doc. aprobada",
                 "rechazado": "Doc. rechazada",
+                "inactivo": "Inactivo",
 
                 "invitacion_pendiente": "Invit. pendiente",
                 "confeccionando": "Confeccionando",
@@ -444,14 +463,28 @@ def get_users(
             }
 
             # Determinar el estado en bruto
-            estado_raw = (
-                user.estado_general if user.estado_general else (
-                    "sin_curso" if not user.doc_adoptante_curso_aprobado or user.doc_adoptante_curso_aprobado != "Y"
-                    else "ddjj_pendiente" if not user.doc_adoptante_ddjj_firmada or user.doc_adoptante_ddjj_firmada != "Y"
-                    else user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states
-                    else ""
+            # estado_raw = (
+            #     user.estado_general if user.estado_general else (
+            #         "sin_curso" if not user.doc_adoptante_curso_aprobado or user.doc_adoptante_curso_aprobado != "Y"
+            #         else "ddjj_pendiente" if not user.doc_adoptante_ddjj_firmada or user.doc_adoptante_ddjj_firmada != "Y"
+            #         else user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states
+            #         else ""
+            #     )
+            # )
+
+            # Determinar el estado en bruto (prioriza INACTIVO)
+            if user.active == "N":
+                estado_raw = "inactivo"
+            else:
+                estado_raw = (
+                    user.estado_general if user.estado_general else (
+                        "sin_curso" if not user.doc_adoptante_curso_aprobado or user.doc_adoptante_curso_aprobado != "Y"
+                        else "ddjj_pendiente" if not user.doc_adoptante_ddjj_firmada or user.doc_adoptante_ddjj_firmada != "Y"
+                        else user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states
+                        else "inicial_cargando"
+                    )
                 )
-            )
+
 
 
             user_dict = {
@@ -495,7 +528,11 @@ def get_users(
                 "fecha_nacimiento": fecha_nacimiento_str,
                 "edad": edad,
                 "doc_adoptante_curso_aprobado": user.doc_adoptante_curso_aprobado == "Y",
-                "doc_adoptante_estado": user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "",
+                # "doc_adoptante_estado": user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "",
+                "doc_adoptante_estado": (
+                    "inactivo" if user.active == "N"
+                    else (user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "inicial_cargando")
+                ),
 
                 "proyecto_id": user.proyecto_id,
                 "proyecto_tipo": user.proyecto_tipo if user.proyecto_tipo in valid_proyecto_tipos else "",
@@ -592,6 +629,7 @@ def get_user_by_login(
                 User.localidad.label("localidad"),
                 User.provincia.label("provincia"),
                 User.fecha_alta.label("fecha_alta"),
+                User.active.label("active"),
                 User.doc_adoptante_curso_aprobado.label("doc_adoptante_curso_aprobado"),
                 User.doc_adoptante_estado.label("doc_adoptante_estado"),
                 User.doc_adoptante_ddjj_firmada.label("doc_adoptante_ddjj_firmada"),
@@ -733,14 +771,23 @@ def get_user_by_login(
             not user.doc_adoptante_antecedentes,
         ])
 
-        # 🔤 Texto del botón de estado del pretenso
-        if user.doc_adoptante_curso_aprobado == "N":
+        # 🔤 Texto del botón de estado del pretenso (PRIORIDAD: INACTIVO)
+        if user.active == "N":
+            texto_boton_estado_pretenso = "INACTIVO"
+
+        elif user.doc_adoptante_curso_aprobado == "N":
             texto_boton_estado_pretenso = "CURSO PENDIENTE"
+
         elif user.doc_adoptante_curso_aprobado == "Y" and user.doc_adoptante_ddjj_firmada == "N":
             texto_boton_estado_pretenso = "LLENANDO DDJJ"
-        elif user.doc_adoptante_curso_aprobado == "Y" and \
-             user.doc_adoptante_ddjj_firmada == "Y" and docs_todos_vacios:
+
+        elif (
+            user.doc_adoptante_curso_aprobado == "Y"
+            and user.doc_adoptante_ddjj_firmada == "Y"
+            and docs_todos_vacios
+        ):
             texto_boton_estado_pretenso = "DDJJ FIRMADA"
+
         else:
             estado_a_texto = {
                 "inicial_cargando": "DOC. PERSONAL", 
@@ -766,13 +813,25 @@ def get_user_by_login(
                 "baja_anulacion": "BAJA - ANULACIÓN",
                 "baja_caducidad": "BAJA - CADUCIDAD",
                 "baja_por_convocatoria": "BAJA - CONVOCATORIA",
-                "baja_rechazo_invitacion": "BAJA - RECHAZO INVITACIÓN"
+                "baja_rechazo_invitacion": "BAJA - RECHAZO INVITACIÓN",
+                "inactivo": "INACTIVO",
             }
 
             if not user.proyecto_id:
-                texto_boton_estado_pretenso = estado_a_texto.get(user.doc_adoptante_estado, "DESCONOCIDO")
+                texto_boton_estado_pretenso = estado_a_texto.get(
+                    user.doc_adoptante_estado,
+                    user.doc_adoptante_estado or "DOC. PERSONAL"
+                )
             else:
-                texto_boton_estado_pretenso = estado_a_texto.get(user.estado_general, "DESCONOCIDO")
+                texto_boton_estado_pretenso = estado_a_texto.get(
+                    user.estado_general,
+                    user.estado_general or "DOC. PROYECTO"
+                )
+
+            # if not user.proyecto_id:
+            #     texto_boton_estado_pretenso = estado_a_texto.get(user.doc_adoptante_estado, "DESCONOCIDO")
+            # else:
+            #     texto_boton_estado_pretenso = estado_a_texto.get(user.estado_general, "DESCONOCIDO")
 
             # texto_boton_estado_pretenso = estado_a_texto.get(user.estado_general, "DESCONOCIDO")
 
@@ -845,7 +904,14 @@ def get_user_by_login(
             "edad_segun_ddjj": calculate_age(user.ddjj_fecha_nac),
             "doc_adoptante_curso_aprobado": user.doc_adoptante_curso_aprobado == "Y",
             "doc_adoptante_ddjj_firmada": user.doc_adoptante_ddjj_firmada == "Y",
-            "doc_adoptante_estado": user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "desconocido",
+            # "doc_adoptante_estado": user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "desconocido",
+            # "doc_adoptante_estado": ( user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "inicial_cargando" ),
+            "doc_adoptante_estado": (
+                "inactivo"
+                if user.active == "N"
+                else (user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "inicial_cargando")
+            ),
+
 
             "doc_adoptante_salud": user.doc_adoptante_salud,
             "doc_adoptante_domicilio": user.doc_adoptante_domicilio,
@@ -892,6 +958,8 @@ def get_user_by_login(
             "boton_ver_proyecto": bool(user.proyecto_id),
 
             "texto_boton_estado_pretenso": texto_boton_estado_pretenso,
+
+            
 
         }
 
@@ -2760,6 +2828,166 @@ def cambiar_clave_usuario(
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
+
+
+
+
+
+@users_router.post("/{login}/reenviar-activacion", response_model=dict,
+    dependencies=[ Depends(verify_api_key),
+                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"])) ])
+def reenviar_mail_activacion(login: str, db: Session = Depends(get_db)):
+    """
+    Envía un mail al usuario para que **elija una nueva contraseña** usando el flujo de *recuperar clave*.
+    - Si ya existe `recuperacion_code` → se reutiliza (no se regenera).
+    - **No** se toca `clave`.
+    - Si el usuario está inactivo, se lo activa (`active="Y"`) para que el flujo de nueva clave funcione.
+    """
+    user: User = db.query(User).filter(User.login == login).first()
+    if not user:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "<p>No se encontró un usuario con ese login.</p>",
+            "tiempo_mensaje": 6,
+            "next_page": "actual",
+        }
+
+    if not user.mail:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "<p>El usuario no tiene un correo electrónico asociado.</p>"
+                       "<p>No es posible enviar el enlace para elegir contraseña.</p>",
+            "tiempo_mensaje": 7,
+            "next_page": "actual",
+        }
+
+    try:
+        # 1) Asegurar que pueda usar el flujo de nueva clave:
+        #    Si está inactivo, lo activamos (tu endpoint /nueva-clave requiere active == "Y").
+        recien_activado = False
+        if user.active != "Y":
+            user.active = "Y"
+            recien_activado = True
+
+        # 2) Usar código de recuperación existente o generarlo si falta (no invalidamos correos previos).
+        rec_code = (user.recuperacion_code or "").strip()
+        if not rec_code:
+            rec_code = generar_codigo_para_link(16)
+            user.recuperacion_code = rec_code
+
+        db.commit()
+        db.refresh(user)
+
+        # 3) Construir el link de "recuperar clave" desde settings
+        protocolo = get_setting_value(db, "protocolo")
+        host = get_setting_value(db, "donde_esta_alojado")
+        puerto = get_setting_value(db, "puerto_tcp")
+        endpoint = get_setting_value(db, "endpoint_recuperar_clave")
+
+        if endpoint and not endpoint.startswith("/"):
+            endpoint = "/" + endpoint
+
+        puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
+        host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
+
+        link = f"{protocolo}://{host_con_puerto}{endpoint}?activacion={rec_code}"
+
+        # 4) Email (mismo estilo que /recuperar-clave)
+        asunto = "Establecimiento de tu contraseña"
+
+        cuerpo = f"""
+        <html>
+          <body style="margin:0;padding:0;background-color:#f8f9fa;">
+            <table cellpadding="0" cellspacing="0" width="100%" style="background-color:#f8f9fa;padding:20px;">
+              <tr>
+                <td align="center">
+                  <table cellpadding="0" cellspacing="0" width="600" style="background:#ffffff;border-radius:10px;padding:30px;font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;color:#343a40;box-shadow:0 0 10px rgba(0,0,0,0.1);">
+                    <tr>
+                      <td style="font-size:24px;color:#007bff;">
+                        <strong>¡Hola {user.nombre or ""}!</strong>
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td style="padding-top: 20px; font-size: 17px;">
+                          <p>Nos comunicamos desde del <strong>Registro Único de Adopciones de Córdoba</strong>
+                            para que puedas colocar tu contraseña para ingresar a la plataforma.
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td style="padding-top:18px;font-size:17px;line-height:1.5;">
+                        <p>Hacé clic en el botón para definirla. Una vez guardada, ya vas a poder ingresar con tu DNI y la clave elegida.</p>
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td align="center" style="padding:26px 0;">
+                        <a href="{link}" target="_blank"
+                          style="display:inline-block;padding:12px 24px;font-size:16px;color:#ffffff;background:#0d6efd;text-decoration:none;border-radius:8px;font-weight:600;">
+                          🔐 Crear mi contraseña
+                        </a>
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td style="font-size:14px;color:#666;line-height:1.5;">
+                        <p>El enlace es temporal. Si no solicitaste este correo, podés ignorarlo.</p>
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td style="padding-top:10px;font-size:13px;color:#888;">
+                        Registro Único de Adopciones de Córdoba
+                      </td>
+                    </tr>
+
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </body>
+        </html>
+        """
+
+        enviar_mail(destinatario=user.mail, asunto=asunto, cuerpo=cuerpo)
+
+        # 5) Evento (best effort)
+        try:
+            detalle = "Se envió enlace para elegir nueva contraseña."
+            if recien_activado:
+                detalle += " El usuario estaba inactivo y fue activado para habilitar el cambio de clave."
+            db.add(RuaEvento(
+                login=user.login,
+                evento_detalle=detalle,
+                evento_fecha=datetime.now()
+            ))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "<p>Se envió un correo al pretenso para que defina su nueva contraseña.</p>",
+            "tiempo_mensaje": 7,
+            "next_page": "actual",
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"<p>No fue posible enviar el correo.</p><p>Detalle: {str(e)}</p>",
+            "tiempo_mensaje": 8,
+            "next_page": "actual",
+        }
+
+
+
 
 
 
