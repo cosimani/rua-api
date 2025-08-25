@@ -1,9 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Request, status, Body, UploadFile, File, Form
 from typing import List, Optional, Literal, Tuple
-from sqlalchemy.orm import Session, aliased, joinedload
+from sqlalchemy.orm import Session, aliased, joinedload, noload
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import func, case, and_, or_, Integer, literal_column
 from urllib.parse import unquote
+
 
 
 from datetime import datetime, timedelta, date, time
@@ -88,12 +89,14 @@ REAL_FIELDS = {
     "doc_sentencia_guarda",
     "doc_informe_conclusivo",
     "doc_sentencia_adopcion",
+    "doc_interrupcion"
 }
 
 # Alias aceptados desde el front → columna real
 ALIASES = {
     "sentencia_adopcion": "doc_sentencia_adopcion",
     "sentencia_guarda": "doc_sentencia_guarda",
+    "doc_interrupcion": "doc_interrupcion"
     # sumá más si necesitás
 }
 
@@ -812,6 +815,7 @@ def get_proyecto_por_id(
                 Proyecto.doc_sentencia_guarda.label("doc_sentencia_guarda"),
                 Proyecto.doc_informe_conclusivo.label("doc_informe_conclusivo"),
                 Proyecto.doc_sentencia_adopcion.label("doc_sentencia_adopcion"),
+                Proyecto.doc_interrupcion.label("doc_interrupcion"),
 
                 Proyecto.subregistro_1.label("subregistro_1"),
                 Proyecto.subregistro_2.label("subregistro_2"),
@@ -1046,6 +1050,7 @@ def get_proyecto_por_id(
             "baja_caducidad": "P. BAJA CADUC.",
             "baja_por_convocatoria": "P. BAJA POR C.",
             "baja_rechazo_invitacion": "P. BAJA RECHAZO",
+            "baja_interrupcion": "P. BAJA INTERR.",
         }.get(proyecto.estado_general, "ESTADO DESCONOCIDO")
 
 
@@ -1096,6 +1101,7 @@ def get_proyecto_por_id(
             "doc_sentencia_guarda": proyecto.doc_sentencia_guarda,
             "doc_informe_conclusivo": proyecto.doc_informe_conclusivo,
             "doc_sentencia_adopcion": proyecto.doc_sentencia_adopcion,
+            "doc_interrupcion": proyecto.doc_interrupcion,
 
             "boton_solicitar_actualizacion_proyecto": proyecto.estado_general == "en_revision" and \
                 proyecto.proyecto_tipo in ("Matrimonio", "Unión convivencial"),
@@ -3163,18 +3169,13 @@ def subir_informe_profesionales(
     dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
 def subir_documento_proyecto(
     proyecto_id: int,
-    tipo_documento: Literal["informe_entrevistas", "sentencia_guarda", "sentencia_adopcion"],
+    tipo_documento: Literal["informe_entrevistas", "sentencia_guarda", "sentencia_adopcion","doc_interrupcion"],
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     """
     📄 Sube un documento a un proyecto según el tipo indicado.
-
-    ✔️ Tipos válidos:
-    - `informe_entrevistas`
-    - `sentencia_guarda`
-    - `sentencia_adopcion`
 
     ✔️ Formatos permitidos:
     - `.pdf`, `.doc`, `.docx`, `.jpg`, `.jpeg`, `.png`
@@ -4230,16 +4231,11 @@ def descargar_todos_informes_valoracion(
     dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def descargar_documento_proyecto(
     proyecto_id: int,
-    tipo_documento: Literal["informe_entrevistas", "sentencia_guarda", "sentencia_adopcion"],
+    tipo_documento: Literal["informe_entrevistas", "sentencia_guarda", "sentencia_adopcion", "doc_interrupcion"],
     db: Session = Depends(get_db)
 ):
     """
     📄 Descarga un documento del proyecto identificado por `proyecto_id`.
-
-    ✔️ Tipos válidos:
-    - `informe_entrevistas` → informe_profesionales
-    - `sentencia_guarda` → doc_sentencia_guarda
-    - `sentencia_adopcion` → doc_sentencia_adopcion
 
     ⚠️ El documento debe haber sido subido previamente mediante el endpoint correspondiente.
     """
@@ -4248,7 +4244,8 @@ def descargar_documento_proyecto(
     campo_por_tipo = {
         "informe_entrevistas": "informe_profesionales",
         "sentencia_guarda": "doc_sentencia_guarda",
-        "sentencia_adopcion": "doc_sentencia_adopcion"
+        "sentencia_adopcion": "doc_sentencia_adopcion",
+        "doc_interrupcion": "doc_interrupcion"
     }
 
     if tipo_documento not in campo_por_tipo:
@@ -4923,6 +4920,169 @@ def confirmar_sentencia_adopcion(
         }
 
 
+
+@proyectos_router.put("/interrumpir-vinculacion-o-guarda/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))],
+)
+def interrumpir_vinculacion_o_guarda(
+    proyecto_id: int,
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Interrumpe el proceso del proyecto (vinculación/guarda), libera NNA y elimina carpeta(s) asociadas.
+    - Proyecto -> 'baja_interrupcion'
+    - NNA en carpetas del proyecto -> 'disponible'
+    - Se eliminan DetalleProyectosEnCarpeta y DetalleNNAEnCarpeta, y luego la Carpeta.
+    - No se tocan archivos: se asume que están en doc_dictamen/doc_interrupcion del proyecto.
+    """
+    observacion = (body.get("observacion") or "").strip()
+
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "Proyecto no encontrado.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual",
+        }
+
+    try:
+        estado_anterior = proyecto.estado_general
+
+        # Evento principal
+        db.add(
+            RuaEvento(
+                login=current_user["user"]["login"],
+                evento_detalle=f"Se interrumpió la vinculación/guarda del proyecto #{proyecto_id}",
+                evento_fecha=datetime.now(),
+            )
+        )
+
+        # Observación (opcional)
+        if observacion:
+            db.add(
+                ObservacionesProyectos(
+                    observacion_a_cual_proyecto=proyecto_id,
+                    observacion=observacion,
+                    login_que_observo=current_user["user"]["login"],
+                    observacion_fecha=datetime.now(),
+                )
+            )
+
+        # Historial de estado del proyecto
+        db.add(
+            ProyectoHistorialEstado(
+                proyecto_id=proyecto_id,
+                estado_anterior=estado_anterior,
+                estado_nuevo="baja_interrupcion",
+                fecha_hora=datetime.now(),
+            )
+        )
+
+        # Estado del proyecto
+        proyecto.estado_general = "baja_interrupcion"
+
+        # Buscar TODAS las carpetas donde está el proyecto
+        carpetas = (
+            db.query(Carpeta)
+            .options(
+                noload(Carpeta.detalle_nna),        # 👈 evita cargar relaciones
+                noload(Carpeta.detalle_proyectos),  # 👈 evita cargar relaciones
+            )
+            .join(
+                DetalleProyectosEnCarpeta,
+                Carpeta.carpeta_id == DetalleProyectosEnCarpeta.carpeta_id
+            )
+            .filter(DetalleProyectosEnCarpeta.proyecto_id == proyecto_id)
+            .all()
+        )
+
+        carpetas_eliminadas = []
+        nna_liberados_set = set()  # 👈 para no duplicar
+
+        for carpeta in carpetas:
+            carpeta_id = carpeta.carpeta_id
+
+            # Obtener NNA de la carpeta vía query (no desde la relación cargada)
+            nna_ids = [
+                x[0]
+                for x in db.query(DetalleNNAEnCarpeta.nna_id)
+                          .filter(DetalleNNAEnCarpeta.carpeta_id == carpeta_id)
+                          .all()
+            ]
+
+            # 1) NNA -> disponible
+            if nna_ids:
+                db.query(Nna).filter(Nna.nna_id.in_(nna_ids)).update(
+                    {Nna.nna_estado: "disponible"},
+                    synchronize_session=False
+                )
+                nna_liberados_set.update(nna_ids)  # 👈 acumular únicos
+
+            # 2) Borrar vínculos por BULK
+            db.query(DetalleProyectosEnCarpeta).filter(
+                DetalleProyectosEnCarpeta.carpeta_id == carpeta_id
+            ).delete(synchronize_session=False)
+
+            db.query(DetalleNNAEnCarpeta).filter(
+                DetalleNNAEnCarpeta.carpeta_id == carpeta_id
+            ).delete(synchronize_session=False)
+
+            # 3) Borrar la carpeta por BULK
+            db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).delete(synchronize_session=False)
+
+            # 4) Auditoría
+            db.add(RuaEvento(
+                login=current_user["user"]["login"],
+                evento_detalle=(
+                    f"Interrupción: eliminada carpeta #{carpeta_id}. "
+                    f"NNA liberados: {nna_ids if nna_ids else '[]'}. "
+                    f"Proyecto afectado: #{proyecto_id}."
+                ),
+                evento_fecha=datetime.now()
+            ))
+            db.add(ObservacionesProyectos(
+                observacion_a_cual_proyecto=proyecto_id,
+                observacion=(
+                    f"[Interrupción] Carpeta #{carpeta_id} eliminada. "
+                    f"NNA puestos en 'disponible': {nna_ids if nna_ids else '[]'}."
+                ),
+                login_que_observo=current_user["user"]["login"],
+                observacion_fecha=datetime.now()
+            ))
+
+            carpetas_eliminadas.append(carpeta_id)
+
+        total_nna_liberados = len(nna_liberados_set)
+
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": (
+                "Interrupción realizada. Proyecto pasado a 'baja_interrupcion'. "
+                f"Carpetas eliminadas: {carpetas_eliminadas if carpetas_eliminadas else 'ninguna'}. "
+                f"NNA liberados: {total_nna_liberados}."
+            ),
+            "tiempo_mensaje": 6,
+            "next_page": "actual",
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al interrumpir y eliminar carpeta(s): {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual",
+        }
 
 
 
@@ -6379,6 +6539,7 @@ def descargar_pdf_proyecto(
         "Sentencia de guarda": proyecto.doc_sentencia_guarda,
         "Sentencia de adopción": proyecto.doc_sentencia_adopcion,
         "Convivencia o estado civil": proyecto.doc_proyecto_convivencia_o_estado_civil,
+        "Informe de interrución": proyecto.doc_interrupcion
     }
 
     def convertir_a_pdf_y_agregar(nombre, ruta_original):
