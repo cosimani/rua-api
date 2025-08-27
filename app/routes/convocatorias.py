@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Body
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from sqlalchemy.orm import Session, joinedload, aliased
 from sqlalchemy.exc import SQLAlchemyError
 
-from sqlalchemy import func, or_
+from sqlalchemy import and_, or_, func, literal, select, literal_column  
 import re
 
 from database.config import get_db
@@ -23,6 +23,11 @@ from sqlalchemy.orm.exc import NoResultFound
 from datetime import date, datetime
 from math import ceil
 from helpers.notificaciones_utils import crear_notificacion_masiva_por_rol
+
+
+import unicodedata
+
+
 
 
 
@@ -172,8 +177,53 @@ def _plantilla_mail_postulacion(nombre: str, convocatoria: Convocatoria) -> str:
 
 
 
+def _normalize_text(s: Optional[str]) -> str:
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode("ascii")
+    return s.lower()
+
+def _extract_age_range(text: str) -> Optional[Tuple[int, int]]:
+    """
+    Extrae un rango de edades desde texto libre.
+    - Si hay varios numeros: devuelve [min, max]
+    - Si hay uno solo: [n, n]
+    - Si no hay: None
+    """
+    if not text:
+        return None
+    nums = [int(x) for x in re.findall(r"\d+", text)]
+    if not nums:
+        return None
+    return (min(nums), max(nums))
+
+def _overlap(a: Tuple[int, int], b: Tuple[int, int]) -> bool:
+    return max(a[0], b[0]) <= min(a[1], b[1])
+
+def _is_group_siblings(c) -> bool:
+    """
+    Heuristica por palabras clave en llamado/descripcion/edad_es.
+    """
+    t = _normalize_text(f"{c.convocatoria_llamado} {c.convocatoria_descripcion} {c.convocatoria_edad_es}")
+    # claves comunes: grupo de hermanos / hermanos / hermanas / fratria
+    return (
+        ("grupo" in t and "herman" in t) or
+        ("hermanos" in t) or
+        ("hermanas" in t) or
+        ("fratria" in t)  # por si algun juzgado usa esta palabra
+    )
 
 
+def _parse_client_ranges(ranges: List[str]) -> List[Tuple[int, int]]:
+    """Convierte ["0-3","4-6"] -> [(0,3),(4,6)], ignora inválidos."""
+    out: List[Tuple[int, int]] = []
+    for r in ranges or []:
+        m = re.match(r"^\s*(\d+)\s*-\s*(\d+)\s*$", r)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            if a <= b:
+                out.append((a, b))
+    return out
 
 
 @convocatoria_router.get("/", response_model=dict, dependencies=[Depends(verify_api_key)])
@@ -277,22 +327,124 @@ def get_convocatorias(
         raise HTTPException(status_code=500, detail=f"Error al recuperar convocatorias: {str(e)}")
 
 
+# @convocatoria_router.get("/publicas", response_model=dict)
+# def get_convocatorias_publicas(
+#     db: Session = Depends(get_db),
+#     page: int = Query(1, ge=1),
+#     limit: int = Query(50, ge=1, le=100)
+# ):
+#     try:
+#         query = db.query(Convocatoria).filter(Convocatoria.convocatoria_online == "Y")
+
+#         total_records = query.count()
+#         total_pages = ceil(total_records / limit)
+
+#         convocatorias = query.order_by(
+#             Convocatoria.convocatoria_fecha_publicacion.desc(),
+#             Convocatoria.convocatoria_referencia.desc()
+#         ).offset((page - 1) * limit).limit(limit).all()
+
+#         convocatorias_list = [
+#             {
+#                 "convocatoria_id": c.convocatoria_id,
+#                 "convocatoria_referencia": c.convocatoria_referencia,
+#                 "convocatoria_llamado": c.convocatoria_llamado,
+#                 "convocatoria_edad_es": c.convocatoria_edad_es,
+#                 "convocatoria_residencia_postulantes": c.convocatoria_residencia_postulantes,
+#                 "convocatoria_descripcion": c.convocatoria_descripcion,
+#                 "convocatoria_juzgado_interviniente": c.convocatoria_juzgado_interviniente,
+#                 "convocatoria_fecha_publicacion": c.convocatoria_fecha_publicacion,
+#             }
+#             for c in convocatorias
+#         ]
+
+#         return {
+#             "page": page,
+#             "limit": limit,
+#             "total_pages": total_pages,
+#             "total_records": total_records,
+#             "convocatorias": convocatorias_list
+#         }
+
+#     except SQLAlchemyError as e:
+#         raise HTTPException(status_code=500, detail=f"Error al recuperar convocatorias públicas: {str(e)}")
+    
+
 @convocatoria_router.get("/publicas", response_model=dict)
 def get_convocatorias_publicas(
     db: Session = Depends(get_db),
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100)
+    limit: int = Query(50, ge=1, le=100),
+    ranges: List[str] = Query(default=[], description="Ej: ranges=0-3&ranges=4-6"),
+    grupo: Optional[bool] = Query(default=None, description="true => sólo convocatorias con 2+ NNA vinculados")
 ):
+    """
+    Filtros:
+    - Sin filtros => todas las online.
+    - ranges=["a-b", ...] => incluye convocatorias que tengan AL MENOS UN NNA en alguno de esos rangos.
+    - grupo=true => incluye convocatorias que tengan 2 o más NNA vinculados (sin usar hermanos_id).
+    - Si ambos se envían => se exige ambos (AND).
+    """
     try:
-        query = db.query(Convocatoria).filter(Convocatoria.convocatoria_online == "Y")
+        # Base de IDs de convocatorias online (para poder DISTINCT y paginar correctamente)
+        id_q = db.query(Convocatoria.convocatoria_id).filter(Convocatoria.convocatoria_online == "Y")
 
-        total_records = query.count()
-        total_pages = ceil(total_records / limit)
+        parsed_ranges = _parse_client_ranges(ranges)
 
-        convocatorias = query.order_by(
+        # --- Filtro por edades: al menos un NNA en rango ---
+        if parsed_ranges:
+            age_expr = func.timestampdiff(
+                literal_column("YEAR"),               # ✅ evita parametrizar 'YEAR' en MySQL
+                Nna.nna_fecha_nacimiento,
+                func.curdate()
+            )
+            age_or = or_(*[and_(age_expr >= a, age_expr <= b) for (a, b) in parsed_ranges])
+
+            id_q = (
+                id_q.join(
+                    DetalleNNAEnConvocatoria,
+                    DetalleNNAEnConvocatoria.convocatoria_id == Convocatoria.convocatoria_id
+                )
+                .join(Nna, Nna.nna_id == DetalleNNAEnConvocatoria.nna_id)
+                .filter(Nna.nna_fecha_nacimiento.isnot(None))
+                .filter(age_or)
+            )
+            # NOTA: este join garantiza "al menos un NNA en rango" por convocatoria
+
+        # --- Filtro por "grupo de hermanos" (2+ NNA vinculados, sin hermanos_id) ---
+        if grupo is True:
+            # Subconsulta: convocatorias con 2 o más NNA vinculados (conteo por convocatoria)
+            grupos_subq = (
+                db.query(
+                    DetalleNNAEnConvocatoria.convocatoria_id.label("conv_id")
+                )
+                .group_by(DetalleNNAEnConvocatoria.convocatoria_id)
+                .having(func.count(func.distinct(DetalleNNAEnConvocatoria.nna_id)) >= 2)
+                .subquery()
+            )
+            id_q = id_q.join(grupos_subq, grupos_subq.c.conv_id == Convocatoria.convocatoria_id)
+
+        # Distinct IDs tras filtros aplicados (si no hubo filtros: todas online)
+        id_subq = id_q.distinct().subquery()
+
+        # Totales ya filtrados
+        total_records = db.query(func.count()).select_from(id_subq).scalar() or 0
+        total_pages = ceil(total_records / limit) if limit else 1
+
+        # Orden y paginación finales
+        order_cols = (
             Convocatoria.convocatoria_fecha_publicacion.desc(),
-            Convocatoria.convocatoria_referencia.desc()
-        ).offset((page - 1) * limit).limit(limit).all()
+            Convocatoria.convocatoria_referencia.desc(),
+        )
+
+        page_items = (
+            db.query(Convocatoria)
+              .join(id_subq, id_subq.c.convocatoria_id == Convocatoria.convocatoria_id)
+              .order_by(*order_cols)
+              .offset((page - 1) * limit)
+              .limit(limit)
+              .all()
+        )
 
         convocatorias_list = [
             {
@@ -305,7 +457,7 @@ def get_convocatorias_publicas(
                 "convocatoria_juzgado_interviniente": c.convocatoria_juzgado_interviniente,
                 "convocatoria_fecha_publicacion": c.convocatoria_fecha_publicacion,
             }
-            for c in convocatorias
+            for c in page_items
         ]
 
         return {
@@ -318,7 +470,8 @@ def get_convocatorias_publicas(
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al recuperar convocatorias públicas: {str(e)}")
-    
+
+
 
 @convocatoria_router.get("/{convocatoria_id}", response_model=dict, dependencies=[Depends(verify_api_key)])
 def get_convocatoria_by_id(convocatoria_id: int, db: Session = Depends(get_db)):
