@@ -577,8 +577,8 @@ def get_users(
 
 
 
-@users_router.get("/{login}", response_model=dict,
-    dependencies=[Depends(verify_api_key)])
+
+@users_router.get("/{login}", response_model=dict, dependencies=[Depends(verify_api_key)])
 def get_user_by_login(
     login: str,
     db: Session = Depends(get_db),
@@ -587,33 +587,93 @@ def get_user_by_login(
     """
     Devuelve un único usuario por su `login`.
 
-    - Usuarios con rol 'administrador', 'supervisora', o 'profesional' pueden ver a todos los usuarios.
-    - Usuarios con rol 'adoptante' solo pueden ver su propio usuario.
+    - 'administrador' / 'supervisora' / 'supervision' / 'profesional' / 'coordinadora' ven a cualquier usuario.
+    - 'adoptante' solo puede ver su propio usuario.
     """
 
-    usuario_actual_login = current_user["user"]["login"]
+    # ============================================================
+    # 1) CONSTANTES
+    # ============================================================
+    ROLES_FULL_ACCESS = {"administrador", "supervision", "supervisora", "profesional", "coordinadora"}
+    VALID_STATES_USER = {"inicial_cargando", "pedido_revision", "actualizando", "aprobado", "rechazado"}
+    VALID_TIPOS_PROY = {"Monoparental", "Matrimonio", "Unión convivencial"}
+    VALID_STATES_DOC_PROY = {"inicial_cargando", "pedido_valoracion", "actualizando",
+                             "aprobado", "en_valoracion", "baja_definitiva"}
 
-    # Obtener los roles del usuario actual desde la base de datos
+    # Listas solicitadas (1) y (2): desgloses por estado
+    ESTADOS_RUA_ACTIVOS = {
+        "invitacion_pendiente", "confeccionando", "en_revision", "actualizando", "aprobado",
+        "calendarizando", "entrevistando", "para_valorar", "viable", "viable_no_disponible",
+        "en_suspenso", "no_viable", "en_carpeta", "vinculacion", "guarda_provisoria", "guarda_confirmada"
+    }
+    ESTADOS_RUA_CERRADOS = {
+        "adopcion_definitiva", "baja_anulacion", "baja_caducidad",
+        "baja_por_convocatoria", "baja_rechazo_invitacion", "baja_interrupcion"
+    }
+
+    SUBREG_CAMPOS = [
+        "subreg_1", "subreg_2", "subreg_3", "subreg_4",
+        "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
+        "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
+        "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
+        "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
+        "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
+        "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
+        "subreg_F5S", "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
+        "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
+        "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
+        "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
+        "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
+        "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET",
+    ]
+
+    # ============================================================
+    # 2) HELPERS
+    # ============================================================
+    def disponibilidad_adoptiva(ddjj) -> bool:
+        if not ddjj:
+            return False
+        return any(getattr(ddjj, c, None) == "Y" for c in SUBREG_CAMPOS)
+
+    def tiene_datos(ddjj, campos) -> bool:
+        return any(getattr(ddjj, c, None) for c in campos) if ddjj else False
+
+    def serialize_proyecto(p) -> dict:
+        """Campos útiles y compactos; no toca las claves históricas del endpoint."""
+        return {
+            "proyecto_id": p.proyecto_id,
+            "estado_general": p.estado_general,
+            "proyecto_tipo": p.proyecto_tipo,
+            "ingreso_por": p.ingreso_por,
+            "nro_orden_rua": p.nro_orden_rua,
+            "login_1": p.login_1,
+            "login_2": p.login_2,
+            "fecha_asignacion_nro_orden": parse_date(p.fecha_asignacion_nro_orden),
+            "ultimo_cambio_de_estado": parse_date(p.ultimo_cambio_de_estado),
+        }
+
+    # ============================================================
+    # 3) AUTORIZACIÓN
+    # ============================================================
+    usuario_actual_login = current_user["user"]["login"]
     roles = (
         db.query(Group.description)
         .join(UserGroup, Group.group_id == UserGroup.group_id)
         .filter(UserGroup.login == usuario_actual_login)
         .all()
     )
-    roles = [r.description for r in roles]
+    roles = {r.description for r in roles}
 
-    # Permitir siempre si es Admin, supervisora o profesional
-    if any(r in ["administrador", "supervision", "supervisora", "profesional", "coordinadora"] for r in roles):
-        pass  # acceso completo
+    if not (roles & ROLES_FULL_ACCESS):
+        if "adoptante" in roles:
+            if login != usuario_actual_login:
+                raise HTTPException(status_code=403, detail="No tiene permiso para ver a otros usuarios.")
+        else:
+            raise HTTPException(status_code=403, detail="No tiene permisos para acceder a este recurso.")
 
-    # Si es adoptante, permitir solo si consulta su propio login
-    elif "adoptante" in roles:
-        if login != usuario_actual_login:
-            raise HTTPException(status_code=403, detail="No tiene permiso para ver a otros usuariosss.")
-    else:
-        raise HTTPException(status_code=403, detail="No tiene permisos para acceder a este recurso.")
-
-
+    # ============================================================
+    # 4) CONSULTA PRINCIPAL (usuario + joins)
+    # ============================================================
     try:
         query = (
             db.query(
@@ -624,7 +684,7 @@ def get_user_by_login(
                 User.operativo.label("operativo"),
                 User.mail.label("mail"),
                 User.calle_y_nro.label("calle_y_nro"),
-                User.depto_etc.label("depto_etc"),                
+                User.depto_etc.label("depto_etc"),
                 User.barrio.label("barrio"),
                 User.localidad.label("localidad"),
                 User.provincia.label("provincia"),
@@ -666,7 +726,7 @@ def get_user_by_login(
                 Proyecto.ingreso_por.label("ingreso_por"),
                 Proyecto.operativo.label("proyecto_operativo"),
                 Proyecto.login_1.label("login_1"),
-                Proyecto.login_2.label("login_2"),                
+                Proyecto.login_2.label("login_2"),
                 Proyecto.subregistro_1.label("subregistro_1"),
                 Proyecto.subregistro_2.label("subregistro_2"),
                 Proyecto.subregistro_3.label("subregistro_3"),
@@ -683,115 +743,69 @@ def get_user_by_login(
                 Proyecto.subregistro_6_mas_de_3.label("subregistro_6_mas_de_3"),
                 Proyecto.subregistro_flexible.label("subregistro_flexible"),
                 Proyecto.subregistro_otra_provincia.label("subregistro_otra_provincia"),
-
                 Proyecto.proyecto_calle_y_nro.label("proyecto_calle_y_nro"),
                 Proyecto.proyecto_barrio.label("proyecto_barrio"),
                 Proyecto.proyecto_localidad.label("proyecto_localidad"),
                 Proyecto.proyecto_provincia.label("proyecto_provincia"),
                 Proyecto.fecha_asignacion_nro_orden.label("fecha_asignacion_nro_orden"),
                 Proyecto.ultimo_cambio_de_estado.label("ultimo_cambio_de_estado"),
-
                 Proyecto.estado_general.label("estado_general"),
-                
             )
-            # El .join se usa para traer los usuarios solo si existe en ambas tablas, sino no trae los usuarios
-            .join(UserGroup, User.login == UserGroup.login) 
+            .join(UserGroup, User.login == UserGroup.login)
             .join(Group, UserGroup.group_id == Group.group_id)
-            # El .outerjoin se usa para traer los usuarios existan o no en la segunda tabla, si no existe, trae los campos en null
-            # Esto es porque puede que existan usuarios que aún no tengan DDJJ, o Proyecto, etc.
             .outerjoin(DDJJ, User.login == DDJJ.login)
             .outerjoin(Proyecto, (User.login == Proyecto.login_1) | (User.login == Proyecto.login_2))
             .filter(User.login == login)
         )
-           
-        user = query.first()
 
+        user = query.first()
         if not user:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-        # Traer instancia completa de la DDJJ si existe
+        # Instancia DDJJ (para checks)
         ddjj = db.query(DDJJ).filter(DDJJ.login == user.login).first()
 
-
-        proyectos_ids = (
-            db.query(Proyecto.proyecto_id)
+        # IDs de proyectos del usuario
+        proyectos_ids = [
+            pid for (pid,) in db.query(Proyecto.proyecto_id)
             .filter(or_(Proyecto.login_1 == user.login, Proyecto.login_2 == user.login))
             .all()
-        )
-        proyectos_ids = [proyecto[0] for proyecto in proyectos_ids] if proyectos_ids else []
+        ] or []
 
-        valid_states = {"inicial_cargando", "pedido_revision", "actualizando", "aprobado", "rechazado"}
-        valid_proyecto_tipos = {"Monoparental", "Matrimonio", "Unión convivencial"}
-        valid_doc_proyecto_states = {"inicial_cargando", "pedido_valoracion", "actualizando",
-                                     "aprobado", "en_valoracion", "baja_definitiva"}
-
+        # Métricas/pendientes para supervisión
         pendientes = {}
-
-        
         if user.group in ['supervisora', 'supervision']:
-            # Obtener pendientes de supervisora
-            pendientes_doc_adoptante = db.query(User).filter(User.doc_adoptante_estado == "pedido_revision").count()
-
-            pendientes_doc_proyecto = db.query(Proyecto).filter(
-                Proyecto.estado_general == "en_revision"
-            ).count()
-
-            pendientes_proyectos_en_entrevistas = db.query(Proyecto).filter(
-                Proyecto.estado_general.in_(["calendarizando", "entrevistando"])
-            ).count()
-
-            pendientes_proyectos_en_valoracion = db.query(Proyecto).filter(
-                Proyecto.estado_general == "en_valoracion"
-            ).count()
-
-
             pendientes = {
-                "doc_adoptante": pendientes_doc_adoptante,
-                "doc_proyecto": pendientes_doc_proyecto,
-                "proyectos_en_entrevistas": pendientes_proyectos_en_entrevistas,
-                "proyectos_en_valoracion": pendientes_proyectos_en_valoracion,
+                "doc_adoptante": db.query(User).filter(User.doc_adoptante_estado == "pedido_revision").count(),
+                "doc_proyecto": db.query(Proyecto).filter(Proyecto.estado_general == "en_revision").count(),
+                "proyectos_en_entrevistas": db.query(Proyecto).filter(Proyecto.estado_general.in_(["calendarizando", "entrevistando"])).count(),
+                "proyectos_en_valoracion": db.query(Proyecto).filter(Proyecto.estado_general == "en_valoracion").count(),
             }
 
-        
+        # Estado botón
         docs_de_pretenso_presentados = all([
-            user.doc_adoptante_salud,
-            user.doc_adoptante_domicilio,
-            user.doc_adoptante_dni_frente,
-            user.doc_adoptante_dni_dorso,
-            user.doc_adoptante_deudores_alimentarios,
-            user.doc_adoptante_antecedentes,
+            user.doc_adoptante_salud, user.doc_adoptante_domicilio,
+            user.doc_adoptante_dni_frente, user.doc_adoptante_dni_dorso,
+            user.doc_adoptante_deudores_alimentarios, user.doc_adoptante_antecedentes,
         ])
-
         docs_todos_vacios = all([
-            not user.doc_adoptante_salud,
-            not user.doc_adoptante_domicilio,
-            not user.doc_adoptante_dni_frente,
-            not user.doc_adoptante_dni_dorso,
-            not user.doc_adoptante_deudores_alimentarios,
-            not user.doc_adoptante_antecedentes,
+            not user.doc_adoptante_salud, not user.doc_adoptante_domicilio,
+            not user.doc_adoptante_dni_frente, not user.doc_adoptante_dni_dorso,
+            not user.doc_adoptante_deudores_alimentarios, not user.doc_adoptante_antecedentes,
         ])
 
-        # 🔤 Texto del botón de estado del pretenso (PRIORIDAD: INACTIVO)
         if user.active == "N":
             texto_boton_estado_pretenso = "INACTIVO"
-
         elif user.doc_adoptante_curso_aprobado == "N":
             texto_boton_estado_pretenso = "CURSO PENDIENTE"
-
         elif user.doc_adoptante_curso_aprobado == "Y" and user.doc_adoptante_ddjj_firmada == "N":
             texto_boton_estado_pretenso = "LLENANDO DDJJ"
-
-        elif (
-            user.doc_adoptante_curso_aprobado == "Y"
-            and user.doc_adoptante_ddjj_firmada == "Y"
-            and docs_todos_vacios
-        ):
+        elif (user.doc_adoptante_curso_aprobado == "Y" and user.doc_adoptante_ddjj_firmada == "Y" and docs_todos_vacios):
             texto_boton_estado_pretenso = "DDJJ FIRMADA"
-
         else:
             estado_a_texto = {
-                "inicial_cargando": "DOC. PERSONAL", 
-                "pedido_revision": "REVISIÓN DE DOC.", 
+                "inicial_cargando": "DOC. PERSONAL",
+                "pedido_revision": "REVISIÓN DE DOC.",
                 "rechazado": "RECHAZADO",
                 "invitacion_pendiente": "INVITACIÓN PENDIENTE",
                 "confeccionando": "DOC. PROYECTO",
@@ -812,107 +826,83 @@ def get_user_by_login(
                 "adopcion_definitiva": "ADOPCIÓN DEFINITIVA",
                 "baja_anulacion": "BAJA - ANULACIÓN",
                 "baja_caducidad": "BAJA - CADUCIDAD",
+                "baja_interrupcion": "BAJA - INTERRUPCIÓN",
                 "baja_por_convocatoria": "BAJA - CONVOCATORIA",
                 "baja_rechazo_invitacion": "BAJA - RECHAZO INVITACIÓN",
                 "inactivo": "INACTIVO",
             }
-
             if not user.proyecto_id:
-                texto_boton_estado_pretenso = estado_a_texto.get(
-                    user.doc_adoptante_estado,
-                    user.doc_adoptante_estado or "DOC. PERSONAL"
-                )
+                texto_boton_estado_pretenso = estado_a_texto.get(user.doc_adoptante_estado, user.doc_adoptante_estado or "DOC. PERSONAL")
             else:
-                texto_boton_estado_pretenso = estado_a_texto.get(
-                    user.estado_general,
-                    user.estado_general or "DOC. PROYECTO"
-                )
+                texto_boton_estado_pretenso = estado_a_texto.get(user.estado_general, user.estado_general or "DOC. PROYECTO")
 
-            # if not user.proyecto_id:
-            #     texto_boton_estado_pretenso = estado_a_texto.get(user.doc_adoptante_estado, "DESCONOCIDO")
-            # else:
-            #     texto_boton_estado_pretenso = estado_a_texto.get(user.estado_general, "DESCONOCIDO")
-
-            # texto_boton_estado_pretenso = estado_a_texto.get(user.estado_general, "DESCONOCIDO")
-
-
-        # Lista de campos subreg definitivos que importan
-        SUBREG_CAMPOS = [
-            "subreg_1", "subreg_2", "subreg_3", "subreg_4",
-            "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
-            "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
-            "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
-            "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
-            "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
-            "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
-            "subreg_F5S", "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
-            "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
-            "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
-            "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
-            "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
-            "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET",
-        ]
-
-        def disponibilidad_adoptiva(ddjj):
-            if not ddjj:
-                return False
-            return any(getattr(ddjj, campo, None) == "Y" for campo in SUBREG_CAMPOS)
-
-
-
-        # Evaluar qué secciones de la DDJJ tienen datos cargados
-        def tiene_datos(ddjj, campos):
-            return any(getattr(ddjj, campo, None) for campo in campos) if ddjj else False
-
+        # Checks de secciones DDJJ
         ddjj_checks = {
             "ddjj_datos_personales": tiene_datos(ddjj, [
-                "ddjj_nombre", "ddjj_apellido", "ddjj_estado_civil",
-                "ddjj_fecha_nac", "ddjj_nacionalidad", "ddjj_sexo",
-                "ddjj_correo_electronico", "ddjj_telefono"
+                "ddjj_nombre", "ddjj_apellido", "ddjj_estado_civil", "ddjj_fecha_nac",
+                "ddjj_nacionalidad", "ddjj_sexo", "ddjj_correo_electronico", "ddjj_telefono"
             ]),
             "ddjj_grupo_familiar_hijos": tiene_datos(ddjj, [f"ddjj_hijo{i}_nombre_completo" for i in range(1, 6)]),
             "ddjj_grupo_familiar_otros": tiene_datos(ddjj, [f"ddjj_otro{i}_nombre_completo" for i in range(1, 6)]),
             "ddjj_red_de_apoyo": tiene_datos(ddjj, [f"ddjj_apoyo{i}_nombre_completo" for i in range(1, 3)]),
             "ddjj_informacion_laboral": tiene_datos(ddjj, ["ddjj_ocupacion", "ddjj_horas_semanales", "ddjj_ingreso_mensual"]),
             "ddjj_procesos_judiciales": tiene_datos(ddjj, ["ddjj_causa_penal", "ddjj_juicios_filiacion", "ddjj_denunciado_violencia_familiar"]),
-            # "ddjj_disponibilidad_adoptiva": tiene_datos(ddjj, ["ddjj_subregistro_1", "ddjj_subregistro_2", "ddjj_subregistro_3"]),
             "ddjj_disponibilidad_adoptiva": disponibilidad_adoptiva(ddjj),
             "ddjj_tramo_final": tiene_datos(ddjj, ["ddjj_guardo_1", "ddjj_guardo_2"]),
         }
 
+        # ============================================================
+        # 5) LISTAS DE PROYECTOS (NUEVO) — UNA SOLA LECTURA Y PARTICIÓN
+        # ============================================================
+        # Orden: más recientes a más antiguos usando COALESCE(ultimo_cambio, fecha_asignación)
+        proyectos_ordenados = (
+            db.query(Proyecto)
+            .filter(or_(Proyecto.login_1 == login, Proyecto.login_2 == login))
+            .order_by(desc(func.coalesce(Proyecto.ultimo_cambio_de_estado, Proyecto.fecha_asignacion_nro_orden)))
+            .all()
+        )
 
+        proyectos_rua_activos = [
+            serialize_proyecto(p) for p in proyectos_ordenados
+            if (p.ingreso_por == "rua" and p.estado_general in ESTADOS_RUA_ACTIVOS)
+        ]
+        proyectos_rua_cerrados = [
+            serialize_proyecto(p) for p in proyectos_ordenados
+            if (p.ingreso_por == "rua" and p.estado_general in ESTADOS_RUA_CERRADOS)
+        ]
+        proyectos_convocatoria = [
+            serialize_proyecto(p) for p in proyectos_ordenados if p.ingreso_por == "convocatoria"
+        ]
+        proyectos_oficio = [
+            serialize_proyecto(p) for p in proyectos_ordenados if p.ingreso_por == "oficio"
+        ]
+
+        # ============================================================
+        # 6) RESPUESTA (mantiene todas las claves previas + agrega 4 listas)
+        # ============================================================
         user_dict = {
             "login": user.login,
-            "nombre": user.nombre if user.nombre else "",
-            "apellido": user.apellido if user.apellido else "",
-            "celular": user.celular if user.celular else "",
-            "operativo": user.operativo if user.operativo else "N",
-            "mail": user.mail if user.mail else "",
-            # Prioridad: proyecto > ddjj_legal > ddjj > sec_users > ""
-            "calle_y_nro": user.calle_y_nro if user.calle_y_nro else "",
-            "depto_etc": user.depto_etc if user.depto_etc else "",
-            "barrio": user.barrio if user.barrio else "",
-            "localidad": user.localidad if user.localidad else "",
-            "provincia": user.provincia if user.provincia else "",
-            "cp": (
-                user.ddjj_cp_legal if user.ddjj_cp_legal else
-                user.ddjj_cp if user.ddjj_cp else ""
-            ),
+            "nombre": user.nombre or "",
+            "apellido": user.apellido or "",
+            "celular": user.celular or "",
+            "operativo": user.operativo or "N",
+            "mail": user.mail or "",
+            "calle_y_nro": user.calle_y_nro or "",
+            "depto_etc": user.depto_etc or "",
+            "barrio": user.barrio or "",
+            "localidad": user.localidad or "",
+            "provincia": user.provincia or "",
+            "cp": user.ddjj_cp_legal or (user.ddjj_cp or ""),
             "fecha_alta": parse_date(user.fecha_alta),
-            "group": user.group if user.group else "Sin grupo asignado",
+            "group": user.group or "Sin grupo asignado",
             "ddjj_fecha_nac": parse_date(user.ddjj_fecha_nac),
             "edad_segun_ddjj": calculate_age(user.ddjj_fecha_nac),
             "doc_adoptante_curso_aprobado": user.doc_adoptante_curso_aprobado == "Y",
             "doc_adoptante_ddjj_firmada": user.doc_adoptante_ddjj_firmada == "Y",
-            # "doc_adoptante_estado": user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "desconocido",
-            # "doc_adoptante_estado": ( user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "inicial_cargando" ),
             "doc_adoptante_estado": (
-                "inactivo"
-                if user.active == "N"
-                else (user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "inicial_cargando")
+                "inactivo" if user.active == "N"
+                else (user.doc_adoptante_estado if user.doc_adoptante_estado in VALID_STATES_USER else "inicial_cargando")
             ),
-
-
             "doc_adoptante_salud": user.doc_adoptante_salud,
             "doc_adoptante_domicilio": user.doc_adoptante_domicilio,
             "doc_adoptante_dni_frente": user.doc_adoptante_dni_frente,
@@ -920,21 +910,19 @@ def get_user_by_login(
             "doc_adoptante_deudores_alimentarios": user.doc_adoptante_deudores_alimentarios,
             "doc_adoptante_antecedentes": user.doc_adoptante_antecedentes,
             "doc_adoptante_migraciones": user.doc_adoptante_migraciones,
-            
 
             "proyecto_id": user.proyecto_id,
-            "proyecto_tipo": user.proyecto_tipo if user.proyecto_tipo in valid_proyecto_tipos else "desconocido",
-            "nro_orden_rua": user.nro_orden_rua if user.nro_orden_rua else "",
-            "ingreso_por": user.ingreso_por if user.ingreso_por else "",
+            "proyecto_tipo": user.proyecto_tipo if user.proyecto_tipo in VALID_TIPOS_PROY else "desconocido",
+            "nro_orden_rua": user.nro_orden_rua or "",
+            "ingreso_por": user.ingreso_por or "",
             "proyecto_operativo": user.proyecto_operativo == "Y",
-            "subregistro_string": build_subregistro_string(user),  # Aquí se construye el string concatenado
+            "subregistro_string": build_subregistro_string(user),
             "login_1_info": get_user_name_by_login(db, user.login_1),
             "login_2_info": get_user_name_by_login(db, user.login_2),
             "fecha_asignacion_nro_orden": parse_date(user.fecha_asignacion_nro_orden),
             "ultimo_cambio_de_estado": parse_date(user.ultimo_cambio_de_estado),
 
-            "proyectos_ids": proyectos_ids,  # Aquí agregamos la lista de proyecto_id
-
+            "proyectos_ids": proyectos_ids,
             "pendientes": pendientes,
 
             "mostrar_datos_de_ddjj": bool(user.login_ddjj),
@@ -946,21 +934,19 @@ def get_user_by_login(
             "ddjj_procesos_judiciales": ddjj_checks["ddjj_procesos_judiciales"],
             "ddjj_disponibilidad_adoptiva": ddjj_checks["ddjj_disponibilidad_adoptiva"],
             "ddjj_tramo_final": ddjj_checks["ddjj_tramo_final"],
-            # "ddjj_firmada": bool(user.ddjj_acepto_1 and user.ddjj_acepto_2 and user.ddjj_acepto_3 and user.ddjj_acepto_4),
             "ddjj_firmada": user.doc_adoptante_ddjj_firmada == "Y",
 
             "mostrar_boton_proyecto": bool(user.proyecto_id),
-
             "boton_aprobar_documentacion": docs_de_pretenso_presentados and user.doc_adoptante_estado == "pedido_revision",
-            "boton_solicitar_actualizacion": docs_de_pretenso_presentados and ( 
-                user.doc_adoptante_estado == "pedido_revision" or user.doc_adoptante_estado == "aprobado" ),
-
+            "boton_solicitar_actualizacion": docs_de_pretenso_presentados and (user.doc_adoptante_estado in {"pedido_revision", "aprobado"}),
             "boton_ver_proyecto": bool(user.proyecto_id),
-
             "texto_boton_estado_pretenso": texto_boton_estado_pretenso,
 
-            
-
+            # ---------- NUEVAS LISTAS (sin tocar lo anterior) ----------
+            "proyectos_rua_activos": proyectos_rua_activos,           # (1) RUA activos, recientes→antiguos
+            "proyectos_rua_cerrados": proyectos_rua_cerrados,         # (2) RUA cerrados, recientes→antiguos
+            "proyectos_convocatoria": proyectos_convocatoria,         # (3) por convocatoria, recientes→antiguos
+            "proyectos_oficio": proyectos_oficio,                     # (4) por oficio, recientes→antiguos
         }
 
         return user_dict
@@ -968,6 +954,8 @@ def get_user_by_login(
     except SQLAlchemyError as e:
         print(str(e))
         raise HTTPException(status_code=500, detail=f"Error al recuperar el usuario: {str(e)}")
+
+
 
 
 

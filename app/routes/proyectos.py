@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Request, status, B
 from typing import List, Optional, Literal, Tuple
 from sqlalchemy.orm import Session, aliased, joinedload, noload
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import func, case, and_, or_, Integer, literal_column
+from sqlalchemy import func, case, and_, or_, Integer, literal_column, desc
 from urllib.parse import unquote
 
 
@@ -781,19 +781,541 @@ def get_proyectos(
 
 
 
+# @proyectos_router.get("/{proyecto_id}", response_model=dict, 
+#                   dependencies=[Depends( verify_api_key ), 
+#                                 Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante", "coordinadora"]))])
+# def get_proyecto_por_id(
+#     request: Request,
+#     proyecto_id: int,
+#     db: Session = Depends(get_db),
+# ):
+#     """
+#     Obtiene los detalles de un proyecto específico según su `proyecto_id`.
+#     """
+#     try:
+#         # Consulta principal para obtener los detalles del proyecto
+#         proyecto = (
+#             db.query(
+#                 Proyecto.proyecto_id.label("proyecto_id"),
+#                 Proyecto.proyecto_tipo.label("proyecto_tipo"),
+#                 Proyecto.nro_orden_rua.label("nro_orden_rua"),
+#                 Proyecto.operativo.label("proyecto_operativo"),
+#                 Proyecto.login_1.label("login_1"),
+#                 Proyecto.login_2.label("login_2"),
+                
+#                 Proyecto.aceptado.label("aceptado"),
+#                 Proyecto.aceptado_code.label("aceptado_code"),
+
+#                 Proyecto.doc_proyecto_convivencia_o_estado_civil.label("doc_proyecto_convivencia_o_estado_civil"),
+#                 Proyecto.informe_profesionales.label("informe_profesionales"),
+#                 Proyecto.doc_dictamen.label("doc_dictamen"),
+
+#                 Proyecto.doc_informe_vinculacion.label("doc_informe_vinculacion"),
+#                 Proyecto.doc_informe_seguimiento_guarda.label("doc_informe_seguimiento_guarda"),
+#                 Proyecto.doc_sentencia_guarda.label("doc_sentencia_guarda"),
+#                 Proyecto.doc_informe_conclusivo.label("doc_informe_conclusivo"),
+#                 Proyecto.doc_sentencia_adopcion.label("doc_sentencia_adopcion"),
+#                 Proyecto.doc_interrupcion.label("doc_interrupcion"),
+
+#                 Proyecto.subregistro_1.label("subregistro_1"),
+#                 Proyecto.subregistro_2.label("subregistro_2"),
+#                 Proyecto.subregistro_3.label("subregistro_3"),
+#                 Proyecto.subregistro_4.label("subregistro_4"),
+#                 Proyecto.subregistro_5_a.label("subregistro_5_a"),
+#                 Proyecto.subregistro_5_b.label("subregistro_5_b"),
+#                 Proyecto.subregistro_5_c.label("subregistro_5_c"),
+#                 Proyecto.subregistro_6_a.label("subregistro_6_a"),
+#                 Proyecto.subregistro_6_b.label("subregistro_6_b"),
+#                 Proyecto.subregistro_6_c.label("subregistro_6_c"),
+#                 Proyecto.subregistro_6_d.label("subregistro_6_d"),
+#                 Proyecto.subregistro_6_2.label("subregistro_6_2"),
+#                 Proyecto.subregistro_6_3.label("subregistro_6_3"),
+#                 Proyecto.subregistro_6_mas_de_3.label("subregistro_6_mas_de_3"),
+#                 Proyecto.subregistro_flexible.label("subregistro_flexible"),
+#                 Proyecto.subregistro_otra_provincia.label("subregistro_otra_provincia"),
+
+#                 Proyecto.proyecto_calle_y_nro.label("proyecto_calle_y_nro"),
+#                 Proyecto.proyecto_depto_etc.label("proyecto_depto_etc"),
+#                 Proyecto.proyecto_barrio.label("proyecto_barrio"),
+#                 Proyecto.proyecto_localidad.label("proyecto_localidad"),
+#                 Proyecto.proyecto_provincia.label("proyecto_provincia"),
+
+#                 Proyecto.fecha_asignacion_nro_orden.label("fecha_asignacion_nro_orden"),
+#                 Proyecto.ultimo_cambio_de_estado.label("ultimo_cambio_de_estado"),
+
+#                 Proyecto.estado_general.label("estado_general"),
+
+#                 Proyecto.ingreso_por.label("ingreso_por"),
+
+#                 # Flexibilidad edad
+#                 Proyecto.flex_edad_1.label("flex_edad_1"),
+#                 Proyecto.flex_edad_2.label("flex_edad_2"),
+#                 Proyecto.flex_edad_3.label("flex_edad_3"),
+#                 Proyecto.flex_edad_4.label("flex_edad_4"),
+#                 Proyecto.flex_edad_todos.label("flex_edad_todos"),
+
+#                 # Discapacidad
+#                 Proyecto.discapacidad_1.label("discapacidad_1"),
+#                 Proyecto.discapacidad_2.label("discapacidad_2"),
+#                 Proyecto.edad_discapacidad_0.label("edad_discapacidad_0"),
+#                 Proyecto.edad_discapacidad_1.label("edad_discapacidad_1"),
+#                 Proyecto.edad_discapacidad_2.label("edad_discapacidad_2"),
+#                 Proyecto.edad_discapacidad_3.label("edad_discapacidad_3"),
+#                 Proyecto.edad_discapacidad_4.label("edad_discapacidad_4"),
+
+#                 # Enfermedades
+#                 Proyecto.enfermedad_1.label("enfermedad_1"),
+#                 Proyecto.enfermedad_2.label("enfermedad_2"),
+#                 Proyecto.enfermedad_3.label("enfermedad_3"),
+#                 Proyecto.edad_enfermedad_0.label("edad_enfermedad_0"),
+#                 Proyecto.edad_enfermedad_1.label("edad_enfermedad_1"),
+#                 Proyecto.edad_enfermedad_2.label("edad_enfermedad_2"),
+#                 Proyecto.edad_enfermedad_3.label("edad_enfermedad_3"),
+#                 Proyecto.edad_enfermedad_4.label("edad_enfermedad_4"),
+
+#                 # Flexibilidad salud
+#                 Proyecto.flex_condiciones_salud.label("flex_condiciones_salud"),
+#                 Proyecto.flex_salud_edad_0.label("flex_salud_edad_0"),
+#                 Proyecto.flex_salud_edad_1.label("flex_salud_edad_1"),
+#                 Proyecto.flex_salud_edad_2.label("flex_salud_edad_2"),
+#                 Proyecto.flex_salud_edad_3.label("flex_salud_edad_3"),
+#                 Proyecto.flex_salud_edad_4.label("flex_salud_edad_4"),
+
+#                 # Grupo de hermanos
+#                 Proyecto.hermanos_comp_1.label("hermanos_comp_1"),
+#                 Proyecto.hermanos_comp_2.label("hermanos_comp_2"),
+#                 Proyecto.hermanos_comp_3.label("hermanos_comp_3"),
+#                 Proyecto.hermanos_edad_0.label("hermanos_edad_0"),
+#                 Proyecto.hermanos_edad_1.label("hermanos_edad_1"),
+#                 Proyecto.hermanos_edad_2.label("hermanos_edad_2"),
+#                 Proyecto.hermanos_edad_3.label("hermanos_edad_3"),
+#                 Proyecto.flex_hermanos_comp_1.label("flex_hermanos_comp_1"),
+#                 Proyecto.flex_hermanos_comp_2.label("flex_hermanos_comp_2"),
+#                 Proyecto.flex_hermanos_comp_3.label("flex_hermanos_comp_3"),
+#                 Proyecto.flex_hermanos_edad_0.label("flex_hermanos_edad_0"),
+#                 Proyecto.flex_hermanos_edad_1.label("flex_hermanos_edad_1"),
+#                 Proyecto.flex_hermanos_edad_2.label("flex_hermanos_edad_2"),
+#                 Proyecto.flex_hermanos_edad_3.label("flex_hermanos_edad_3"),
+
+#                 Proyecto.subreg_1,
+#                 Proyecto.subreg_2,
+#                 Proyecto.subreg_3,
+#                 Proyecto.subreg_4,
+#                 Proyecto.subreg_FE1,
+#                 Proyecto.subreg_FE2,
+#                 Proyecto.subreg_FE3,
+#                 Proyecto.subreg_FE4,
+#                 Proyecto.subreg_FET,
+#                 Proyecto.subreg_5A1E1,
+#                 Proyecto.subreg_5A1E2,
+#                 Proyecto.subreg_5A1E3,
+#                 Proyecto.subreg_5A1E4,
+#                 Proyecto.subreg_5A1ET,
+#                 Proyecto.subreg_5A2E1,
+#                 Proyecto.subreg_5A2E2,
+#                 Proyecto.subreg_5A2E3,
+#                 Proyecto.subreg_5A2E4,
+#                 Proyecto.subreg_5A2ET,
+#                 Proyecto.subreg_5B1E1,
+#                 Proyecto.subreg_5B1E2,
+#                 Proyecto.subreg_5B1E3,
+#                 Proyecto.subreg_5B1E4,
+#                 Proyecto.subreg_5B1ET,
+#                 Proyecto.subreg_5B2E1,
+#                 Proyecto.subreg_5B2E2,
+#                 Proyecto.subreg_5B2E3,
+#                 Proyecto.subreg_5B2E4,
+#                 Proyecto.subreg_5B2ET,
+#                 Proyecto.subreg_5B3E1,
+#                 Proyecto.subreg_5B3E2,
+#                 Proyecto.subreg_5B3E3,
+#                 Proyecto.subreg_5B3E4,
+#                 Proyecto.subreg_5B3ET,
+#                 Proyecto.subreg_F5S,
+#                 Proyecto.subreg_F5E1,
+#                 Proyecto.subreg_F5E2,
+#                 Proyecto.subreg_F5E3,
+#                 Proyecto.subreg_F5E4,
+#                 Proyecto.subreg_F5ET,
+#                 Proyecto.subreg_61E1,
+#                 Proyecto.subreg_61E2,
+#                 Proyecto.subreg_61E3,
+#                 Proyecto.subreg_61ET,
+#                 Proyecto.subreg_62E1,
+#                 Proyecto.subreg_62E2,
+#                 Proyecto.subreg_62E3,
+#                 Proyecto.subreg_62ET,
+#                 Proyecto.subreg_63E1,
+#                 Proyecto.subreg_63E2,
+#                 Proyecto.subreg_63E3,
+#                 Proyecto.subreg_63ET,
+#                 Proyecto.subreg_FQ1,
+#                 Proyecto.subreg_FQ2,
+#                 Proyecto.subreg_FQ3,
+#                 Proyecto.subreg_F6E1,
+#                 Proyecto.subreg_F6E2,
+#                 Proyecto.subreg_F6E3,
+#                 Proyecto.subreg_F6ET,
+                
+#             )
+#             .filter(Proyecto.proyecto_id == proyecto_id)
+#             .first()
+#         )
+
+#         if not proyecto:
+#             raise HTTPException(status_code=404, detail=f"Proyecto con ID {proyecto_id} no encontrado.")
+
+
+#         # 🔹 Obtener última fecha viable → viable
+#         fecha_viable_a_viable = (
+#             db.query(func.max(ProyectoHistorialEstado.fecha_hora))
+#             .filter(
+#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+#                 ProyectoHistorialEstado.estado_anterior == "viable",
+#                 ProyectoHistorialEstado.estado_nuevo == "viable"
+#             )
+#             .scalar()
+#         )
+
+#         # 🔹 Obtener última fecha para_valorar → viable
+#         fecha_para_valorar_a_viable = (
+#             db.query(func.max(ProyectoHistorialEstado.fecha_hora))
+#             .filter(
+#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+#                 ProyectoHistorialEstado.estado_anterior == "para_valorar",
+#                 ProyectoHistorialEstado.estado_nuevo == "viable"
+#             )
+#             .scalar()
+#         )
+
+#         # 🔹 Normalizar fechas a datetime
+#         fechas_posibles = []
+
+#         if proyecto.ultimo_cambio_de_estado:
+#             fechas_posibles.append(
+#                 datetime.combine(proyecto.ultimo_cambio_de_estado, time.min)
+#             )
+#         if fecha_viable_a_viable:
+#             fechas_posibles.append(fecha_viable_a_viable)
+#         if fecha_para_valorar_a_viable:
+#             fechas_posibles.append(fecha_para_valorar_a_viable)
+
+#         # 🔹 Fecha más reciente
+#         fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
+
+#         # 🔹 Sumar 356 días si corresponde
+#         fecha_desde_que_necesita_ratificar = (
+#             (fecha_cambio_final + timedelta(days=365))
+#             if fecha_cambio_final
+#             and proyecto.estado_general == "viable"
+#             and proyecto.ingreso_por == "rua"
+#             else None
+#         )
+
+        
+#         # Obtener celulares directamente desde sec_users
+#         login_1_user = db.query(User).filter(User.login == proyecto.login_1).first()
+#         login_2_user = db.query(User).filter(User.login == proyecto.login_2).first()
+
+#         login_1_telefono = login_1_user.celular if login_1_user else None
+#         login_2_telefono = login_2_user.celular if login_2_user else None
+
+#         # También podés agregar mail si lo querés
+#         login_1_mail = login_1_user.mail if login_1_user else None
+#         login_2_mail = login_2_user.mail if login_2_user else None
+
+#         login_1_nombre_completo = f"{login_1_user.nombre} {login_1_user.apellido}" if login_1_user else None
+#         login_2_nombre_completo = f"{login_2_user.nombre} {login_2_user.apellido}" if login_2_user else None
+
+
+#         texto_boton_estado_proyecto = {
+#             "invitacion_pendiente": "CARGANDO P.",
+#             "confeccionando": "CARGANDO P.",
+#             "en_revision": "EN REVISIÓN",
+#             "actualizando": "ACTUALIZANDO P.",
+#             "aprobado": "P. APROBADO",
+#             "calendarizando": "CALENDARIZANDO",
+#             "entrevistando": "ENTREVISTAS",
+#             "para_valorar": "PARA VALORAR",
+#             "viable": "VIABLE",
+#             "viable_no_disponible": "VIABLE NO DISP.",
+#             "en_suspenso": "EN SUSPENSO",
+#             "no_viable": "NO VIABLE",
+#             "en_carpeta": "EN CARPETA",
+#             "vinculacion": "VINCULACIÓN",
+#             "guarda_provisoria": "GUARDA PROVISORIA",
+#             "guarda_confirmada": "GUARDA CONFIRMADA",
+#             "adopcion_definitiva": "ADOPCIÓN DEF.",
+#             "baja_anulacion": "P. BAJA ANUL.",
+#             "baja_caducidad": "P. BAJA CADUC.",
+#             "baja_por_convocatoria": "P. BAJA POR C.",
+#             "baja_rechazo_invitacion": "P. BAJA RECHAZO",
+#             "baja_interrupcion": "P. BAJA INTERR.",
+#         }.get(proyecto.estado_general, "ESTADO DESCONOCIDO")
+
+
+#         texto_ingreso_por = {
+#             "rua": "RUA",
+#             "oficio": "OFICIO",
+#             "convocatoria": "CONV.",
+#         }.get(proyecto.ingreso_por, "RUA")
+
+
+#         # Construir la respuesta con los detalles del proyecto
+#         proyecto_dict = {
+#             "proyecto_id": proyecto.proyecto_id,
+#             "proyecto_tipo": proyecto.proyecto_tipo,
+#             "nro_orden_rua": proyecto.nro_orden_rua,
+#             "subregistro_string": construir_subregistro_string(proyecto),  # Concatenación de subregistros
+
+#             "proyecto_calle_y_nro": proyecto.proyecto_calle_y_nro,
+#             "proyecto_depto_etc": proyecto.proyecto_depto_etc,
+#             "proyecto_barrio": proyecto.proyecto_barrio,
+#             "proyecto_localidad": proyecto.proyecto_localidad,
+#             "proyecto_provincia": proyecto.proyecto_provincia,
+
+#             "login_1_dni": proyecto.login_1,
+#             "login_1_name": login_1_nombre_completo,
+#             "login_1_telefono": login_1_telefono,
+#             "login_1_mail": login_1_mail,
+
+#             "login_2_dni": proyecto.login_2,
+#             "login_2_name": login_2_nombre_completo,
+#             "login_2_telefono": login_2_telefono,
+#             "login_2_mail": login_2_mail,
+
+#             "aceptado": proyecto.aceptado,
+#             "aceptado_code": proyecto.aceptado_code,
+
+#             "fecha_asignacion_nro_orden": parse_date(proyecto.fecha_asignacion_nro_orden),
+#             "ultimo_cambio_de_estado": parse_date(proyecto.ultimo_cambio_de_estado),
+#             "fecha_desde_que_necesita_ratificar": fecha_desde_que_necesita_ratificar.strftime("%Y-%m-%d") if fecha_desde_que_necesita_ratificar else None,
+
+#             "doc_proyecto_convivencia_o_estado_civil": proyecto.doc_proyecto_convivencia_o_estado_civil,
+#             "informe_profesionales": proyecto.informe_profesionales,
+#             "doc_dictamen": proyecto.doc_dictamen,
+
+#             "doc_informe_vinculacion": proyecto.doc_informe_vinculacion,
+#             "doc_informe_seguimiento_guarda": proyecto.doc_informe_seguimiento_guarda,
+
+#             "doc_sentencia_guarda": proyecto.doc_sentencia_guarda,
+#             "doc_informe_conclusivo": proyecto.doc_informe_conclusivo,
+#             "doc_sentencia_adopcion": proyecto.doc_sentencia_adopcion,
+#             "doc_interrupcion": proyecto.doc_interrupcion,
+
+#             "boton_solicitar_actualizacion_proyecto": proyecto.estado_general == "en_revision" and \
+#                 proyecto.proyecto_tipo in ("Matrimonio", "Unión convivencial"),
+
+#             "boton_valorar_proyecto": proyecto.estado_general == "en_revision",
+#             "boton_para_valoracion_final_proyecto": proyecto.estado_general == "para_valorar",
+#             "boton_para_sentencia_guarda": proyecto.estado_general == "vinculacion",
+#             "boton_para_sentencia_adopcion": proyecto.estado_general == "guarda_confirmada",
+#             "boton_agregar_a_carpeta": proyecto.estado_general == "viable",
+
+#             # "carpeta_ids": carpeta_ids,  # Lista de carpetas asociadas al proyecto
+
+#             "texto_boton_estado_proyecto": texto_boton_estado_proyecto,
+
+#             "estado_general": proyecto.estado_general,
+
+#             "ingreso_por": texto_ingreso_por,
+
+#             "subregistro_1": proyecto.subregistro_1,
+#             "subregistro_2": proyecto.subregistro_2,
+#             "subregistro_3": proyecto.subregistro_3,
+#             "subregistro_4": proyecto.subregistro_4,
+
+#             "flex_edad_1": proyecto.flex_edad_1,
+#             "flex_edad_2": proyecto.flex_edad_2,
+#             "flex_edad_3": proyecto.flex_edad_3,
+#             "flex_edad_4": proyecto.flex_edad_4,
+#             "flex_edad_todos": proyecto.flex_edad_todos,
+
+#             "discapacidad_1": proyecto.discapacidad_1,
+#             "discapacidad_2": proyecto.discapacidad_2,
+#             "edad_discapacidad_0": proyecto.edad_discapacidad_0,
+#             "edad_discapacidad_1": proyecto.edad_discapacidad_1,
+#             "edad_discapacidad_2": proyecto.edad_discapacidad_2,
+#             "edad_discapacidad_3": proyecto.edad_discapacidad_3,
+#             "edad_discapacidad_4": proyecto.edad_discapacidad_4,
+
+#             "enfermedad_1": proyecto.enfermedad_1,
+#             "enfermedad_2": proyecto.enfermedad_2,
+#             "enfermedad_3": proyecto.enfermedad_3,
+#             "edad_enfermedad_0": proyecto.edad_enfermedad_0,
+#             "edad_enfermedad_1": proyecto.edad_enfermedad_1,
+#             "edad_enfermedad_2": proyecto.edad_enfermedad_2,
+#             "edad_enfermedad_3": proyecto.edad_enfermedad_3,
+#             "edad_enfermedad_4": proyecto.edad_enfermedad_4,
+
+#             "flex_condiciones_salud": proyecto.flex_condiciones_salud,
+#             "flex_salud_edad_0": proyecto.flex_salud_edad_0,
+#             "flex_salud_edad_1": proyecto.flex_salud_edad_1,
+#             "flex_salud_edad_2": proyecto.flex_salud_edad_2,
+#             "flex_salud_edad_3": proyecto.flex_salud_edad_3,
+#             "flex_salud_edad_4": proyecto.flex_salud_edad_4,
+
+#             "hermanos_comp_1": proyecto.hermanos_comp_1,
+#             "hermanos_comp_2": proyecto.hermanos_comp_2,
+#             "hermanos_comp_3": proyecto.hermanos_comp_3,
+#             "hermanos_edad_0": proyecto.hermanos_edad_0,
+#             "hermanos_edad_1": proyecto.hermanos_edad_1,
+#             "hermanos_edad_2": proyecto.hermanos_edad_2,
+#             "hermanos_edad_3": proyecto.hermanos_edad_3,
+#             "flex_hermanos_comp_1": proyecto.flex_hermanos_comp_1,
+#             "flex_hermanos_comp_2": proyecto.flex_hermanos_comp_2,
+#             "flex_hermanos_comp_3": proyecto.flex_hermanos_comp_3,
+#             "flex_hermanos_edad_0": proyecto.flex_hermanos_edad_0,
+#             "flex_hermanos_edad_1": proyecto.flex_hermanos_edad_1,
+#             "flex_hermanos_edad_2": proyecto.flex_hermanos_edad_2,
+#             "flex_hermanos_edad_3": proyecto.flex_hermanos_edad_3,
+
+
+            
+#         }
+
+#         # 🔁 Agrega todos los campos subreg_... al dict
+#         subregistros_definitivos = [
+#             "subreg_1", "subreg_2", "subreg_3", "subreg_4",
+#             "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
+#             "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
+#             "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
+#             "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
+#             "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
+#             "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
+#             "subreg_F5S", "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
+#             "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
+#             "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
+#             "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
+#             "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
+#             "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET",
+#         ]
+
+#         for campo in subregistros_definitivos:
+#             proyecto_dict[campo] = getattr(proyecto, campo, None)
+
+
+#         # Inicializar listas y set de IDs para evitar duplicados
+#         nna_asociados = []
+#         nna_ids_agregados = set()
+#         convocatoria_info = None
+
+#         # 🔍 Si el proyecto está en carpeta, obtener los NNA de la carpeta
+#         detalle_proyecto_carpeta = db.query(DetalleProyectosEnCarpeta).filter(
+#             DetalleProyectosEnCarpeta.proyecto_id == proyecto.proyecto_id
+#         ).first()
+
+#         if detalle_proyecto_carpeta:
+#             carpeta = detalle_proyecto_carpeta.carpeta
+#             if carpeta:
+#                 for detalle_nna in carpeta.detalle_nna:
+#                     nna = detalle_nna.nna
+#                     if nna and nna.nna_id not in nna_ids_agregados:
+#                         edad = date.today().year - nna.nna_fecha_nacimiento.year - (
+#                             (date.today().month, date.today().day) < (nna.nna_fecha_nacimiento.month, nna.nna_fecha_nacimiento.day)
+#                         ) if nna.nna_fecha_nacimiento else None
+
+#                         nna_asociados.append({
+#                             "nna_id": nna.nna_id,
+#                             "nna_nombre": nna.nna_nombre,
+#                             "nna_apellido": nna.nna_apellido,
+#                             "nna_edad": edad,
+#                         })
+#                         nna_ids_agregados.add(nna.nna_id)
+
+#         # 🔍 Si el proyecto ingresó por convocatoria, obtener info de convocatoria y NNA asociados
+#         if proyecto.ingreso_por == "convocatoria":
+#             detalle_postulacion = db.query(DetalleProyectoPostulacion).filter(
+#                 DetalleProyectoPostulacion.proyecto_id == proyecto.proyecto_id
+#             ).first()
+
+#             if detalle_postulacion:
+#                 postulacion = detalle_postulacion.postulacion
+#                 convocatoria = postulacion.convocatoria if postulacion else None
+
+#                 if convocatoria:
+#                     convocatoria_info = {
+#                         "convocatoria_id": convocatoria.convocatoria_id,
+#                         "convocatoria_referencia": convocatoria.convocatoria_referencia,
+#                         "convocatoria_llamado": convocatoria.convocatoria_llamado,
+#                         "convocatoria_juzgado_interviniente": convocatoria.convocatoria_juzgado_interviniente,
+#                         "convocatoria_fecha_publicacion": str(convocatoria.convocatoria_fecha_publicacion),
+#                     }
+
+#                     for detalle_nna in convocatoria.detalle_nnas:
+#                         nna = detalle_nna.nna
+#                         if nna and nna.nna_id not in nna_ids_agregados:
+#                             edad = date.today().year - nna.nna_fecha_nacimiento.year - (
+#                                 (date.today().month, date.today().day) < (nna.nna_fecha_nacimiento.month, nna.nna_fecha_nacimiento.day)
+#                             ) if nna.nna_fecha_nacimiento else None
+
+#                             nna_asociados.append({
+#                                 "nna_id": nna.nna_id,
+#                                 "nna_nombre": nna.nna_nombre,
+#                                 "nna_apellido": nna.nna_apellido,
+#                                 "nna_edad": edad,
+#                             })
+#                             nna_ids_agregados.add(nna.nna_id)
+
+#         proyecto_dict["nna_asociados"] = nna_asociados
+#         proyecto_dict["convocatoria"] = convocatoria_info
+
+    
+#         return proyecto_dict
+    
+
+#     except SQLAlchemyError as e:
+#         raise HTTPException(status_code=500, detail=f"Error al recuperar el proyecto: {str(e)}")
+
+
+
+
 @proyectos_router.get("/{proyecto_id}", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), 
-                                Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante", "coordinadora"]))])
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador","supervision","supervisora","profesional","adoptante","coordinadora"]))])
 def get_proyecto_por_id(
     request: Request,
     proyecto_id: int,
     db: Session = Depends(get_db),
 ):
     """
-    Obtiene los detalles de un proyecto específico según su `proyecto_id`.
+    Obtiene los detalles de un proyecto específico según su `proyecto_id`
+    y agrega listas extra (no intrusivas) de proyectos relacionados:
+      - proyectos_rua_activos / proyectos_rua_cerrados / proyectos_convocatoria / proyectos_oficio
+        calculados para la misma pareja (login_1, login_2) sin importar el orden.
+      - otros_proyectos_login_1 / otros_proyectos_login_2: proyectos donde aparece cada pretenso
+        (solo o con otra pareja), excluyendo los de esta misma pareja.
     """
+    # ==============================
+    # Constantes de estados/agrupación
+    # ==============================
+    ESTADOS_RUA_ACTIVOS = {
+        "invitacion_pendiente", "confeccionando", "en_revision", "actualizando", "aprobado",
+        "calendarizando", "entrevistando", "para_valorar", "viable", "viable_no_disponible",
+        "en_suspenso", "no_viable", "en_carpeta", "vinculacion", "guarda_provisoria", "guarda_confirmada"
+    }
+    ESTADOS_RUA_CERRADOS = {
+        "adopcion_definitiva", "baja_anulacion", "baja_caducidad",
+        "baja_por_convocatoria", "baja_rechazo_invitacion", "baja_interrupcion"
+    }
+
+    def serialize_proyecto_lean(p):
+        return {
+            "proyecto_id": p.proyecto_id,
+            "estado_general": p.estado_general,
+            "proyecto_tipo": p.proyecto_tipo,
+            "ingreso_por": p.ingreso_por,
+            "nro_orden_rua": p.nro_orden_rua,
+            "login_1": p.login_1,
+            "login_2": p.login_2,
+            "fecha_asignacion_nro_orden": parse_date(p.fecha_asignacion_nro_orden),
+            "ultimo_cambio_de_estado": parse_date(p.ultimo_cambio_de_estado),
+        }
+
     try:
-        # Consulta principal para obtener los detalles del proyecto
+        # ==============================
+        # Consulta principal del proyecto
+        # ==============================
         proyecto = (
             db.query(
                 Proyecto.proyecto_id.label("proyecto_id"),
@@ -802,21 +1324,17 @@ def get_proyecto_por_id(
                 Proyecto.operativo.label("proyecto_operativo"),
                 Proyecto.login_1.label("login_1"),
                 Proyecto.login_2.label("login_2"),
-                
                 Proyecto.aceptado.label("aceptado"),
                 Proyecto.aceptado_code.label("aceptado_code"),
-
                 Proyecto.doc_proyecto_convivencia_o_estado_civil.label("doc_proyecto_convivencia_o_estado_civil"),
                 Proyecto.informe_profesionales.label("informe_profesionales"),
                 Proyecto.doc_dictamen.label("doc_dictamen"),
-
                 Proyecto.doc_informe_vinculacion.label("doc_informe_vinculacion"),
                 Proyecto.doc_informe_seguimiento_guarda.label("doc_informe_seguimiento_guarda"),
                 Proyecto.doc_sentencia_guarda.label("doc_sentencia_guarda"),
                 Proyecto.doc_informe_conclusivo.label("doc_informe_conclusivo"),
                 Proyecto.doc_sentencia_adopcion.label("doc_sentencia_adopcion"),
                 Proyecto.doc_interrupcion.label("doc_interrupcion"),
-
                 Proyecto.subregistro_1.label("subregistro_1"),
                 Proyecto.subregistro_2.label("subregistro_2"),
                 Proyecto.subregistro_3.label("subregistro_3"),
@@ -833,18 +1351,14 @@ def get_proyecto_por_id(
                 Proyecto.subregistro_6_mas_de_3.label("subregistro_6_mas_de_3"),
                 Proyecto.subregistro_flexible.label("subregistro_flexible"),
                 Proyecto.subregistro_otra_provincia.label("subregistro_otra_provincia"),
-
                 Proyecto.proyecto_calle_y_nro.label("proyecto_calle_y_nro"),
                 Proyecto.proyecto_depto_etc.label("proyecto_depto_etc"),
                 Proyecto.proyecto_barrio.label("proyecto_barrio"),
                 Proyecto.proyecto_localidad.label("proyecto_localidad"),
                 Proyecto.proyecto_provincia.label("proyecto_provincia"),
-
                 Proyecto.fecha_asignacion_nro_orden.label("fecha_asignacion_nro_orden"),
                 Proyecto.ultimo_cambio_de_estado.label("ultimo_cambio_de_estado"),
-
                 Proyecto.estado_general.label("estado_general"),
-
                 Proyecto.ingreso_por.label("ingreso_por"),
 
                 # Flexibilidad edad
@@ -897,66 +1411,20 @@ def get_proyecto_por_id(
                 Proyecto.flex_hermanos_edad_2.label("flex_hermanos_edad_2"),
                 Proyecto.flex_hermanos_edad_3.label("flex_hermanos_edad_3"),
 
-                Proyecto.subreg_1,
-                Proyecto.subreg_2,
-                Proyecto.subreg_3,
-                Proyecto.subreg_4,
-                Proyecto.subreg_FE1,
-                Proyecto.subreg_FE2,
-                Proyecto.subreg_FE3,
-                Proyecto.subreg_FE4,
-                Proyecto.subreg_FET,
-                Proyecto.subreg_5A1E1,
-                Proyecto.subreg_5A1E2,
-                Proyecto.subreg_5A1E3,
-                Proyecto.subreg_5A1E4,
-                Proyecto.subreg_5A1ET,
-                Proyecto.subreg_5A2E1,
-                Proyecto.subreg_5A2E2,
-                Proyecto.subreg_5A2E3,
-                Proyecto.subreg_5A2E4,
-                Proyecto.subreg_5A2ET,
-                Proyecto.subreg_5B1E1,
-                Proyecto.subreg_5B1E2,
-                Proyecto.subreg_5B1E3,
-                Proyecto.subreg_5B1E4,
-                Proyecto.subreg_5B1ET,
-                Proyecto.subreg_5B2E1,
-                Proyecto.subreg_5B2E2,
-                Proyecto.subreg_5B2E3,
-                Proyecto.subreg_5B2E4,
-                Proyecto.subreg_5B2ET,
-                Proyecto.subreg_5B3E1,
-                Proyecto.subreg_5B3E2,
-                Proyecto.subreg_5B3E3,
-                Proyecto.subreg_5B3E4,
-                Proyecto.subreg_5B3ET,
-                Proyecto.subreg_F5S,
-                Proyecto.subreg_F5E1,
-                Proyecto.subreg_F5E2,
-                Proyecto.subreg_F5E3,
-                Proyecto.subreg_F5E4,
-                Proyecto.subreg_F5ET,
-                Proyecto.subreg_61E1,
-                Proyecto.subreg_61E2,
-                Proyecto.subreg_61E3,
-                Proyecto.subreg_61ET,
-                Proyecto.subreg_62E1,
-                Proyecto.subreg_62E2,
-                Proyecto.subreg_62E3,
-                Proyecto.subreg_62ET,
-                Proyecto.subreg_63E1,
-                Proyecto.subreg_63E2,
-                Proyecto.subreg_63E3,
-                Proyecto.subreg_63ET,
-                Proyecto.subreg_FQ1,
-                Proyecto.subreg_FQ2,
-                Proyecto.subreg_FQ3,
-                Proyecto.subreg_F6E1,
-                Proyecto.subreg_F6E2,
-                Proyecto.subreg_F6E3,
-                Proyecto.subreg_F6ET,
-                
+                # Subregistros definitivos
+                Proyecto.subreg_1, Proyecto.subreg_2, Proyecto.subreg_3, Proyecto.subreg_4,
+                Proyecto.subreg_FE1, Proyecto.subreg_FE2, Proyecto.subreg_FE3, Proyecto.subreg_FE4, Proyecto.subreg_FET,
+                Proyecto.subreg_5A1E1, Proyecto.subreg_5A1E2, Proyecto.subreg_5A1E3, Proyecto.subreg_5A1E4, Proyecto.subreg_5A1ET,
+                Proyecto.subreg_5A2E1, Proyecto.subreg_5A2E2, Proyecto.subreg_5A2E3, Proyecto.subreg_5A2E4, Proyecto.subreg_5A2ET,
+                Proyecto.subreg_5B1E1, Proyecto.subreg_5B1E2, Proyecto.subreg_5B1E3, Proyecto.subreg_5B1E4, Proyecto.subreg_5B1ET,
+                Proyecto.subreg_5B2E1, Proyecto.subreg_5B2E2, Proyecto.subreg_5B2E3, Proyecto.subreg_5B2E4, Proyecto.subreg_5B2ET,
+                Proyecto.subreg_5B3E1, Proyecto.subreg_5B3E2, Proyecto.subreg_5B3E3, Proyecto.subreg_5B3E4, Proyecto.subreg_5B3ET,
+                Proyecto.subreg_F5S, Proyecto.subreg_F5E1, Proyecto.subreg_F5E2, Proyecto.subreg_F5E3, Proyecto.subreg_F5E4, Proyecto.subreg_F5ET,
+                Proyecto.subreg_61E1, Proyecto.subreg_61E2, Proyecto.subreg_61E3, Proyecto.subreg_61ET,
+                Proyecto.subreg_62E1, Proyecto.subreg_62E2, Proyecto.subreg_62E3, Proyecto.subreg_62ET,
+                Proyecto.subreg_63E1, Proyecto.subreg_63E2, Proyecto.subreg_63E3, Proyecto.subreg_63ET,
+                Proyecto.subreg_FQ1, Proyecto.subreg_FQ2, Proyecto.subreg_FQ3,
+                Proyecto.subreg_F6E1, Proyecto.subreg_F6E2, Proyecto.subreg_F6E3, Proyecto.subreg_F6ET,
             )
             .filter(Proyecto.proyecto_id == proyecto_id)
             .first()
@@ -965,8 +1433,7 @@ def get_proyecto_por_id(
         if not proyecto:
             raise HTTPException(status_code=404, detail=f"Proyecto con ID {proyecto_id} no encontrado.")
 
-
-        # 🔹 Obtener última fecha viable → viable
+        # --------- Lógica de fechas para ratificación (igual que tenías) ---------
         fecha_viable_a_viable = (
             db.query(func.max(ProyectoHistorialEstado.fecha_hora))
             .filter(
@@ -976,8 +1443,6 @@ def get_proyecto_por_id(
             )
             .scalar()
         )
-
-        # 🔹 Obtener última fecha para_valorar → viable
         fecha_para_valorar_a_viable = (
             db.query(func.max(ProyectoHistorialEstado.fecha_hora))
             .filter(
@@ -988,45 +1453,31 @@ def get_proyecto_por_id(
             .scalar()
         )
 
-        # 🔹 Normalizar fechas a datetime
         fechas_posibles = []
-
         if proyecto.ultimo_cambio_de_estado:
-            fechas_posibles.append(
-                datetime.combine(proyecto.ultimo_cambio_de_estado, time.min)
-            )
+            fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
         if fecha_viable_a_viable:
             fechas_posibles.append(fecha_viable_a_viable)
         if fecha_para_valorar_a_viable:
             fechas_posibles.append(fecha_para_valorar_a_viable)
 
-        # 🔹 Fecha más reciente
         fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
-
-        # 🔹 Sumar 356 días si corresponde
         fecha_desde_que_necesita_ratificar = (
             (fecha_cambio_final + timedelta(days=365))
-            if fecha_cambio_final
-            and proyecto.estado_general == "viable"
-            and proyecto.ingreso_por == "rua"
+            if (fecha_cambio_final and proyecto.estado_general == "viable" and proyecto.ingreso_por == "rua")
             else None
         )
 
-        
-        # Obtener celulares directamente desde sec_users
+        # --------- Datos de contacto de login_1 / login_2 ---------
         login_1_user = db.query(User).filter(User.login == proyecto.login_1).first()
         login_2_user = db.query(User).filter(User.login == proyecto.login_2).first()
 
         login_1_telefono = login_1_user.celular if login_1_user else None
         login_2_telefono = login_2_user.celular if login_2_user else None
-
-        # También podés agregar mail si lo querés
         login_1_mail = login_1_user.mail if login_1_user else None
         login_2_mail = login_2_user.mail if login_2_user else None
-
         login_1_nombre_completo = f"{login_1_user.nombre} {login_1_user.apellido}" if login_1_user else None
         login_2_nombre_completo = f"{login_2_user.nombre} {login_2_user.apellido}" if login_2_user else None
-
 
         texto_boton_estado_proyecto = {
             "invitacion_pendiente": "CARGANDO P.",
@@ -1053,7 +1504,6 @@ def get_proyecto_por_id(
             "baja_interrupcion": "P. BAJA INTERR.",
         }.get(proyecto.estado_general, "ESTADO DESCONOCIDO")
 
-
         texto_ingreso_por = {
             "rua": "RUA",
             "oficio": "OFICIO",
@@ -1061,12 +1511,31 @@ def get_proyecto_por_id(
         }.get(proyecto.ingreso_por, "RUA")
 
 
-        # Construir la respuesta con los detalles del proyecto
+        # ===== Helpers para vacíos / igualdad de pareja =====
+        def is_blank(v):
+            return v is None or (isinstance(v, str) and v.strip() == "")
+
+        def norm(v):
+            return None if is_blank(v) else v
+
+        # Logins normalizados de este proyecto
+        l1 = norm(proyecto.login_1)
+        l2 = norm(proyecto.login_2)
+
+        def es_misma_pareja(p: Proyecto) -> bool:
+            a1, a2 = norm(p.login_1), norm(p.login_2)
+            # misma pareja = mismo conjunto {l1,l2} sin importar orden
+            return (a1 == l1 and a2 == l2) or (a1 == l2 and a2 == l1)
+
+
+        # ==============================
+        # Armar respuesta base (igual a la tuya)
+        # ==============================
         proyecto_dict = {
             "proyecto_id": proyecto.proyecto_id,
             "proyecto_tipo": proyecto.proyecto_tipo,
             "nro_orden_rua": proyecto.nro_orden_rua,
-            "subregistro_string": construir_subregistro_string(proyecto),  # Concatenación de subregistros
+            "subregistro_string": construir_subregistro_string(proyecto),
 
             "proyecto_calle_y_nro": proyecto.proyecto_calle_y_nro,
             "proyecto_depto_etc": proyecto.proyecto_depto_etc,
@@ -1097,7 +1566,6 @@ def get_proyecto_por_id(
 
             "doc_informe_vinculacion": proyecto.doc_informe_vinculacion,
             "doc_informe_seguimiento_guarda": proyecto.doc_informe_seguimiento_guarda,
-
             "doc_sentencia_guarda": proyecto.doc_sentencia_guarda,
             "doc_informe_conclusivo": proyecto.doc_informe_conclusivo,
             "doc_sentencia_adopcion": proyecto.doc_sentencia_adopcion,
@@ -1112,12 +1580,8 @@ def get_proyecto_por_id(
             "boton_para_sentencia_adopcion": proyecto.estado_general == "guarda_confirmada",
             "boton_agregar_a_carpeta": proyecto.estado_general == "viable",
 
-            # "carpeta_ids": carpeta_ids,  # Lista de carpetas asociadas al proyecto
-
             "texto_boton_estado_proyecto": texto_boton_estado_proyecto,
-
             "estado_general": proyecto.estado_general,
-
             "ingreso_por": texto_ingreso_por,
 
             "subregistro_1": proyecto.subregistro_1,
@@ -1169,13 +1633,10 @@ def get_proyecto_por_id(
             "flex_hermanos_edad_1": proyecto.flex_hermanos_edad_1,
             "flex_hermanos_edad_2": proyecto.flex_hermanos_edad_2,
             "flex_hermanos_edad_3": proyecto.flex_hermanos_edad_3,
-
-
-            
         }
 
-        # 🔁 Agrega todos los campos subreg_... al dict
-        subregistros_definitivos = [
+        # Agrego todos los subreg_* definitivos
+        subregistros_def = [
             "subreg_1", "subreg_2", "subreg_3", "subreg_4",
             "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
             "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
@@ -1190,17 +1651,13 @@ def get_proyecto_por_id(
             "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
             "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET",
         ]
-
-        for campo in subregistros_definitivos:
+        for campo in subregistros_def:
             proyecto_dict[campo] = getattr(proyecto, campo, None)
 
-
-        # Inicializar listas y set de IDs para evitar duplicados
-        nna_asociados = []
-        nna_ids_agregados = set()
-        convocatoria_info = None
-
-        # 🔍 Si el proyecto está en carpeta, obtener los NNA de la carpeta
+        # ==============================
+        # NNA asociados y convocatoria (igual a tu lógica)
+        # ==============================
+        nna_asociados, nna_ids_agregados = [], set()
         detalle_proyecto_carpeta = db.query(DetalleProyectosEnCarpeta).filter(
             DetalleProyectosEnCarpeta.proyecto_id == proyecto.proyecto_id
         ).first()
@@ -1214,25 +1671,18 @@ def get_proyecto_por_id(
                         edad = date.today().year - nna.nna_fecha_nacimiento.year - (
                             (date.today().month, date.today().day) < (nna.nna_fecha_nacimiento.month, nna.nna_fecha_nacimiento.day)
                         ) if nna.nna_fecha_nacimiento else None
-
-                        nna_asociados.append({
-                            "nna_id": nna.nna_id,
-                            "nna_nombre": nna.nna_nombre,
-                            "nna_apellido": nna.nna_apellido,
-                            "nna_edad": edad,
-                        })
+                        nna_asociados.append({"nna_id": nna.nna_id, "nna_nombre": nna.nna_nombre,
+                                              "nna_apellido": nna.nna_apellido, "nna_edad": edad})
                         nna_ids_agregados.add(nna.nna_id)
 
-        # 🔍 Si el proyecto ingresó por convocatoria, obtener info de convocatoria y NNA asociados
+        convocatoria_info = None
         if proyecto.ingreso_por == "convocatoria":
             detalle_postulacion = db.query(DetalleProyectoPostulacion).filter(
                 DetalleProyectoPostulacion.proyecto_id == proyecto.proyecto_id
             ).first()
-
             if detalle_postulacion:
                 postulacion = detalle_postulacion.postulacion
                 convocatoria = postulacion.convocatoria if postulacion else None
-
                 if convocatoria:
                     convocatoria_info = {
                         "convocatoria_id": convocatoria.convocatoria_id,
@@ -1241,28 +1691,108 @@ def get_proyecto_por_id(
                         "convocatoria_juzgado_interviniente": convocatoria.convocatoria_juzgado_interviniente,
                         "convocatoria_fecha_publicacion": str(convocatoria.convocatoria_fecha_publicacion),
                     }
-
                     for detalle_nna in convocatoria.detalle_nnas:
                         nna = detalle_nna.nna
                         if nna and nna.nna_id not in nna_ids_agregados:
                             edad = date.today().year - nna.nna_fecha_nacimiento.year - (
                                 (date.today().month, date.today().day) < (nna.nna_fecha_nacimiento.month, nna.nna_fecha_nacimiento.day)
                             ) if nna.nna_fecha_nacimiento else None
-
-                            nna_asociados.append({
-                                "nna_id": nna.nna_id,
-                                "nna_nombre": nna.nna_nombre,
-                                "nna_apellido": nna.nna_apellido,
-                                "nna_edad": edad,
-                            })
+                            nna_asociados.append({"nna_id": nna.nna_id, "nna_nombre": nna.nna_nombre,
+                                                  "nna_apellido": nna.nna_apellido, "nna_edad": edad})
                             nna_ids_agregados.add(nna.nna_id)
 
         proyecto_dict["nna_asociados"] = nna_asociados
         proyecto_dict["convocatoria"] = convocatoria_info
 
-    
+
+        # Si es biparental: (l1,l2) u (l2,l1). Si es monoparental: (l1,None) u (None,l1)
+        if l2 is None:
+            pareja_projects_q = (
+                db.query(Proyecto)
+                .filter(
+                    or_(
+                        and_(Proyecto.login_1 == l1, or_(Proyecto.login_2 == None, Proyecto.login_2 == "")),
+                        and_(Proyecto.login_2 == l1, or_(Proyecto.login_1 == None, Proyecto.login_1 == "")),
+                    )
+                )
+                .order_by(desc(func.coalesce(Proyecto.ultimo_cambio_de_estado, Proyecto.fecha_asignacion_nro_orden)))
+            )
+        else:
+            pareja_projects_q = (
+                db.query(Proyecto)
+                .filter(
+                    or_(
+                        and_(Proyecto.login_1 == l1, Proyecto.login_2 == l2),
+                        and_(Proyecto.login_1 == l2, Proyecto.login_2 == l1),
+                    )
+                )
+                .order_by(desc(func.coalesce(Proyecto.ultimo_cambio_de_estado, Proyecto.fecha_asignacion_nro_orden)))
+            )
+
+        pareja_projects = pareja_projects_q.all()
+
+
+        proyectos_rua_activos = [serialize_proyecto_lean(p) for p in pareja_projects
+                                 if (p.ingreso_por == "rua" and p.estado_general in ESTADOS_RUA_ACTIVOS)]
+        proyectos_rua_cerrados = [serialize_proyecto_lean(p) for p in pareja_projects
+                                  if (p.ingreso_por == "rua" and p.estado_general in ESTADOS_RUA_CERRADOS)]
+        proyectos_convocatoria = [serialize_proyecto_lean(p) for p in pareja_projects if p.ingreso_por == "convocatoria"]
+        proyectos_oficio = [serialize_proyecto_lean(p) for p in pareja_projects if p.ingreso_por == "oficio"]
+
+
+        # Todos los proyectos donde aparece login_1
+        proyectos_login_1 = (
+            db.query(Proyecto)
+            .filter(or_(Proyecto.login_1 == l1, Proyecto.login_2 == l1))
+            .order_by(desc(func.coalesce(Proyecto.ultimo_cambio_de_estado, Proyecto.fecha_asignacion_nro_orden)))
+            .all()
+        )
+
+        # Si el proyecto es monoparental, NO consultes por login_2 (evita traer proyectos con NULL/'' en masa)
+        if l2 is None:
+            proyectos_login_2 = []
+        else:
+            proyectos_login_2 = (
+                db.query(Proyecto)
+                .filter(or_(Proyecto.login_1 == l2, Proyecto.login_2 == l2))
+                .order_by(desc(func.coalesce(Proyecto.ultimo_cambio_de_estado, Proyecto.fecha_asignacion_nro_orden)))
+                .all()
+        )
+            
+        otros_proyectos_login_1 = []
+        for p in proyectos_login_1:
+            if p.proyecto_id == proyecto.proyecto_id or es_misma_pareja(p):
+                continue
+            otros_proyectos_login_1.append({
+                **serialize_proyecto_lean(p),
+                "pareja_login": p.login_2 if p.login_1 == l1 else p.login_1 or None,
+            })
+
+        otros_proyectos_login_2 = []
+        for p in proyectos_login_2:
+            if p.proyecto_id == proyecto.proyecto_id or es_misma_pareja(p):
+                continue
+            otros_proyectos_login_2.append({
+                **serialize_proyecto_lean(p),
+                "pareja_login": p.login_2 if p.login_1 == l2 else p.login_1 or None,
+            })
+
+        # ============================================================
+        # Anexar NUEVAS CLAVES sin tocar lo anterior
+        # ============================================================
+        proyecto_dict.update({
+            # 4 listas pedidas (misma pareja)
+            "proyectos_rua_activos": proyectos_rua_activos,
+            "proyectos_rua_cerrados": proyectos_rua_cerrados,
+            "proyectos_convocatoria": proyectos_convocatoria,
+            "proyectos_oficio": proyectos_oficio,
+
+            # Campos extra: otros proyectos de cada pretenso
+            "otros_proyectos_login_1": otros_proyectos_login_1,
+            "otros_proyectos_login_2": otros_proyectos_login_2,
+        })
+
         return proyecto_dict
-    
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al recuperar el proyecto: {str(e)}")
