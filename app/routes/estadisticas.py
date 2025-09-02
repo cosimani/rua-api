@@ -22,6 +22,21 @@ from helpers.utils import EstadisticasPDF, calcular_estadisticas_generales
 estadisticas_router = APIRouter()
 
 
+def g(stats: dict, path: str, default=0):
+    """
+    Lee claves anidadas con path tipo 'proyectos.resumen.proyectos_viables'.
+    Si no existe, devuelve default.
+    """
+    cur = stats
+    try:
+        for k in path.split("."):
+            cur = cur[k]
+        return cur
+    except Exception:
+        return default
+    
+
+
 @estadisticas_router.get("/generales", response_model=dict, 
                          dependencies=[Depends( verify_api_key ), 
                                        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
@@ -30,92 +45,311 @@ def get_estadisticas(db: Session = Depends(get_db)):
 
 
 
-
-
-@estadisticas_router.get("/informe_general", 
-                         dependencies=[Depends(verify_api_key), 
-                                       Depends(require_roles(["administrador", "supervision", "supervisora", "coordinadora"]))])
+@estadisticas_router.get(
+    "/informe_general",
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "coordinadora"]))
+    ],
+)
 def generar_pdf_estadisticas(db: Session = Depends(get_db)):
     stats = calcular_estadisticas_generales(db)
+
     pdf = EstadisticasPDF()
     pdf.add_page()
 
-    # Resumen General
+    # =========================================================
+    # RESUMEN GENERAL
+    # =========================================================
     pdf.section_title("Resumen General de Indicadores Clave")
+
     resumen_general = [
         ["Indicador", "Cantidad"],
-        ["Proyectos viables disponibles", stats.get("proyectos_viables", 0)],
-        ["Proyectos en etapa de entrevistas", stats.get("proyectos_en_entrevistas", 0)],
-        ["Pretensos aprobados", stats.get("pretensos_aprobados_con_estado_valido", 0)],
-        ["NNAs con Adopciones Definitivas", stats.get("nna_en_adopcion_definitiva", 0)],
-        ["NNAs en Guarda", stats.get("nna_en_guarda", 0)],
-        ["NNAs en RUA", stats.get("nna_en_rua", 0)],
+        ["Proyectos viables disponibles", g(stats, "proyectos.resumen.proyectos_viables")],
+        ["Proyectos en etapa de entrevistas", g(stats, "proyectos.resumen.proyectos_en_entrevistas")],
+        ["Pretensos aprobados habilitados", g(stats, "usuarios.pretensos_aprobados_con_estado_valido")],
+        ["NNAs con Adopción Definitiva", g(stats, "nna.nna_en_adopcion_definitiva")],
+        ["NNAs en Guarda Confirmada", g(stats, "nna.nna_en_guarda_confirmada")],
+        ["NNAs en RUA (menores sin carpeta)", g(stats, "nna.nna_en_rua")],
     ]
     pdf.add_table(resumen_general)
 
-    # 1) Proyectos aprobados
-    pdf.section_title("1) Estadísticas en relación a los proyectos")
+    # =========================================================
+    # 1) PROYECTOS
+    # =========================================================
+    pdf.section_title("1) Estadísticas de Proyectos por Tipo")
 
     tabla_1 = [
-        ["Tipo de Proyecto", "Presentando", "En revisión", "Calendarizables", "Entrevistando"],
-        ["Pareja", stats["proyectos_en_pareja_subiendo_documentacion"],
-         stats["proyectos_en_pareja_en_revision_por_supervision"],
-         stats["proyectos_en_pareja_aprobados_para_calendarizar"],
-         stats["entrevistando_en_pareja"]],
-        ["Monoparental", stats["proyectos_monoparentales_subiendo_documentacion"],
-         stats["proyectos_monoparentales_en_revision_por_supervision"],
-         stats["proyectos_monoparentales_aprobados_para_calendarizar"],
-         stats["entrevistando_monoparental"]]
+        ["Tipo", "Presentando doc.", "En revisión", "Calendarizables", "Entrevistando"],
+        [
+            "Pareja",
+            g(stats, "proyectos.tipos.en_pareja_subiendo_documentacion"),
+            g(stats, "proyectos.tipos.en_pareja_en_revision"),
+            g(stats, "proyectos.tipos.en_pareja_aprobados_para_calendarizar"),
+            g(stats, "proyectos.tipos.entrevistando_en_pareja"),
+        ],
+        [
+            "Monoparental",
+            g(stats, "proyectos.tipos.monoparentales_subiendo_documentacion"),
+            g(stats, "proyectos.tipos.monoparentales_en_revision"),
+            g(stats, "proyectos.tipos.monoparentales_aprobados_para_calendarizar"),
+            g(stats, "proyectos.tipos.entrevistando_monoparental"),
+        ],
     ]
     pdf.add_table(tabla_1)
 
     tabla_2 = [
-        ["Tipo de Proyecto", "En suspenso", "No viables", "Baja definitiva"],
-        ["Pareja", stats["proyectos_en_pareja_en_suspenso"], stats["proyectos_en_pareja_no_viable"], stats["proyectos_en_pareja_baja_definitiva"]],
-        ["Monoparental", stats["proyectos_monoparentales_en_suspenso"], stats["proyectos_monoparentales_no_viable"], stats["proyectos_monoparentales_baja_definitiva"]],
+        ["Tipo", "En suspenso", "No viables", "Baja definitiva"],
+        [
+            "Pareja",
+            g(stats, "proyectos.resumen.proyectos_en_suspenso"),  # total
+            g(stats, "proyectos.resumen.proyectos_no_viables"),   # total
+            g(stats, "proyectos.tipos.en_pareja_baja_definitiva"),  # ⚠️ ver nota abajo
+        ],
+        [
+            "Monoparental",
+            "",  # (opcional mostrar por tipo si querés; abajo incluyo la métrica) 
+            "",  # (opcional idem)
+            g(stats, "proyectos.tipos.monoparentales_baja_definitiva"),  # ⚠️ ver nota abajo
+        ],
     ]
     pdf.add_table(tabla_2)
 
     tabla_3 = [
-        ["Tipo de Proyecto", "Viables disponibles", "Adopción definitiva"],
-        ["Pareja", stats["proyectos_en_pareja_viable"], stats["proyectos_adopcion_definitiva_pareja"]],
-        ["Monoparental", stats["proyectos_monoparental_viable"], stats["proyectos_adopcion_definitiva_monoparental"]]
+        ["Tipo", "Viables disponibles", "Adopción definitiva"],
+        [
+            "Pareja",
+            g(stats, "proyectos.tipos.en_pareja_viable"),
+            g(stats, "proyectos.tipos.proyectos_adopcion_definitiva_pareja"),
+        ],
+        [
+            "Monoparental",
+            g(stats, "proyectos.tipos.proyectos_monoparental_viable"),
+            g(stats, "proyectos.tipos.proyectos_adopcion_definitiva_monoparental"),
+        ],
     ]
     pdf.add_table(tabla_3)
 
-    # 2) NNA con sentencia
-    
-    pdf.section_title("2) Estadísticas en relación a NNAs")
-
-    nna_sentencia = [
-        ["Edad / Estado", "En Guarda", "En Adopción"],
-        ["0-6 años", stats["guarda_grupo_0_6"], stats["adopcion_grupo_0_6"]],
-        ["7-11 años", stats["guarda_grupo_7_11"], stats["adopcion_grupo_7_11"]],
-        ["12-17 años", stats["guarda_grupo_12_17"], stats["adopcion_grupo_12_17"]],
+    tabla_4 = [
+        ["Ingreso por", "Cantidad"],
+        ["RUA", g(stats, "proyectos.por_ingreso.rua")],
+        ["Oficio", g(stats, "proyectos.por_ingreso.oficio")],
+        ["Convocatoria", g(stats, "proyectos.por_ingreso.convocatoria")],
     ]
-    pdf.add_table(nna_sentencia)
+    pdf.add_table(tabla_4)
 
+    # (Opcional) Proyectos por estado (muestra principales)
+    por_estado = g(stats, "proyectos.por_estado", {})
+    if isinstance(por_estado, dict) and por_estado:
+        pdf.section_title("Proyectos por estado (principales)")
+        # Ordeno por cantidad desc y muestro top 10
+        top = sorted(por_estado.items(), key=lambda x: x[1], reverse=True)[:10]
+        tabla_estados = [["Estado", "Cantidad"]] + [[k, v] for k, v in top]
+        pdf.add_table(tabla_estados)
 
     pdf.add_page()
 
-    # 3) Pretensos
-    pdf.section_title("3) Estadísticas en relación a los pretensos")
+    # =========================================================
+    # 2) NNA
+    # =========================================================
+    pdf.section_title("2) Estadísticas de NNAs con Sentencia / Guarda")
+
+    nna_sentencia = [
+        ["Edad / Estado", "En Guarda", "En Adopción"],
+        ["0-6 años", g(stats, "proyectos.tipos.guarda_grupo_0_6"), g(stats, "proyectos.tipos.adopcion_grupo_0_6")],
+        ["7-11 años", g(stats, "proyectos.tipos.guarda_grupo_7_11"), g(stats, "proyectos.tipos.adopcion_grupo_7_11")],
+        ["12-17 años", g(stats, "proyectos.tipos.guarda_grupo_12_17"), g(stats, "proyectos.tipos.adopcion_grupo_12_17")],
+    ]
+    pdf.add_table(nna_sentencia)
+
+    # NNA: distribución por estado
+    nna_por_estado = g(stats, "nna.por_estado", {})
+    if isinstance(nna_por_estado, dict) and nna_por_estado:
+        pdf.section_title("NNA por estado")
+        tabla_nna_estado = [["Estado", "Cantidad"]] + [[k, v] for k, v in nna_por_estado.items()]
+        pdf.add_table(tabla_nna_estado)
+
+    # NNA: distribución por edades
+    edades = g(stats, "nna.edades", {})
+    if isinstance(edades, dict) and edades:
+        pdf.section_title("Distribución de NNA por edades")
+        tabla_edades = [
+            ["Rango", "Cantidad"],
+            ["0-6", edades.get("0_6", 0)],
+            ["7-11", edades.get("7_11", 0)],
+            ["12-17", edades.get("12_17", 0)],
+            ["18+", edades.get("18_mas", 0)],
+        ]
+        pdf.add_table(tabla_edades)
+
+    pdf.add_page()
+
+    # =========================================================
+    # 3) PRETENSOS
+    # =========================================================
+    pdf.section_title("3) Estadísticas de Pretensos")
 
     pretensos_data = [
         ["Indicador", "Cantidad"],
-        ["Logueados en el sistema", stats["usuarios_activos"]],
-        # ["Con Curso aprobado", stats["con_curso_sin_ddjj"]],
-        ["Con Curso y DDJJ firmada", stats["con_curso_con_ddjj"]],
-        # ["Presentando documentación", stats["pretensos_presentando_documentacion"]],
-        # ["Aprobados", stats["pretensos_aprobados"]],
-        # ["Rechazados", stats["pretensos_rechazados"]],
-        ["Usuarios inactivos (sólo con usuario creado)", stats["sin_activar"]],
+        ["Logueados en el sistema", g(stats, "usuarios.usuarios_totales")],
+        ["Con Curso y DDJJ firmada", g(stats, "usuarios.con_curso_con_ddjj")],
+        ["Usuarios inactivos (sólo con usuario creado)", g(stats, "usuarios.sin_activar")],
+        ["Aprobados (habilitados)", g(stats, "usuarios.pretensos_aprobados_con_estado_valido")],
+        ["Sin proyecto asignado", g(stats, "usuarios.usuarios_sin_proyecto")],
     ]
     pdf.add_table(pretensos_data)
 
+    # DDJJ
+    pdf.section_title("DDJJ (flexibilidades y condiciones)")
+    ddjj = g(stats, "ddjj", {})
+    tabla_ddjj = [
+        ["Indicador", "Cantidad"],
+        ["DDJJ firmadas", ddjj.get("firmadas", 0)],
+        ["DDJJ no firmadas", ddjj.get("no_firmadas", 0)],
+        ["Flexibilidad de edad (alguna)", ddjj.get("flex_edad_alguna", 0)],
+        ["Aceptan discapacidad", ddjj.get("acepta_discapacidad", 0)],
+        ["Aceptan enfermedades", ddjj.get("acepta_enfermedad", 0)],
+        ["Aceptan grupo de hermanos", ddjj.get("acepta_grupo_hermanos", 0)],
+    ]
+    pdf.add_table(tabla_ddjj)
+
+    pdf.add_page()
+
+    # =========================================================
+    # 4) TIEMPOS
+    # =========================================================
+    pdf.section_title("4) Tiempos (Proyectos y Pretensos)")
+
+    # Proyectos: promedio de días por estado
+    tiempos_proy = g(stats, "tiempos.proyectos", {})
+    prom_por_estado = tiempos_proy.get("promedio_dias_por_estado", {})
+    if isinstance(prom_por_estado, dict) and prom_por_estado:
+        pdf.section_title("Tiempos de proyectos por estado (promedio en días)")
+        tabla_tiempos_estado = [["Estado", "Promedio días"]] + [
+            [k, round(v, 2)] for k, v in sorted(prom_por_estado.items(), key=lambda x: x[0])
+        ]
+        pdf.add_table(tabla_tiempos_estado)
+
+    # Proyectos: tiempo total promedio por proyecto
+    pdf.add_table([
+        ["Métrica", "Valor"],
+        ["Promedio de días por proyecto (ciclo completo)", round(g(stats, "tiempos.proyectos.promedio_dias_total_por_proyecto", 0), 2)]
+    ])
+
+    # Pretensos: pipeline de tiempos
+    tiempos_pret = g(stats, "tiempos.pretensos", {})
+    pdf.section_title("Pipeline de pretensos (promedios en días)")
+    tabla_pret = [
+        ["Tramo", "Promedio días"],
+        ["Curso aprobado -> DDJJ firmada", round(tiempos_pret.get("promedio_dias_curso_a_ddjj", 0), 2)],
+        ["DDJJ firmada -> Solicitud de revisión", round(tiempos_pret.get("promedio_dias_ddjj_a_solicitud_revision", 0), 2)],
+        ["Solicitud de revisión -> Aprobado", round(tiempos_pret.get("promedio_dias_revision_a_aprobado", 0), 2)],
+    ]
+    pdf.add_table(tabla_pret)
+
+    # Ratificación
+    tiempos_rat = g(stats, "tiempos.ratificacion", {})
+    pdf.section_title("Ratificación")
+    tabla_rat = [
+        ["Métrica", "Valor"],
+        ["Promedio días: 1er mail -> ratificación", round(tiempos_rat.get("promedio_dias_mail_a_ratificacion", 0), 2)],
+        ["Ratificaciones pendientes", tiempos_rat.get("ratificaciones_pendientes", 0)],
+    ]
+    pdf.add_table(tabla_rat)
+
+    # =========================================================
+    # Salida
+    # =========================================================
     pdf_path = "/tmp/estadisticas_adopciones.pdf"
     pdf.output(pdf_path)
     return FileResponse(pdf_path, filename="estadisticas_adopciones.pdf", media_type="application/pdf")
+
+
+
+# @estadisticas_router.get("/informe_general", 
+#                          dependencies=[Depends(verify_api_key), 
+#                                        Depends(require_roles(["administrador", "supervision", "supervisora", "coordinadora"]))])
+# def generar_pdf_estadisticas(db: Session = Depends(get_db)):
+#     stats = calcular_estadisticas_generales(db)
+#     pdf = EstadisticasPDF()
+#     pdf.add_page()
+
+#     # Resumen General
+#     pdf.section_title("Resumen General de Indicadores Clave")
+#     resumen_general = [
+#         ["Indicador", "Cantidad"],
+#         ["Proyectos viables disponibles", stats.get("proyectos_viables", 0)],
+#         ["Proyectos en etapa de entrevistas", stats.get("proyectos_en_entrevistas", 0)],
+#         ["Pretensos aprobados", stats.get("pretensos_aprobados_con_estado_valido", 0)],
+#         ["NNAs con Adopciones Definitivas", stats.get("nna_en_adopcion_definitiva", 0)],
+#         ["NNAs en Guarda", stats.get("nna_en_guarda", 0)],
+#         ["NNAs en RUA", stats.get("nna_en_rua", 0)],
+#     ]
+#     pdf.add_table(resumen_general)
+
+#     # 1) Proyectos aprobados
+#     pdf.section_title("1) Estadísticas en relación a los proyectos")
+
+#     tabla_1 = [
+#         ["Tipo de Proyecto", "Presentando", "En revisión", "Calendarizables", "Entrevistando"],
+#         ["Pareja", stats["proyectos_en_pareja_subiendo_documentacion"],
+#          stats["proyectos_en_pareja_en_revision_por_supervision"],
+#          stats["proyectos_en_pareja_aprobados_para_calendarizar"],
+#          stats["entrevistando_en_pareja"]],
+#         ["Monoparental", stats["proyectos_monoparentales_subiendo_documentacion"],
+#          stats["proyectos_monoparentales_en_revision_por_supervision"],
+#          stats["proyectos_monoparentales_aprobados_para_calendarizar"],
+#          stats["entrevistando_monoparental"]]
+#     ]
+#     pdf.add_table(tabla_1)
+
+#     tabla_2 = [
+#         ["Tipo de Proyecto", "En suspenso", "No viables", "Baja definitiva"],
+#         ["Pareja", stats["proyectos_en_pareja_en_suspenso"], stats["proyectos_en_pareja_no_viable"], stats["proyectos_en_pareja_baja_definitiva"]],
+#         ["Monoparental", stats["proyectos_monoparentales_en_suspenso"], stats["proyectos_monoparentales_no_viable"], stats["proyectos_monoparentales_baja_definitiva"]],
+#     ]
+#     pdf.add_table(tabla_2)
+
+#     tabla_3 = [
+#         ["Tipo de Proyecto", "Viables disponibles", "Adopción definitiva"],
+#         ["Pareja", stats["proyectos_en_pareja_viable"], stats["proyectos_adopcion_definitiva_pareja"]],
+#         ["Monoparental", stats["proyectos_monoparental_viable"], stats["proyectos_adopcion_definitiva_monoparental"]]
+#     ]
+#     pdf.add_table(tabla_3)
+
+#     # 2) NNA con sentencia
+    
+#     pdf.section_title("2) Estadísticas en relación a NNAs")
+
+#     nna_sentencia = [
+#         ["Edad / Estado", "En Guarda", "En Adopción"],
+#         ["0-6 años", stats["guarda_grupo_0_6"], stats["adopcion_grupo_0_6"]],
+#         ["7-11 años", stats["guarda_grupo_7_11"], stats["adopcion_grupo_7_11"]],
+#         ["12-17 años", stats["guarda_grupo_12_17"], stats["adopcion_grupo_12_17"]],
+#     ]
+#     pdf.add_table(nna_sentencia)
+
+
+#     pdf.add_page()
+
+#     # 3) Pretensos
+#     pdf.section_title("3) Estadísticas en relación a los pretensos")
+
+#     pretensos_data = [
+#         ["Indicador", "Cantidad"],
+#         ["Logueados en el sistema", stats["usuarios_activos"]],
+#         # ["Con Curso aprobado", stats["con_curso_sin_ddjj"]],
+#         ["Con Curso y DDJJ firmada", stats["con_curso_con_ddjj"]],
+#         # ["Presentando documentación", stats["pretensos_presentando_documentacion"]],
+#         # ["Aprobados", stats["pretensos_aprobados"]],
+#         # ["Rechazados", stats["pretensos_rechazados"]],
+#         ["Usuarios inactivos (sólo con usuario creado)", stats["sin_activar"]],
+#     ]
+#     pdf.add_table(pretensos_data)
+
+#     pdf_path = "/tmp/estadisticas_adopciones.pdf"
+#     pdf.output(pdf_path)
+#     return FileResponse(pdf_path, filename="estadisticas_adopciones.pdf", media_type="application/pdf")
 
 
 
