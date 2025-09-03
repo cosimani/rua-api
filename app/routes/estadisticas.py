@@ -71,6 +71,7 @@ def generar_pdf_estadisticas(db: Session = Depends(get_db)):
         ["NNAs con Adopción Definitiva", g(stats, "nna.nna_en_adopcion_definitiva")],
         ["NNAs en Guarda Confirmada", g(stats, "nna.nna_en_guarda_confirmada")],
         ["NNAs en RUA (menores sin carpeta)", g(stats, "nna.nna_en_rua")],
+        ["Postulaciones totales (todas las convocatorias)", g(stats, "usuarios.postulaciones_totales")],  # ← NUEVO
     ]
     pdf.add_table(resumen_general)
 
@@ -119,7 +120,7 @@ def generar_pdf_estadisticas(db: Session = Depends(get_db)):
         ["Tipo", "Viables disponibles", "Adopción definitiva"],
         [
             "Pareja",
-            g(stats, "proyectos.tipos.en_pareja_viable"),
+            g(stats, "proyectos.tipos.proyectos_en_pareja_viable"),  # ← corregido
             g(stats, "proyectos.tipos.proyectos_adopcion_definitiva_pareja"),
         ],
         [
@@ -152,16 +153,16 @@ def generar_pdf_estadisticas(db: Session = Depends(get_db)):
     # =========================================================
     # 2) NNA
     # =========================================================
-    pdf.section_title("2) Estadísticas de NNAs con Sentencia / Guarda")
 
-    nna_sentencia = [
-        ["Edad / Estado", "En Guarda", "En Adopción"],
-        ["0-6 años", g(stats, "proyectos.tipos.guarda_grupo_0_6"), g(stats, "proyectos.tipos.adopcion_grupo_0_6")],
-        ["7-11 años", g(stats, "proyectos.tipos.guarda_grupo_7_11"), g(stats, "proyectos.tipos.adopcion_grupo_7_11")],
-        ["12-17 años", g(stats, "proyectos.tipos.guarda_grupo_12_17"), g(stats, "proyectos.tipos.adopcion_grupo_12_17")],
+    pdf.section_title("2) NNA: Guarda / Adopción / RUA")
+    tabla_nna_clip = [
+        ["Indicador", "Cantidad"],
+        ["En Adopción Definitiva (proyecto seleccionado)", g(stats, "nna.nna_en_adopcion_definitiva")],
+        ["En Guarda Confirmada (proyecto seleccionado)", g(stats, "nna.nna_en_guarda_confirmada")],
+        ["En RUA (menores de 18 sin carpeta seleccionada)", g(stats, "nna.nna_en_rua")],
     ]
-    pdf.add_table(nna_sentencia)
-
+    pdf.add_table(tabla_nna_clip)
+    
     # NNA: distribución por estado
     nna_por_estado = g(stats, "nna.por_estado", {})
     if isinstance(nna_por_estado, dict) and nna_por_estado:
@@ -191,11 +192,15 @@ def generar_pdf_estadisticas(db: Session = Depends(get_db)):
 
     pretensos_data = [
         ["Indicador", "Cantidad"],
-        ["Logueados en el sistema", g(stats, "usuarios.usuarios_totales")],
+        ["Activos (Pretensos con clave y activación con mail)", g(stats, "usuarios.usuarios_totales")],  # usuarios_totales redefinido
+        ["Usuarios inactivos (aún no activaron con mail)", g(stats, "usuarios.sin_activar")],
         ["Con Curso y DDJJ firmada", g(stats, "usuarios.con_curso_con_ddjj")],
-        ["Usuarios inactivos (sólo con usuario creado)", g(stats, "usuarios.sin_activar")],
+        
         ["Aprobados (habilitados)", g(stats, "usuarios.pretensos_aprobados_con_estado_valido")],
         ["Sin proyecto asignado", g(stats, "usuarios.usuarios_sin_proyecto")],
+        ["Postulados y CON usuario activo en RUA", g(stats, "usuarios.usuarios_postulados_y_rua")],            # ← NUEVO
+        ["Postulados y SIN usuario en RUA (sólo se postularon)", g(stats, "usuarios.usuarios_postulados_y_no_rua")],        # ← NUEVO
+        ["Postulaciones (incluyendo pretensos en varias convocatorias)", g(stats, "usuarios.postulaciones_totales")],                   # ← NUEVO
     ]
     pdf.add_table(pretensos_data)
 

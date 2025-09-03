@@ -1,8 +1,6 @@
 import hashlib
 from sqlalchemy.orm import Session, aliased
-from sqlalchemy import or_, func, and_, text, distinct, not_, asc
-from models.users import User
-
+from sqlalchemy import or_, func, and_, text, distinct, not_, asc, exists
 
 from datetime import date, datetime, timedelta
 from collections import defaultdict, Counter
@@ -22,8 +20,10 @@ from models.carpeta import Carpeta, DetalleNNAEnCarpeta, DetalleProyectosEnCarpe
 
 from models.proyecto import Proyecto, ProyectoHistorialEstado
 from models.notif_y_observaciones import ObservacionesProyectos, ObservacionesPretensos, NotificacionesRUA
-from models.convocatorias import DetalleProyectoPostulacion
+from models.convocatorias import DetalleProyectoPostulacion, Postulacion
 from models.eventos_y_configs import RuaEvento, UsuarioNotificadoRatificacion
+from models.users import User, Group, UserGroup 
+
 
 
 from models.nna import Nna
@@ -100,12 +100,71 @@ def _days_between(start_col, end_col):
     # Nota: text('DAY') es necesario en SQLAlchemy para el primer arg de TIMESTAMPDIFF
     return func.timestampdiff(text("DAY"), start_col, end_col)
 
+def _es_adoptante():
+    # EXISTS: el usuario pertenece a un grupo cuyo description contiene "adopt"
+    return exists().where(
+        and_(
+            UserGroup.login == User.login,
+            UserGroup.group_id == Group.group_id,
+            func.lower(Group.description).like("%adopt%")
+        )
+    )
+
+def _tiene_clave():
+    # clave no nula y no vacía (trim)
+    return and_(User.clave.isnot(None), func.length(func.trim(User.clave)) > 0)
+
+def _sin_clave():
+    # clave nula o vacía (por si la columna acepta strings vacíos)
+    return or_(User.clave.is_(None), func.length(func.trim(User.clave)) == 0)    
+
 # ---------------------------
 # BLOQUE USUARIOS
 # ---------------------------
 def _estadisticas_usuarios(db: Session) -> dict:
+
+    # 1) usuarios_totales = activos + con clave + adoptantes
+    usuarios_totales = (
+        db.query(User)
+        .filter(
+            User.active == 'Y',
+            _tiene_clave(), 
+            _es_adoptante()
+        )
+        .count()
+    )
+
+    # EXISTS en postulaciones por dni o conyuge_dni
+    postulacion_existe = exists().where(
+        or_(Postulacion.dni == User.login, Postulacion.conyuge_dni == User.login)
+    )
+
+    # 2) usuarios_postulados_y_rua = adoptantes + CON clave + en postulaciones
+    usuarios_postulados_y_rua = (
+        db.query(User)
+        .filter(
+            _es_adoptante(),
+            _tiene_clave(),
+            postulacion_existe
+        )
+        .count()
+    )
+
+    # 3) usuarios_postulados_y_no_rua = adoptantes + SIN clave + en postulaciones
+    usuarios_postulados_y_no_rua = (
+        db.query(User)
+        .filter(
+            _es_adoptante(),
+            _sin_clave(),
+            postulacion_existe
+        )
+        .count()
+    )
+
+    # 4) postulaciones_totales = filas en postulaciones (un usuario puede tener varias)
+    postulaciones_totales = db.query(func.count(Postulacion.postulacion_id)).scalar() or 0
+
     sin_activar = db.query(User).filter(User.active == 'N').count()
-    usuarios_totales = db.query(User).count()
 
     # Estados documental/curso/ddjj
     sin_curso_sin_ddjj = db.query(User).filter(
@@ -171,8 +230,12 @@ def _estadisticas_usuarios(db: Session) -> dict:
     )
 
     return {
-        "sin_activar": sin_activar,
         "usuarios_totales": usuarios_totales,
+        "usuarios_postulados_y_rua": usuarios_postulados_y_rua,
+        "usuarios_postulados_y_no_rua": usuarios_postulados_y_no_rua,
+        "postulaciones_totales": int(postulaciones_totales),
+
+        "sin_activar": sin_activar,
         "sin_curso_sin_ddjj": sin_curso_sin_ddjj,
         "con_curso_sin_ddjj": con_curso_sin_ddjj,
         "con_curso_con_ddjj": con_curso_con_ddjj,
