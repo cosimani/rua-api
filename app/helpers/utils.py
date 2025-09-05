@@ -251,25 +251,41 @@ def _estadisticas_usuarios(db: Session) -> dict:
 # BLOQUE PROYECTOS
 # ---------------------------
 def _estadisticas_proyectos(db: Session) -> dict:
-    # Conteo por estado (incluye estados nuevos)
-    por_estado = {}
+
+    # ---- filtro base: SOLO RUA (regla general)
+    base_q = db.query(Proyecto).filter(Proyecto.ingreso_por == 'rua')
+
+    # Conteo por estado (SOLO RUA)
+    por_estado_rua = {}
     for est in PROYECTO_ESTADOS:
-        por_estado[est] = db.query(Proyecto).filter(Proyecto.estado_general == est).count()
+        por_estado_rua[est] = base_q.filter(Proyecto.estado_general == est).count()
 
-    # Viables / entrevistas / vinculaciones / etc. (atajos)
-    proyectos_viables = por_estado.get('viable', 0)
-    proyectos_en_entrevistas = por_estado.get('calendarizando', 0) + por_estado.get('entrevistando', 0)
-    proyectos_en_suspenso = por_estado.get('en_suspenso', 0)
-    proyectos_no_viables = por_estado.get('no_viable', 0)
-    proyectos_enviados_juzgado = por_estado.get('en_carpeta', 0)
-    proyectos_en_guarda_provisoria = por_estado.get('guarda_provisoria', 0)
-    proyectos_en_guarda_confirmada = por_estado.get('guarda_confirmada', 0)
-    proyectos_adopcion_definitiva = por_estado.get('adopcion_definitiva', 0)
-    proyectos_en_vinculacion = por_estado.get('vinculacion', 0)
+    # Viables / entrevistas / etc. (SOLO RUA)
+    proyectos_viables = por_estado_rua.get('viable', 0)
 
-    # Aprobados con nro_orden asignado (para calendarizar)
+    # Entrevistas por fuente de ingreso
+    proyectos_en_entrevistas_rua = base_q.filter(
+        Proyecto.estado_general.in_(('calendarizando', 'entrevistando'))
+    ).count()
+
+    # ⇓ EXCEPCIÓN pedida: entrevistas por CONVOCATORIA (sin filtrar por RUA)
+    proyectos_en_entrevistas_convocatoria = db.query(Proyecto).filter(
+        Proyecto.estado_general.in_(('calendarizando', 'entrevistando')),
+        Proyecto.ingreso_por == 'convocatoria'
+    ).count()
+
+
+    proyectos_en_suspenso = por_estado_rua.get('en_suspenso', 0)
+    proyectos_no_viables = por_estado_rua.get('no_viable', 0)
+    proyectos_enviados_juzgado = por_estado_rua.get('en_carpeta', 0)
+    proyectos_en_guarda_provisoria = por_estado_rua.get('guarda_provisoria', 0)
+    proyectos_en_guarda_confirmada = por_estado_rua.get('guarda_confirmada', 0)
+    proyectos_adopcion_definitiva = por_estado_rua.get('adopcion_definitiva', 0)
+    proyectos_en_vinculacion = por_estado_rua.get('vinculacion', 0)
+
+    # Aprobados con nro_orden (SOLO RUA)
     def _aprobados_para_calendarizar(tipo_monoparental: bool):
-        q = db.query(Proyecto).filter(
+        q = base_q.filter(
             Proyecto.estado_general == 'aprobado',
             and_(
                 func.nullif(func.trim(Proyecto.nro_orden_rua), "") != None,
@@ -282,105 +298,118 @@ def _estadisticas_proyectos(db: Session) -> dict:
             q = q.filter(Proyecto.proyecto_tipo != 'Monoparental')
         return q.count()
 
-    monoparentales = db.query(Proyecto).filter(Proyecto.proyecto_tipo == 'Monoparental').count()
-    en_pareja = db.query(Proyecto).filter(Proyecto.proyecto_tipo != 'Monoparental').count()
+    # Totales por tipo (SOLO RUA)
+    monoparentales = base_q.filter(Proyecto.proyecto_tipo == 'Monoparental').count()
+    en_pareja = base_q.filter(Proyecto.proyecto_tipo != 'Monoparental').count()
 
-    monop_subiendo = db.query(Proyecto).filter(
+    # Subiendo documentación (SOLO RUA)
+    monop_subiendo = base_q.filter(
         Proyecto.proyecto_tipo == 'Monoparental',
-        Proyecto.estado_general.in_(('confeccionando','actualizando'))
+        Proyecto.estado_general.in_(('confeccionando', 'actualizando'))
     ).count()
-    pareja_subiendo = db.query(Proyecto).filter(
+    pareja_subiendo = base_q.filter(
         Proyecto.proyecto_tipo != 'Monoparental',
-        Proyecto.estado_general.in_(('confeccionando','actualizando'))
+        Proyecto.estado_general.in_(('confeccionando', 'actualizando'))
     ).count()
 
-    monop_revision = db.query(Proyecto).filter(
+    # En revisión (SOLO RUA)
+    monop_revision = base_q.filter(
         Proyecto.proyecto_tipo == 'Monoparental',
         Proyecto.estado_general == 'en_revision'
     ).count()
-    pareja_revision = db.query(Proyecto).filter(
+    pareja_revision = base_q.filter(
         Proyecto.proyecto_tipo != 'Monoparental',
         Proyecto.estado_general == 'en_revision'
     ).count()
 
+    # Aprobados para calendarizar (SOLO RUA)
     monop_aprob_calendar = _aprobados_para_calendarizar(True)
     pareja_aprob_calendar = _aprobados_para_calendarizar(False)
 
-    entrevistando_monop = db.query(Proyecto).filter(
+    # Entrevistando por tipo (SOLO RUA)
+    entrevistando_monop = base_q.filter(
         Proyecto.proyecto_tipo == 'Monoparental',
-        Proyecto.estado_general.in_(('confeccionando','entrevistando','para_valorar'))
+        Proyecto.estado_general.in_(('confeccionando', 'actualizando'))
     ).count()
-    entrevistando_pareja = db.query(Proyecto).filter(
+    entrevistando_pareja = base_q.filter(
         Proyecto.proyecto_tipo != 'Monoparental',
-        Proyecto.estado_general.in_(('confeccionando','entrevistando','para_valorar'))
+        Proyecto.estado_general.in_(('confeccionando', 'actualizando'))
     ).count()
 
-    # Sin valorar (aprobado o en etapas previas a “viable/no_viable”)
-    monop_sin_valorar = db.query(Proyecto).filter(
-        Proyecto.proyecto_tipo == 'Monoparental',
-        Proyecto.estado_general.in_(('aprobado','confeccionando','entrevistando','para_valorar'))
-    ).count()
-    pareja_sin_valorar = db.query(Proyecto).filter(
-        Proyecto.proyecto_tipo != 'Monoparental',
-        Proyecto.estado_general.in_(('aprobado','confeccionando','entrevistando','para_valorar'))
-    ).count()
-    proyectos_sin_valorar_subregistros_altos = monop_sin_valorar + pareja_sin_valorar  # ← dinámico
-
-    # Viables por tipo
-    monop_viable = db.query(Proyecto).filter(
+    # Viables por tipo (SOLO RUA)
+    monop_viable = base_q.filter(
         Proyecto.proyecto_tipo == 'Monoparental',
         Proyecto.estado_general == 'viable'
     ).count()
-    pareja_viable = db.query(Proyecto).filter(
+    pareja_viable = base_q.filter(
         Proyecto.proyecto_tipo != 'Monoparental',
         Proyecto.estado_general == 'viable'
     ).count()
 
-    # Adopción definitiva por tipo
-    adop_def_mono = db.query(Proyecto).filter(
+    # ⚠️ NUEVO: En suspenso / No viables por tipo (SOLO RUA)
+    monop_en_suspenso = base_q.filter(
+        Proyecto.proyecto_tipo == 'Monoparental',
+        Proyecto.estado_general == 'en_suspenso'
+    ).count()
+    pareja_en_suspenso = base_q.filter(
+        Proyecto.proyecto_tipo != 'Monoparental',
+        Proyecto.estado_general == 'en_suspenso'
+    ).count()
+
+    monop_no_viable = base_q.filter(
+        Proyecto.proyecto_tipo == 'Monoparental',
+        Proyecto.estado_general == 'no_viable'
+    ).count()
+    
+    pareja_no_viable = base_q.filter(
+        Proyecto.proyecto_tipo != 'Monoparental',
+        Proyecto.estado_general == 'no_viable'
+    ).count()
+
+    # Adopción definitiva por tipo (SOLO RUA)
+    adop_def_mono = base_q.filter(
         Proyecto.proyecto_tipo == "Monoparental",
         Proyecto.estado_general == "adopcion_definitiva"
     ).count()
-    adop_def_pareja = db.query(Proyecto).filter(
+    adop_def_pareja = base_q.filter(
         Proyecto.proyecto_tipo != "Monoparental",
         Proyecto.estado_general == "adopcion_definitiva"
     ).count()
 
-    # Sin nro de orden
-    mono_sin_orden = db.query(Proyecto).filter(
+    # Sin nro de orden (SOLO RUA)
+    mono_sin_orden = base_q.filter(
         Proyecto.proyecto_tipo == "Monoparental",
         or_(Proyecto.nro_orden_rua.is_(None), func.trim(Proyecto.nro_orden_rua) == "")
     ).count()
-    pareja_sin_orden = db.query(Proyecto).filter(
+    pareja_sin_orden = base_q.filter(
         Proyecto.proyecto_tipo != "Monoparental",
         or_(Proyecto.nro_orden_rua.is_(None), func.trim(Proyecto.nro_orden_rua) == "")
     ).count()
 
-    # En valoración (calendarizando)
-    en_valoracion = por_estado.get('calendarizando', 0)
+    para_valorar = por_estado_rua.get('para_valorar', 0)
 
-    # Ingreso por fuente
+    # Ingreso por fuente (sin filtrar, si te sirve tener el panorama completo)
     por_ingreso = {
         'rua': db.query(Proyecto).filter(Proyecto.ingreso_por == 'rua').count(),
         'oficio': db.query(Proyecto).filter(Proyecto.ingreso_por == 'oficio').count(),
         'convocatoria': db.query(Proyecto).filter(Proyecto.ingreso_por == 'convocatoria').count(),
     }
 
-    monop_baja_def = db.query(Proyecto).filter(
+    monop_baja_def = base_q.filter(
         Proyecto.proyecto_tipo == 'Monoparental',
         Proyecto.estado_general.in_(BAJAS)
     ).count()
-
-    pareja_baja_def = db.query(Proyecto).filter(
+    pareja_baja_def = base_q.filter(
         Proyecto.proyecto_tipo != 'Monoparental',
         Proyecto.estado_general.in_(BAJAS)
     ).count()
 
     return {
-        "por_estado": por_estado,
+        "por_estado": por_estado_rua,  # ← ahora es SOLO RUA
         "resumen": {
             "proyectos_viables": proyectos_viables,
-            "proyectos_en_entrevistas": proyectos_en_entrevistas,
+            "proyectos_en_entrevistas_rua": proyectos_en_entrevistas_rua,
+            "proyectos_en_entrevistas_convocatoria": proyectos_en_entrevistas_convocatoria,  # excepción
             "proyectos_en_suspenso": proyectos_en_suspenso,
             "proyectos_no_viables": proyectos_no_viables,
             "proyectos_en_carpeta": proyectos_enviados_juzgado,
@@ -388,6 +417,7 @@ def _estadisticas_proyectos(db: Session) -> dict:
             "proyectos_en_guarda_confirmada": proyectos_en_guarda_confirmada,
             "proyectos_en_vinculacion": proyectos_en_vinculacion,
             "proyectos_adopcion_definitiva": proyectos_adopcion_definitiva,
+            "proyectos_para_valorar": para_valorar,
         },
         "tipos": {
             "proyectos_monoparentales": monoparentales,
@@ -400,21 +430,142 @@ def _estadisticas_proyectos(db: Session) -> dict:
             "en_pareja_aprobados_para_calendarizar": pareja_aprob_calendar,
             "entrevistando_monoparental": entrevistando_monop,
             "entrevistando_en_pareja": entrevistando_pareja,
-            "monoparentales_sin_valorar": monop_sin_valorar,
-            "en_pareja_sin_valorar": pareja_sin_valorar,
-            "proyectos_sin_valorar_subregistros_altos": proyectos_sin_valorar_subregistros_altos,
+            "monoparentales_en_suspenso": monop_en_suspenso,          # ← NUEVO
+            "en_pareja_en_suspenso": pareja_en_suspenso,              # ← NUEVO
+            "monoparentales_no_viables": monop_no_viable,             # ← NUEVO
+            "en_pareja_no_viables": pareja_no_viable,                 # ← NUEVO
             "proyectos_monoparental_viable": monop_viable,
             "proyectos_en_pareja_viable": pareja_viable,
             "proyectos_adopcion_definitiva_monoparental": adop_def_mono,
             "proyectos_adopcion_definitiva_pareja": adop_def_pareja,
             "monoparentales_sin_nro_orden": mono_sin_orden,
             "en_pareja_sin_nro_orden": pareja_sin_orden,
-            "proyectos_en_valoracion": en_valoracion,
             "monoparentales_baja_definitiva": monop_baja_def,
             "en_pareja_baja_definitiva": pareja_baja_def,
         },
         "por_ingreso": por_ingreso
     }
+
+    # monoparentales = db.query(Proyecto).filter(Proyecto.proyecto_tipo == 'Monoparental').count()
+    # en_pareja = db.query(Proyecto).filter(Proyecto.proyecto_tipo != 'Monoparental').count()
+
+    # monop_subiendo = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo == 'Monoparental',
+    #     Proyecto.estado_general.in_(('confeccionando','actualizando'))
+    # ).count()
+    # pareja_subiendo = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo != 'Monoparental',
+    #     Proyecto.estado_general.in_(('confeccionando','actualizando'))
+    # ).count()
+
+    # monop_revision = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo == 'Monoparental',
+    #     Proyecto.estado_general == 'en_revision'
+    # ).count()
+    # pareja_revision = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo != 'Monoparental',
+    #     Proyecto.estado_general == 'en_revision'
+    # ).count()
+
+    # monop_aprob_calendar = _aprobados_para_calendarizar(True)
+    # pareja_aprob_calendar = _aprobados_para_calendarizar(False)
+
+    # entrevistando_monop = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo == 'Monoparental',
+    #     Proyecto.estado_general.in_(('calendarizando','entrevistando'))
+    # ).count()
+    # entrevistando_pareja = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo != 'Monoparental',
+    #     Proyecto.estado_general.in_(('calendarizando','entrevistando'))
+    # ).count()
+
+    # # Viables por tipo
+    # monop_viable = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo == 'Monoparental',
+    #     Proyecto.estado_general == 'viable'
+    # ).count()
+    # pareja_viable = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo != 'Monoparental',
+    #     Proyecto.estado_general == 'viable'
+    # ).count()
+
+    # # Adopción definitiva por tipo
+    # adop_def_mono = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo == "Monoparental",
+    #     Proyecto.estado_general == "adopcion_definitiva"
+    # ).count()
+    # adop_def_pareja = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo != "Monoparental",
+    #     Proyecto.estado_general == "adopcion_definitiva"
+    # ).count()
+
+    # # Sin nro de orden
+    # mono_sin_orden = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo == "Monoparental",
+    #     or_(Proyecto.nro_orden_rua.is_(None), func.trim(Proyecto.nro_orden_rua) == "")
+    # ).count()
+    # pareja_sin_orden = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo != "Monoparental",
+    #     or_(Proyecto.nro_orden_rua.is_(None), func.trim(Proyecto.nro_orden_rua) == "")
+    # ).count()
+
+    # # En valoración (calendarizando)
+    # para_valorar = por_estado.get('para_valorar', 0)
+
+    # # Ingreso por fuente
+    # por_ingreso = {
+    #     'rua': db.query(Proyecto).filter(Proyecto.ingreso_por == 'rua').count(),
+    #     'oficio': db.query(Proyecto).filter(Proyecto.ingreso_por == 'oficio').count(),
+    #     'convocatoria': db.query(Proyecto).filter(Proyecto.ingreso_por == 'convocatoria').count(),
+    # }
+
+    # monop_baja_def = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo == 'Monoparental',
+    #     Proyecto.estado_general.in_(BAJAS)
+    # ).count()
+
+    # pareja_baja_def = db.query(Proyecto).filter(
+    #     Proyecto.proyecto_tipo != 'Monoparental',
+    #     Proyecto.estado_general.in_(BAJAS)
+    # ).count()
+
+    # return {
+    #     "por_estado": por_estado,
+    #     "resumen": {
+    #         "proyectos_viables": proyectos_viables,
+    #         "proyectos_en_entrevistas_rua": proyectos_en_entrevistas_rua,
+    #         "proyectos_en_entrevistas_convocatoria": proyectos_en_entrevistas_convocatoria,
+    #         "proyectos_en_suspenso": proyectos_en_suspenso,
+    #         "proyectos_no_viables": proyectos_no_viables,
+    #         "proyectos_en_carpeta": proyectos_enviados_juzgado,
+    #         "proyectos_en_guarda_provisoria": proyectos_en_guarda_provisoria,
+    #         "proyectos_en_guarda_confirmada": proyectos_en_guarda_confirmada,
+    #         "proyectos_en_vinculacion": proyectos_en_vinculacion,
+    #         "proyectos_adopcion_definitiva": proyectos_adopcion_definitiva,
+    #     },
+    #     "tipos": {
+    #         "proyectos_monoparentales": monoparentales,
+    #         "proyectos_en_pareja": en_pareja,
+    #         "monoparentales_subiendo_documentacion": monop_subiendo,
+    #         "en_pareja_subiendo_documentacion": pareja_subiendo,
+    #         "monoparentales_en_revision": monop_revision,
+    #         "en_pareja_en_revision": pareja_revision,
+    #         "monoparentales_aprobados_para_calendarizar": monop_aprob_calendar,
+    #         "en_pareja_aprobados_para_calendarizar": pareja_aprob_calendar,
+    #         "entrevistando_monoparental": entrevistando_monop,
+    #         "entrevistando_en_pareja": entrevistando_pareja,
+    #         "proyectos_monoparental_viable": monop_viable,
+    #         "proyectos_en_pareja_viable": pareja_viable,
+    #         "proyectos_adopcion_definitiva_monoparental": adop_def_mono,
+    #         "proyectos_adopcion_definitiva_pareja": adop_def_pareja,
+    #         "monoparentales_sin_nro_orden": mono_sin_orden,
+    #         "en_pareja_sin_nro_orden": pareja_sin_orden,
+    #         "proyectos_para_valorar": para_valorar,
+    #         "monoparentales_baja_definitiva": monop_baja_def,
+    #         "en_pareja_baja_definitiva": pareja_baja_def,
+    #     },
+    #     "por_ingreso": por_ingreso
+    # }
 
 # ---------------------------
 # BLOQUE NNA
@@ -441,26 +592,36 @@ def _estadisticas_nna(db: Session) -> dict:
 
     en_convocatoria = db.query(Nna).filter(Nna.nna_en_convocatoria == 'Y').count()
 
-    # NNA en adopción definitiva y guarda (distintos por carpeta/proyecto)
+    # NNA en adopción definitiva (derivado de Proyectos)
     nna_en_adopcion_def = (
         db.query(distinct(DetalleNNAEnCarpeta.nna_id))
-        .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
-        .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
+        .join(DetalleProyectosEnCarpeta,
+              DetalleProyectosEnCarpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
         .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
-        .filter(Carpeta.estado_carpeta == 'proyecto_seleccionado',
-                Proyecto.estado_general == 'adopcion_definitiva')
+        .filter(Proyecto.estado_general == 'adopcion_definitiva')
         .count()
     )
 
+    # NNA en guarda provisoria (derivado de Proyectos)
+    nna_en_guarda_prov = (
+        db.query(distinct(DetalleNNAEnCarpeta.nna_id))
+        .join(DetalleProyectosEnCarpeta,
+              DetalleProyectosEnCarpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
+        .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
+        .filter(Proyecto.estado_general == 'guarda_provisoria')
+        .count()
+    )  
+
+    # NNA en guarda confirmada (derivado de Proyectos)
     nna_en_guarda_conf = (
         db.query(distinct(DetalleNNAEnCarpeta.nna_id))
-        .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
-        .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
+        .join(DetalleProyectosEnCarpeta,
+              DetalleProyectosEnCarpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
         .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
-        .filter(Carpeta.estado_carpeta == 'proyecto_seleccionado',
-                Proyecto.estado_general == 'guarda_confirmada')
+        .filter(Proyecto.estado_general == 'guarda_confirmada')
         .count()
     )
+
 
     # NNA en RUA (menores de 18 sin estar en una carpeta seleccionada)
     nna_en_rua = (
@@ -474,13 +635,49 @@ def _estadisticas_nna(db: Session) -> dict:
         ).count()
     )
 
+    ## Los siguientes A) y B) son para detectar inconsistencias en el estado de los NNA, que quizás se colocó
+    # estado a mano y el proyecto difiere.
+
+    # A) NNA con estado en ficha = adopción definitiva PERO sin proyecto en adopción definitiva
+    nna_estado_adop_def_sin_proj = (
+        db.query(Nna.nna_id)
+        .filter(Nna.nna_estado == 'adopcion_definitiva')
+        .filter(
+            ~exists().where(
+                and_(
+                    DetalleNNAEnCarpeta.nna_id == Nna.nna_id,
+                    DetalleProyectosEnCarpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id,
+                    Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id,
+                    Proyecto.estado_general == 'adopcion_definitiva'
+                )
+            )
+        )
+        .count()
+    )
+
+    # B) NNA con proyecto en adopción definitiva PERO ficha NNA no está en adopción definitiva
+    nna_con_proj_adop_def_estado_distinto = (
+        db.query(Nna.nna_id)
+        .join(DetalleNNAEnCarpeta, DetalleNNAEnCarpeta.nna_id == Nna.nna_id)
+        .join(DetalleProyectosEnCarpeta,
+              DetalleProyectosEnCarpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
+        .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
+        .filter(Proyecto.estado_general == 'adopcion_definitiva')
+        .filter(Nna.nna_estado != 'adopcion_definitiva')
+        .distinct()
+        .count()
+    )
+
     return {
         "por_estado": por_estado,
         "edades": edades,
         "nna_en_convocatoria": en_convocatoria,
         "nna_en_adopcion_definitiva": nna_en_adopcion_def,
+        "nna_en_guarda_provisoria": nna_en_guarda_prov,
         "nna_en_guarda_confirmada": nna_en_guarda_conf,
         "nna_en_rua": nna_en_rua,
+        "nna_estado_adop_def_sin_proj": nna_estado_adop_def_sin_proj,
+        "nna_con_proj_adop_def_estado_distinto": nna_con_proj_adop_def_estado_distinto,
     }
 
 # ---------------------------
@@ -754,607 +951,6 @@ class EstadisticasPDF(FPDF):
         self.cell(0, 10, "Informe generado automáticamente - RUA", 0, 0, "C")
 
 
-
-# def calcular_estadisticas_generales(db: Session) -> dict:
-#     try:
-#         sin_activar = db.query(User).filter(User.active == 'N').count()
-#         usuarios_activos = db.query(User).count()
-#         sin_curso_sin_ddjj = db.query(User).filter(User.doc_adoptante_curso_aprobado == 'N', User.doc_adoptante_ddjj_firmada == 'N').count()
-#         con_curso_sin_ddjj = db.query(User).filter(User.doc_adoptante_curso_aprobado == 'Y', User.doc_adoptante_ddjj_firmada == 'N').count()
-#         con_curso_con_ddjj = db.query(User).filter(User.doc_adoptante_curso_aprobado == 'Y', User.doc_adoptante_ddjj_firmada == 'Y').count()
-
-#         pretensos_presentando_documentacion = db.query(User).filter(
-#             User.doc_adoptante_curso_aprobado == 'Y',
-#             User.doc_adoptante_ddjj_firmada == 'Y',
-#             or_(
-#                 User.doc_adoptante_estado == 'inicial_cargando',
-#                 User.doc_adoptante_estado == 'actualizando'
-#             )
-#         ).count()
-
-#         pretensos_aprobados = db.query(User).filter(
-#             User.doc_adoptante_curso_aprobado == 'Y',
-#             User.doc_adoptante_ddjj_firmada == 'Y',
-#             User.doc_adoptante_estado == 'aprobado',
-#         ).count()
-
-#         pretensos_rechazados = db.query(User).filter(
-#             User.doc_adoptante_curso_aprobado == 'Y',
-#             User.doc_adoptante_ddjj_firmada == 'Y',
-#             User.doc_adoptante_estado == 'rechazado',
-#         ).count()
-
-#         # Los estados de proyectos son:
-#         # ESTADOS_PROYECTO = [ "Inactivo", "Activo", "Entrevistas", "En valoración", "No viable", "En suspenso", "Viable", 
-#         # "En carpeta", "En cancelación", "Cancelado","Baja definitiva", "Preparando entrevistas", "Adopción definitiva" ]
-
-
-#         proyectos_monoparentales = db.query(Proyecto).filter(Proyecto.proyecto_tipo == 'Monoparental').count()
-#         proyectos_en_pareja = db.query(Proyecto).filter(Proyecto.proyecto_tipo != 'Monoparental').count()
-
-#         proyectos_monoparentales_subiendo_documentacion = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo == 'Monoparental',
-#                 or_(
-#                     Proyecto.estado_general == 'confeccionando',
-#                     Proyecto.estado_general == 'actualizando'
-#                 )
-#             )
-#             .count()
-#         )
-
-#         proyectos_en_pareja_subiendo_documentacion = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo != 'Monoparental',
-#                 or_(
-#                     Proyecto.estado_general == 'confeccionando',
-#                     Proyecto.estado_general == 'actualizando'
-#                 )
-#             )
-#             .count()
-#         )
-
-
-#         proyectos_monoparentales_en_revision_por_supervision = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo == 'Monoparental',
-#                 Proyecto.estado_general == 'en_revision'
-#             )
-#             .count()
-#         )
-
-#         proyectos_en_pareja_en_revision_por_supervision = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo != 'Monoparental',
-#                 Proyecto.estado_general == 'en_revision'
-#             )
-#             .count()
-#         )
-
-
-#         # Un proyecto está para calendarizar es cuando la supervisión aprueba el proeycto,
-#         # en este moemtno pasa al estado Preparando entrevistas y se le coloca el nro. de orden
-#         proyectos_monoparentales_aprobados_para_calendarizar = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo == 'Monoparental',
-#                 Proyecto.estado_general == 'aprobado',
-#                 # Esto controla que el nro. de orden esté asignado
-#                 and_(
-#                     func.nullif(func.trim(Proyecto.nro_orden_rua), "") != None,
-#                     func.trim(Proyecto.nro_orden_rua) != "0"
-#                 )
-#             )
-#             .count()
-#         )
-
-#         proyectos_en_pareja_aprobados_para_calendarizar = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo != 'Monoparental',
-#                 Proyecto.estado_general == 'aprobado',
-#                 # Esto controla que el nro. de orden esté asignado
-#                 and_(
-#                     func.nullif(func.trim(Proyecto.nro_orden_rua), "") != None,
-#                     func.trim(Proyecto.nro_orden_rua) != "0"
-#                 )
-#             )
-#             .count()
-#         )
-        
-        
-
-#         entrevistando_monoparental = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo == 'Monoparental',
-#                 or_(
-#                     Proyecto.estado_general == 'confeccionando',
-#                     Proyecto.estado_general == 'entrevistando',
-#                     Proyecto.estado_general == 'para_valorar'
-#                 )
-#             )
-#             .count()
-#         )
-
-#         entrevistando_en_pareja = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo != 'Monoparental',
-#                 or_(
-#                     Proyecto.estado_general == 'confeccionando',
-#                     Proyecto.estado_general == 'entrevistando',
-#                     Proyecto.estado_general == 'para_valorar'
-#                 )
-#             )
-#             .count()
-#         )
-
-#         proyectos_monoparentales_en_suspenso = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo == 'Monoparental',
-#                 Proyecto.estado_general == 'en_suspenso'
-#             )
-#             .count()
-#         )
-
-#         proyectos_en_pareja_en_suspenso = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo != 'Monoparental',
-#                 Proyecto.estado_general == 'en_suspenso'
-#             )
-#             .count()
-#         )
-
-#         proyectos_monoparentales_no_viable = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo == 'Monoparental',
-#                 Proyecto.estado_general == 'no_viable'
-#             )
-#             .count()
-#         )
-
-#         proyectos_en_pareja_no_viable = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo != 'Monoparental',
-#                 Proyecto.estado_general == 'no_viable'
-#             )
-#             .count()
-#         )
-
-#         proyectos_monoparentales_baja_definitiva = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo == 'Monoparental',
-#                 or_(
-#                     Proyecto.estado_general == 'baja_anulacion',
-#                     Proyecto.estado_general == 'baja_caducidad',
-#                     Proyecto.estado_general == 'baja_por_convocatoria',
-#                     Proyecto.estado_general == 'baja_rechazo_invitacion'
-#                 )
-#             )
-#             .count()
-#         )
-
-#         proyectos_en_pareja_baja_definitiva = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo != 'Monoparental',
-#                 or_(
-#                     Proyecto.estado_general == 'baja_anulacion',
-#                     Proyecto.estado_general == 'baja_caducidad',
-#                     Proyecto.estado_general == 'baja_por_convocatoria',
-#                     Proyecto.estado_general == 'baja_rechazo_invitacion'
-#                 )
-#             )
-#             .count()
-#         )
-
-
-#         proyectos_monoparentales_sin_valorar = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo == 'Monoparental',
-#                 Proyecto.estado_general == 'aprobado',
-#                 or_(
-#                     Proyecto.estado_general == 'confeccionando',
-#                     Proyecto.estado_general == 'entrevistando',
-#                     Proyecto.estado_general == 'para_valorar'
-#                 )
-#             )
-#             .count()
-#         )
-
-#         proyectos_en_pareja_sin_valorar = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo != 'Monoparental',
-#                 Proyecto.estado_general == 'aprobado',
-#                 or_(
-#                     Proyecto.estado_general == 'confeccionando',
-#                     Proyecto.estado_general == 'entrevistando',
-#                     Proyecto.estado_general == 'para_valorar'
-#                 )
-#             )
-#             .count()
-#         )
-
-#         proyectos_aprobados_totales = db.query(Proyecto).filter(
-#             Proyecto.estado_general == 'aprobado'
-#         ).count()
-
-
-
-#         proyectos_aprobados_totales = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo == 'Monoparental',
-#                 Proyecto.estado_general == 'aprobado'
-#             )
-#             .count()
-#         )
-                
-
-#         usuarios_sin_proyecto = (
-#             db.query(User)
-#             .outerjoin(Proyecto, (User.login == Proyecto.login_1) | (User.login == Proyecto.login_2))
-#             .filter(User.doc_adoptante_estado == "aprobado", Proyecto.proyecto_id.is_(None))
-#             .count()
-#         )
-#         proyectos_monoparentales_sin_nro_orden = db.query(Proyecto).filter(Proyecto.proyecto_tipo == "Monoparental", 
-#                                                                            Proyecto.nro_orden_rua.is_(None)).count()
-        
-#         proyectos_en_pareja_sin_nro_orden = (
-#             db.query(Proyecto)
-#             .filter(Proyecto.proyecto_tipo != "Monoparental", Proyecto.nro_orden_rua.is_(None)).count()
-#         )
-
-#         proyectos_en_valoracion = db.query(Proyecto).filter(Proyecto.estado_general == "calendarizando").count()
-
-        
-#         proyectos_monoparental_viable = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo == 'Monoparental',
-#                 Proyecto.estado_general == 'viable'
-#             )
-#             .count() 
-#         )
-
-#         proyectos_en_pareja_viable = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.proyecto_tipo != 'Monoparental',
-#                 Proyecto.estado_general == 'viable'
-#             )
-#             .count() 
-#         )
-
-#         proyectos_viables = ( db.query(Proyecto).filter( Proyecto.estado_general == 'viable' ).count() )
-
-#         proyectos_sin_valorar_subregistros_altos = (
-#             proyectos_monoparentales_sin_valorar + proyectos_en_pareja_sin_valorar
-#         )
-
-#         proyectos_viables_disponibles = (
-#             proyectos_monoparental_viable + proyectos_en_pareja_viable
-#         )
-
-#         proyectos_enviados_juzgado = db.query(Proyecto).filter(
-#             Proyecto.estado_general == 'en_carpeta'
-#         ).count()
-
-#         proyectos_en_guarda_provisoria = db.query(Proyecto).filter(
-#             Proyecto.estado_general == 'guarda_provisoria'
-#         ).count()
-
-#         proyectos_en_guarda_confirmada = db.query(Proyecto).filter(
-#             Proyecto.estado_general == 'guarda_confirmada'
-#         ).count()
-
-#         proyectos_adopcion_definitiva = db.query(Proyecto).filter(
-#             Proyecto.estado_general == 'adopcion_definitiva'
-#         ).count()
-
-#         proyectos_en_vinculacion = db.query(Proyecto).filter(
-#             Proyecto.estado_general == 'vinculacion'
-#         ).count()
-
-#         convocatorias_con_adopcion_definitiva = db.query(Proyecto).filter(
-#             Proyecto.ingreso_por == 'convocatoria',
-#             Proyecto.estado_general == 'adopcion_definitiva'
-#         ).count()
-
-#         proyectos_en_entrevistas = db.query(Proyecto).filter(
-#             or_(
-#                 Proyecto.estado_general == 'calendarizando',
-#                 Proyecto.estado_general == 'entrevistando'
-#             )
-#         ).count()
-
-#         proyectos_en_suspenso = db.query(Proyecto).filter(
-#             Proyecto.estado_general == 'en_suspenso'
-#         ).count()
-
-#         proyectos_no_viables = db.query(Proyecto).filter(
-#             Proyecto.estado_general == 'no_viable'
-#         ).count()
-
-#         nna_en_adopcion_definitiva = (
-#             db.query(distinct(DetalleNNAEnCarpeta.nna_id))
-#             .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
-#             .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
-#             .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
-#             .filter(
-#                 Carpeta.estado_carpeta == 'proyecto_seleccionado',
-#                 Proyecto.estado_general == 'adopcion_definitiva'
-#             )
-#             .count()
-#         )
-
-#         ProyectoAlias = aliased(Proyecto)
-
-#         pretensos_aprobados_con_estado_valido = (
-#             db.query(User)
-#             .outerjoin(
-#                 ProyectoAlias,
-#                 or_(
-#                     ProyectoAlias.login_1 == User.login,
-#                     ProyectoAlias.login_2 == User.login
-#                 )
-#             )
-#             .filter(
-#                 User.doc_adoptante_curso_aprobado == 'Y',
-#                 User.doc_adoptante_ddjj_firmada == 'Y',
-#                 User.doc_adoptante_estado == 'aprobado',
-#                 or_(
-#                     ProyectoAlias.proyecto_id.is_(None),  # no tiene ningún proyecto
-#                     ProyectoAlias.estado_general.in_([
-#                         'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando', 'aprobado'
-#                     ])
-#                 )
-#             )
-#             .distinct()
-#             .count()
-#         )
-
-#         nna_en_guarda = (
-#             db.query(distinct(DetalleNNAEnCarpeta.nna_id))
-#             .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
-#             .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
-#             .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
-#             .filter(
-#                 Carpeta.estado_carpeta == 'proyecto_seleccionado',
-#                 Proyecto.estado_general == 'guarda_confirmada'
-#             )
-#             .count()
-#         )
-
-#         # Fecha límite: hoy menos 18 años
-#         hoy = date.today()
-#         fecha_limite_18 = date(hoy.year - 18, hoy.month, hoy.day)
-
-#         nna_en_rua = (
-#             db.query(Nna)
-#             .filter(
-#                 Nna.nna_fecha_nacimiento > fecha_limite_18,
-#                 not_(
-#                     db.query(DetalleNNAEnCarpeta.nna_id)
-#                     .filter(DetalleNNAEnCarpeta.nna_id == Nna.nna_id)
-#                     .exists()
-#                 )
-#             )
-#             .count()
-#         )
-
-#         proyectos_adopcion_definitiva_monoparental = db.query(Proyecto).filter(
-#             Proyecto.proyecto_tipo == "Monoparental",
-#             Proyecto.estado_general == "adopcion_definitiva"
-#         ).count()
-
-#         proyectos_adopcion_definitiva_pareja = db.query(Proyecto).filter(
-#             Proyecto.proyecto_tipo != "Monoparental",
-#             Proyecto.estado_general == "adopcion_definitiva"
-#         ).count()
-
-        
-
-#         hoy = date.today()
-#         fecha_6 = date(hoy.year - 6, hoy.month, hoy.day)
-#         fecha_11 = date(hoy.year - 11, hoy.month, hoy.day)
-#         fecha_17 = date(hoy.year - 17, hoy.month, hoy.day)
-#         fecha_18 = date(hoy.year - 18, hoy.month, hoy.day)
-
-#         # 0–6 años
-#         guarda_grupo_0_6 = (
-#             db.query(DetalleNNAEnCarpeta.nna_id)
-#             .join(Nna, Nna.nna_id == DetalleNNAEnCarpeta.nna_id)
-#             .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
-#             .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
-#             .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
-#             .filter(
-#                 Carpeta.estado_carpeta == 'proyecto_seleccionado',
-#                 Proyecto.estado_general == 'guarda_confirmada',
-#                 Nna.nna_fecha_nacimiento > fecha_6
-#             )
-#             .distinct()
-#             .count()
-#         )
-
-#         # 7–11 años
-#         guarda_grupo_7_11 = (
-#             db.query(DetalleNNAEnCarpeta.nna_id)
-#             .join(Nna, Nna.nna_id == DetalleNNAEnCarpeta.nna_id)
-#             .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
-#             .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
-#             .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
-#             .filter(
-#                 Carpeta.estado_carpeta == 'proyecto_seleccionado',
-#                 Proyecto.estado_general == 'guarda_confirmada',
-#                 Nna.nna_fecha_nacimiento <= fecha_6,
-#                 Nna.nna_fecha_nacimiento > fecha_11
-#             )
-#             .distinct()
-#             .count()
-#         )
-
-#         # 12–17 años
-#         guarda_grupo_12_17 = (
-#             db.query(DetalleNNAEnCarpeta.nna_id)
-#             .join(Nna, Nna.nna_id == DetalleNNAEnCarpeta.nna_id)
-#             .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
-#             .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
-#             .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
-#             .filter(
-#                 Carpeta.estado_carpeta == 'proyecto_seleccionado',
-#                 Proyecto.estado_general == 'guarda_confirmada',
-#                 Nna.nna_fecha_nacimiento <= fecha_11,
-#                 Nna.nna_fecha_nacimiento > fecha_18
-#             )
-#             .distinct()
-#             .count()
-#         )
-
-#         # 0–6 años
-#         adopcion_grupo_0_6 = (
-#             db.query(DetalleNNAEnCarpeta.nna_id)
-#             .join(Nna, Nna.nna_id == DetalleNNAEnCarpeta.nna_id)
-#             .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
-#             .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
-#             .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
-#             .filter(
-#                 Carpeta.estado_carpeta == 'proyecto_seleccionado',
-#                 Proyecto.estado_general == 'adopcion_definitiva',
-#                 Nna.nna_fecha_nacimiento > fecha_6
-#             )
-#             .distinct()
-#             .count()
-#         )
-
-#         # 7–11 años
-#         adopcion_grupo_7_11 = (
-#             db.query(DetalleNNAEnCarpeta.nna_id)
-#             .join(Nna, Nna.nna_id == DetalleNNAEnCarpeta.nna_id)
-#             .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
-#             .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
-#             .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
-#             .filter(
-#                 Carpeta.estado_carpeta == 'proyecto_seleccionado',
-#                 Proyecto.estado_general == 'adopcion_definitiva',
-#                 Nna.nna_fecha_nacimiento <= fecha_6,
-#                 Nna.nna_fecha_nacimiento > fecha_11
-#             )
-#             .distinct()
-#             .count()
-#         )
-
-#         # 12–17 años
-#         adopcion_grupo_12_17 = (
-#             db.query(DetalleNNAEnCarpeta.nna_id)
-#             .join(Nna, Nna.nna_id == DetalleNNAEnCarpeta.nna_id)
-#             .join(Carpeta, Carpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
-#             .join(DetalleProyectosEnCarpeta, DetalleProyectosEnCarpeta.carpeta_id == Carpeta.carpeta_id)
-#             .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
-#             .filter(
-#                 Carpeta.estado_carpeta == 'proyecto_seleccionado',
-#                 Proyecto.estado_general == 'adopcion_definitiva',
-#                 Nna.nna_fecha_nacimiento <= fecha_11,
-#                 Nna.nna_fecha_nacimiento > fecha_18
-#             )
-#             .distinct()
-#             .count()
-#         )
-
-        
-#         return {
-#             "proyectos_viables": proyectos_viables,
-#             "proyectos_en_entrevistas": proyectos_en_entrevistas,
-#             "pretensos_aprobados_con_estado_valido": pretensos_aprobados_con_estado_valido,
-
-#             "nna_en_adopcion_definitiva": nna_en_adopcion_definitiva,
-#             "nna_en_guarda": nna_en_guarda,
-#             "nna_en_rua": nna_en_rua,
-
-#             "proyectos_adopcion_definitiva_monoparental": proyectos_adopcion_definitiva_monoparental,
-#             "proyectos_adopcion_definitiva_pareja": proyectos_adopcion_definitiva_pareja,
-
-#             "guarda_grupo_0_6": guarda_grupo_0_6,
-#             "guarda_grupo_7_11": guarda_grupo_7_11,
-#             "guarda_grupo_12_17": guarda_grupo_12_17,
-
-#             "adopcion_grupo_0_6": adopcion_grupo_0_6,
-#             "adopcion_grupo_7_11": adopcion_grupo_7_11,
-#             "adopcion_grupo_12_17": adopcion_grupo_12_17,
-
-
-#             "sin_activar": sin_activar,
-#             "usuarios_activos": usuarios_activos,
-#             "sin_curso_sin_ddjj": sin_curso_sin_ddjj,
-#             "con_curso_sin_ddjj": con_curso_sin_ddjj,
-#             "con_curso_con_ddjj": con_curso_con_ddjj,
-
-#             "proyectos_sin_valorar_subregistros_altos": 26,
-            
-            
-            
-#             "proyectos_no_viables": proyectos_no_viables,
-#             "proyectos_en_suspenso": proyectos_en_suspenso,
-#             "proyectos_enviados_juzgado": proyectos_enviados_juzgado,
-#             "proyectos_en_guarda_provisoria": proyectos_en_guarda_provisoria,
-#             "proyectos_en_guarda": proyectos_en_guarda_confirmada,
-#             "proyectos_en_guarda_confirmada": proyectos_en_guarda_confirmada,
-#             "proyectos_adopcion_definitiva": proyectos_adopcion_definitiva,
-#             "proyectos_en_vinculacion": proyectos_en_vinculacion,
-#             "convocatorias_con_adopcion_definitiva": convocatorias_con_adopcion_definitiva,
-
-#             "pretensos_presentando_documentacion": pretensos_presentando_documentacion,
-#             "pretensos_aprobados": pretensos_aprobados,
-#             "pretensos_rechazados": pretensos_rechazados,
-                        
-#             "proyectos_monoparentales": proyectos_monoparentales,
-#             "proyectos_en_pareja": proyectos_en_pareja,
-
-#             "proyectos_monoparentales_subiendo_documentacion": proyectos_monoparentales_subiendo_documentacion,
-#             "proyectos_en_pareja_subiendo_documentacion": proyectos_en_pareja_subiendo_documentacion,
-#             "proyectos_monoparentales_en_revision_por_supervision": proyectos_monoparentales_en_revision_por_supervision,
-#             "proyectos_en_pareja_en_revision_por_supervision": proyectos_en_pareja_en_revision_por_supervision,
-
-#             "proyectos_monoparentales_aprobados_para_calendarizar": proyectos_monoparentales_aprobados_para_calendarizar,
-#             "proyectos_en_pareja_aprobados_para_calendarizar": proyectos_en_pareja_aprobados_para_calendarizar,
-
-#             "entrevistando_en_pareja": entrevistando_en_pareja,
-#             "entrevistando_monoparental": entrevistando_monoparental,
-
-#             "proyectos_monoparentales_en_suspenso": proyectos_monoparentales_en_suspenso,
-#             "proyectos_en_pareja_en_suspenso": proyectos_en_pareja_en_suspenso,
-#             "proyectos_monoparentales_no_viable": proyectos_monoparentales_no_viable,
-#             "proyectos_en_pareja_no_viable": proyectos_en_pareja_no_viable,
-#             "proyectos_monoparentales_baja_definitiva": proyectos_monoparentales_baja_definitiva,
-#             "proyectos_en_pareja_baja_definitiva": proyectos_en_pareja_baja_definitiva,
-
-#             "proyectos_monoparentales_sin_valorar": proyectos_monoparentales_sin_valorar,            
-#             "proyectos_en_pareja_sin_valorar": proyectos_en_pareja_sin_valorar,
-
-#             "usuarios_sin_proyecto": usuarios_sin_proyecto,
-#             "proyectos_monoparentales_sin_nro_orden": proyectos_monoparentales_sin_nro_orden,
-#             "proyectos_en_pareja_sin_nro_orden": proyectos_en_pareja_sin_nro_orden,
-
-#             "proyectos_en_valoracion": proyectos_en_valoracion,
-            
-#             "proyectos_monoparental_viable": proyectos_monoparental_viable,
-#             "proyectos_en_pareja_viable": proyectos_en_pareja_viable,
-#         }
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-    
 
 
 def check_consecutive_numbers(password: str) -> bool:
