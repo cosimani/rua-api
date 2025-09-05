@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Request, status, B
 from typing import List, Optional, Literal, Tuple
 from sqlalchemy.orm import Session, aliased, joinedload, noload
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import func, case, and_, or_, Integer, literal_column, desc
+from sqlalchemy import func, case, and_, or_, Integer, literal_column, desc, cast
 from urllib.parse import unquote
 
 
@@ -2955,38 +2955,66 @@ def solicitar_valoracion(
                 }
 
 
-        # Asignar nro_orden_rua solo si no está ya asignado
-        if not proyecto.nro_orden_rua:
-            ultimos_nros = db.query(Proyecto.nro_orden_rua)\
-                .filter(Proyecto.nro_orden_rua != None)\
-                .all()
+        # # Asignar nro_orden_rua solo si no está ya asignado
+        # if not proyecto.nro_orden_rua:
+        #     ultimos_nros = db.query(Proyecto.nro_orden_rua)\
+        #         .filter(Proyecto.nro_orden_rua != None)\
+        #         .all()
 
-            # Filtrar solo los que tienen menos de 5 dígitos y son números válidos
-            numeros_validos = [
-                int(p.nro_orden_rua) for p in ultimos_nros
-                if p.nro_orden_rua.isdigit() and len(p.nro_orden_rua) < 5
-            ]
+        #     # Filtrar solo los que tienen menos de 5 dígitos y son números válidos
+        #     numeros_validos = [
+        #         int(p.nro_orden_rua) for p in ultimos_nros
+        #         if p.nro_orden_rua.isdigit() and len(p.nro_orden_rua) < 5
+        #     ]
 
-            nuevo_nro_orden = str(max(numeros_validos) + 1) if numeros_validos else "1"
+        #     nuevo_nro_orden = str(max(numeros_validos) + 1) if numeros_validos else "1"
 
+        #     proyecto.nro_orden_rua = nuevo_nro_orden
+        #     proyecto.fecha_asignacion_nro_orden = date.today()
+        # else:
+        #     nuevo_nro_orden = proyecto.nro_orden_rua
+
+
+        # Solo asignar nro de orden para proyectos que ingresaron por RUA
+        def _necesita_nro_orden(p: Proyecto) -> bool:
+            # vacío / None / "0" se consideran "sin número"
+            val = (p.nro_orden_rua or "").strip()
+            return val == "" or val == "0"
+
+        if proyecto.ingreso_por == "rua" and _necesita_nro_orden(proyecto):
+            # Tomar el MAX(nro_orden_rua) solo entre proyectos de RUA y numéricos de hasta 4 dígitos
+            # Usamos REGEXP para asegurar numeritos, y CAST a INT para la agregación
+            max_actual = (
+                db.query(func.coalesce(func.max(cast(Proyecto.nro_orden_rua, Integer)), 0))
+                .filter(
+                    Proyecto.ingreso_por == "rua",
+                    # Solo valores numéricos de 1 a 4 dígitos (ajustá si querés permitir más)
+                    Proyecto.nro_orden_rua.op("REGEXP")("^[0-9]{1,4}$")
+                )
+                .scalar()
+            ) or 0
+
+            nuevo_nro_orden = str(max_actual + 1)
             proyecto.nro_orden_rua = nuevo_nro_orden
             proyecto.fecha_asignacion_nro_orden = date.today()
         else:
-            nuevo_nro_orden = proyecto.nro_orden_rua
+            # Para convocatoria/oficio (o si ya tenía nro válido) NO tocar el nro de orden
+            nuevo_nro_orden = (proyecto.nro_orden_rua or "").strip() or None
 
 
         # Cambiar estado
+        estado_anterior = proyecto.estado_general
         proyecto.estado_general = "calendarizando"
         proyecto.ultimo_cambio_de_estado = date.today()
 
-        # Registrar en historial
         historial = ProyectoHistorialEstado(
             proyecto_id = proyecto.proyecto_id,
-            estado_anterior = "aprobado",
+            estado_anterior = estado_anterior,
             estado_nuevo = "calendarizando",
             fecha_hora = datetime.now()
         )
         db.add(historial)
+
 
         # Agregar detalle del equipo en proyecto
         for login in profesionales:
