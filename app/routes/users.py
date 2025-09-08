@@ -33,9 +33,9 @@ from bs4 import BeautifulSoup
 
 
 from database.config import get_db  # Importá get_db desde config.py
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import case, func, and_, or_, select, union_all, join, literal_column, desc, text
+from sqlalchemy import case, func, and_, or_, select, union_all, join, literal_column, desc, text, not_
 from sqlalchemy.sql import literal_column
 
 
@@ -107,17 +107,18 @@ def get_users(
         ),
     ),
 
-    group_description: Literal["adoptante", "supervision", "profesional", "supervisora", "administrador"] = Query(
-        None, description="Grupo o rol del usuario"),   
+    # group_description: Literal["adoptante", "supervision", "profesional", "supervisora", "administrador"] = Query(
+    #     None, description="Grupo o rol del usuario"),   
+
+    group_description: Optional[Literal["adoptante","supervision","profesional","supervisora","administrador"]] = Query(
+        None, description="Grupo o rol del usuario"
+    ),
 
     search: Optional[str] = Query(None, description="Búsqueda por al menos 3 caracteres alfanuméricos"),
 
     proyecto_tipo: Optional[Literal["Monoparental", "Matrimonio", "Unión convivencial"]] = Query(
         None, description="Filtrar por tipo de proyecto (Monoparental, Matrimonio, Unión convivencial)" ),
     curso_aprobado: Optional[bool] = Query(None, description="Filtrar por curso aprobado"),
-    # doc_adoptante_estado: Optional[Literal["inicial_cargando", "pedido_revision", 
-    #                                        "actualizando", "aprobado", "rechazado"]] = Query(
-    #                                            None, description="Filtrar por estado de documentación personal"),
     doc_adoptante_estado: Optional[Literal[
         "inicial_cargando", "pedido_revision", "actualizando", "aprobado", "rechazado", "inactivo"
     ]] = Query(None, description="Filtrar por estado de documentación personal (incluye 'inactivo')"),
@@ -133,6 +134,10 @@ def get_users(
                     description="Filtrar por fecha de asignación de nro. de orden, inicio (AAAA-MM-DD)"),
     fecha_nro_orden_fin: Optional[str] = Query(None, 
                     description="Filtrar por fecha de asignación de nro. de orden, fin (AAAA-MM-DD)"),
+    ingreso_por: Literal["rua","oficio","convocatoria","todos"] = Query(
+        "rua",
+        description="Filtra por origen del proyecto: rua/oficio/convocatoria. 'todos' para no filtrar."
+    ),
 ):
     """
     Devuelve los usuarios de sec_users paginados. <br>
@@ -312,6 +317,30 @@ def get_users(
         query = query.filter(User.operativo == operativo)
         # ——————————————————————————————————————————————————————————
 
+
+        # ——— Filtro por ingreso_por ————————————————————————————————
+        if ingreso_por != "todos":
+            P_any = aliased(Proyecto)
+            existe_alguno = (
+                db.query(P_any.proyecto_id)
+                .filter(or_(P_any.login_1 == User.login, P_any.login_2 == User.login))
+                .exists()
+            )
+
+            P_origen = aliased(Proyecto)
+            existe_origen = (
+                db.query(P_origen.proyecto_id)
+                .filter(
+                    or_(P_origen.login_1 == User.login, P_origen.login_2 == User.login),
+                    P_origen.ingreso_por == ingreso_por
+                )
+                .exists()
+            )
+
+            # Si NO tiene proyectos -> pasa. Si tiene proyectos -> debe tener al menos uno del origen pedido.
+            query = query.filter(or_(not_(existe_alguno), existe_origen))
+        # ————————————————————————————————————————————————————————————————
+
     
         if search and len(search.strip()) >= 3:
             palabras = search.lower().split()  # divide en palabras
@@ -331,6 +360,9 @@ def get_users(
 
             # Todas las palabras deben coincidir en algún campo (AND entre ORs)
             query = query.filter(and_(*condiciones_por_palabra))
+
+        # Para evitar duplicados, para que un usuario que tiene varios proyectos, aparezca una sola vez
+        query = query.distinct(User.login)
 
 
         # Paginación sin count(): se solicita (limit + 1) registros
