@@ -18,6 +18,7 @@ services:
       - /home/ubuntu/docs-rua/informes:${UPLOAD_DIR_DOC_INFORMES}
       - /home/ubuntu/docs-rua/nnas:${UPLOAD_DIR_DOC_NNAS}
       - /home/ubuntu/docs-rua/pdfs:${DIR_PDF_GENERADOS}
+      - /home/ubuntu/docs-rua/exports:${EXPORT_DIR}
 
     environment:
       TZ: America/Argentina/Cordoba

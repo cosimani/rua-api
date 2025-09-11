@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from database.config import get_db  # Importá get_db desde config.py
 
-from models.users import User
+from models.users import User, UserGroup, Group
 from models.proyecto import Proyecto
 # from models.detalles import DetalleNnaEnCarpeta
 from models.nna import Nna
@@ -16,6 +16,31 @@ from security.security import get_current_user, require_roles, verify_api_key
 
 from fastapi.responses import FileResponse
 from helpers.utils import EstadisticasPDF, calcular_estadisticas_generales
+
+from tempfile import NamedTemporaryFile
+from datetime import date, datetime
+from typing import List, Dict, Any, Optional
+
+from models.nna import Nna
+from models.convocatorias import Convocatoria
+
+from sqlalchemy import text
+
+import os
+from fastapi import BackgroundTasks
+from database.config import SessionLocal  # para obtener engine/bind
+from openpyxl import Workbook, load_workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Alignment
+from starlette.concurrency import run_in_threadpool
+
+from helpers.utils import (
+    JOBSTORE_EXPORT_DIR,
+    jobstore_create_job,
+    jobstore_update_job,
+    jobstore_read_job,
+)
+
 
 
 
@@ -271,6 +296,7 @@ def generar_pdf_estadisticas(db: Session = Depends(get_db)):
 
 
 
+
 @estadisticas_router.get("/historial/{login}", response_model=dict, 
                   dependencies=[Depends( verify_api_key ), 
                                 Depends(require_roles(["administrador", "supervision", "supervisora", "coordinadora"]))])
@@ -349,3 +375,279 @@ def get_user_timeline(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener el historial del usuario: {str(e)}")
+
+
+
+
+
+
+
+
+
+# ---------- Utilidades ----------
+
+def _safe_date(d: Optional[date]) -> Optional[str]:
+    return d.strftime("%Y-%m-%d") if isinstance(d, (date, datetime)) and d else None
+
+def _autoformat_sheet(ws):
+    ws.auto_filter.ref = ws.dimensions
+    ws.freeze_panes = "A2"
+    for cell in ws[1]:
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for col in range(1, ws.max_column + 1):
+        letter = get_column_letter(col)
+        ws.column_dimensions[letter].width = 18
+
+# ---------- Streaming queries (bajo lock de lectura) ----------
+
+def _get_engine():
+    # tomamos el engine desde la SessionLocal
+    return SessionLocal().bind
+
+PROJECTS_HEADERS = [
+    "proyecto_id","nro_orden_rua","proyecto_tipo","ingreso_por","estado_general",
+    "login_1_nombre","login_1","login_2_nombre","login_2",
+    "localidad","provincia","ultimo_cambio_de_estado","fecha_asignacion_nro_orden",
+    "tiene_dictamen","tiene_informe_vinculacion","tiene_seguimiento_guarda",
+    "tiene_sentencia_guarda","tiene_informe_conclusivo","tiene_sentencia_adopcion"
+]
+
+def _stream_proyectos_rows(conn, estado_filter: Optional[str] = None):
+    sql_txt = """
+        SELECT
+            p.proyecto_id, p.nro_orden_rua, p.proyecto_tipo, p.ingreso_por, p.estado_general,
+            u1.nombre AS login_1_nombre, u1.apellido AS login_1_apellido, p.login_1,
+            u2.nombre AS login_2_nombre, u2.apellido AS login_2_apellido, p.login_2,
+            p.proyecto_localidad AS localidad, p.proyecto_provincia AS provincia,
+            p.ultimo_cambio_de_estado, p.fecha_asignacion_nro_orden,
+            IF(p.doc_dictamen IS NULL OR p.doc_dictamen='', 'N','Y') AS tiene_dictamen,
+            IF(p.doc_informe_vinculacion IS NULL OR p.doc_informe_vinculacion='', 'N','Y') AS tiene_informe_vinculacion,
+            IF(p.doc_informe_seguimiento_guarda IS NULL OR p.doc_informe_seguimiento_guarda='', 'N','Y') AS tiene_seguimiento_guarda,
+            IF(p.doc_sentencia_guarda IS NULL OR p.doc_sentencia_guarda='', 'N','Y') AS tiene_sentencia_guarda,
+            IF(p.doc_informe_conclusivo IS NULL OR p.doc_informe_conclusivo='', 'N','Y') AS tiene_informe_conclusivo,
+            IF(p.doc_sentencia_adopcion IS NULL OR p.doc_sentencia_adopcion='', 'N','Y') AS tiene_sentencia_adopcion
+        FROM proyecto p
+        LEFT JOIN sec_users u1 ON u1.login = p.login_1
+        LEFT JOIN sec_users u2 ON u2.login = p.login_2
+    """
+    params = {}
+    if estado_filter:
+        sql_txt += " WHERE p.estado_general = :estado"
+        params["estado"] = estado_filter
+
+    sql = text(sql_txt).execution_options(stream_results=True)
+    cur = conn.execution_options(stream_results=True).execute(sql, params)
+    try:
+        for row in cur:
+            yield [
+                row.proyecto_id, row.nro_orden_rua, row.proyecto_tipo, row.ingreso_por, row.estado_general,
+                f"{(row.login_1_nombre or '')} {(row.login_1_apellido or '')}".strip(), row.login_1,
+                f"{(row.login_2_nombre or '')} {(row.login_2_apellido or '')}".strip(), row.login_2,
+                row.localidad, row.provincia,
+                (row.ultimo_cambio_de_estado.isoformat() if row.ultimo_cambio_de_estado else None),
+                (row.fecha_asignacion_nro_orden.isoformat() if row.fecha_asignacion_nro_orden else None),
+                row.tiene_dictamen, row.tiene_informe_vinculacion, row.tiene_seguimiento_guarda,
+                row.tiene_sentencia_guarda, row.tiene_informe_conclusivo, row.tiene_sentencia_adopcion,
+            ]
+    finally:
+        cur.close()
+
+NNA_HEADERS = [
+    "nna_id","nombre","apellido","dni","fecha_nacimiento","edad",
+    "localidad","provincia","estado","en_convocatoria","5A","5B","tiene_sentencia"
+]
+
+def _stream_nna_rows(conn):
+    # Evitamos alias que empiecen con número porque no se pueden acceder como atributos
+    sql = text("""
+        SELECT
+          nna_id, nna_nombre, nna_apellido, nna_dni, nna_fecha_nacimiento,
+          nna_localidad AS localidad, nna_provincia AS provincia, nna_estado,
+          COALESCE(nna_en_convocatoria,'N') AS en_convocatoria,
+          COALESCE(nna_5A,'N') AS cincoA, COALESCE(nna_5B,'N') AS cincoB,
+          IF(nna_sentencia IS NULL OR nna_sentencia='', 'N','Y') AS tiene_sentencia
+        FROM nna
+    """).execution_options(stream_results=True)
+    cur = conn.execution_options(stream_results=True).execute(sql)
+    try:
+        for row in cur:
+            yield [
+                row.nna_id, row.nna_nombre, row.nna_apellido, row.nna_dni,
+                (row.nna_fecha_nacimiento.isoformat() if row.nna_fecha_nacimiento else None),
+                None,  # edad (omito cálculo costoso; se puede agregar luego)
+                row.localidad, row.provincia, row.nna_estado, row.en_convocatoria,
+                row.cincoA, row.cincoB, row.tiene_sentencia
+            ]
+    finally:
+        cur.close()
+
+CONV_HEADERS = [
+    "convocatoria_id","referencia","llamado","edad_es","residencia_postulantes",
+    "fecha_publicacion","online","juzgado_interviniente"
+]
+
+def _stream_conv_rows(conn):
+    sql = text("""
+        SELECT
+         convocatoria_id, convocatoria_referencia AS referencia, convocatoria_llamado AS llamado,
+         convocatoria_edad_es AS edad_es, convocatoria_residencia_postulantes AS residencia_postulantes,
+         convocatoria_fecha_publicacion AS fecha_publicacion, convocatoria_online AS online,
+         convocatoria_juzgado_interviniente AS juzgado_interviniente
+        FROM convocatorias
+    """).execution_options(stream_results=True)
+    cur = conn.execution_options(stream_results=True).execute(sql)
+    try:
+        for row in cur:
+            yield [
+                row.convocatoria_id, row.referencia, row.llamado,
+                row.edad_es, row.residencia_postulantes,
+                (row.fecha_publicacion.isoformat() if row.fecha_publicacion else None),
+                row.online, row.juzgado_interviniente
+            ]
+    finally:
+        cur.close()
+
+
+def _build_excel_file(path: str):
+    eng = _get_engine()
+    with eng.connect() as conn:
+        # Lectura sin bloquear escrituras (y viceversa) — reduce contención
+        try:
+            conn.exec_driver_sql("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
+            conn.exec_driver_sql("SET SESSION TRANSACTION READ ONLY")
+            conn.exec_driver_sql("SET SESSION innodb_lock_wait_timeout=5")
+        except Exception:
+            # si no soporta alguno, seguimos igual
+            pass
+
+        wb = Workbook(write_only=True)
+
+        # --- Hoja Proyectos ---
+        ws_p = wb.create_sheet("Proyectos")
+        ws_p.append(PROJECTS_HEADERS)
+        for row in _stream_proyectos_rows(conn):
+            ws_p.append(row)
+
+        # --- Hoja Proy_AdopcionDef ---
+        ws_pad = wb.create_sheet("Proy_AdopcionDef")
+        ws_pad.append(PROJECTS_HEADERS)
+        for row in _stream_proyectos_rows(conn, estado_filter="adopcion_definitiva"):
+            ws_pad.append(row)
+
+        # --- Hoja NNA ---
+        ws_nna = wb.create_sheet("NNA")
+        ws_nna.append(NNA_HEADERS)
+        for row in _stream_nna_rows(conn):
+            ws_nna.append(row)
+
+        # --- Hoja Convocatorias ---
+        ws_c = wb.create_sheet("Convocatorias")
+        ws_c.append(CONV_HEADERS)
+        for row in _stream_conv_rows(conn):
+            ws_c.append(row)
+
+        # Guardamos primero (write_only no permite formateo avanzado)
+        root, _ = os.path.splitext(path)
+        stage_path = root + ".__stage__.xlsx"
+        wb.save(stage_path)
+
+    # Reabrimos para aplicar autofiltro, freeze panes y ancho de columnas
+    wb2 = load_workbook(stage_path)
+    for name in ["Proyectos", "Proy_AdopcionDef", "NNA", "Convocatorias"]:
+        if name in wb2.sheetnames:
+            _autoformat_sheet(wb2[name])
+    wb2.save(path)
+
+    # Limpieza del archivo de etapa
+    try:
+        os.remove(stage_path)
+    except Exception:
+        pass
+
+
+
+# ---------- Endpoints Excel ----------
+@estadisticas_router.post(
+    "/informe_general_excel_job",
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(require_roles(["administrador","supervision","supervisora","coordinadora"]))
+    ],
+)
+async def start_informe_general_excel_job(background_tasks: BackgroundTasks):
+    # 1) crear job
+    job = jobstore_create_job(kind="estadisticas_excel")
+    job_id = job["id"]
+    out_path = os.path.join(JOBSTORE_EXPORT_DIR, f"estadisticas_{job_id}.xlsx")
+
+    # 2) lanzar tarea en segundo plano
+    def _runner():
+        try:
+            jobstore_update_job(job_id, status="running")
+            _build_excel_file(out_path)
+            jobstore_update_job(job_id, status="done", file_path=out_path)
+        except Exception as e:
+            jobstore_update_job(job_id, status="error", error=str(e))
+
+    background_tasks.add_task(_runner)
+
+    # 3) responder al toque
+    return {"job_id": job_id, "status": "pending"}
+
+@estadisticas_router.get(
+    "/informe_general_excel_job/{job_id}",
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(require_roles(["administrador","supervision","supervisora","coordinadora"]))
+    ],
+)
+def get_informe_general_excel_job_status(job_id: str):
+    job = jobstore_read_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job no encontrado")
+    # No exponemos rutas internas del host si aún no terminó
+    return {
+        "job_id": job["id"],
+        "status": job["status"],
+        "error": job.get("error"),
+        "file_ready": bool(job.get("file_path") and os.path.exists(job["file_path"])),
+    }
+
+@estadisticas_router.get(
+    "/informe_general_excel_job/{job_id}/download",
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(require_roles(["administrador","supervision","supervisora","coordinadora"]))
+    ],
+)
+def download_informe_general_excel(job_id: str):
+    job = jobstore_read_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job no encontrado")
+    if job["status"] != "done" or not job.get("file_path") or not os.path.exists(job["file_path"]):
+        raise HTTPException(status_code=409, detail="el archivo todavía no está listo")
+    fname = f"estadisticas_adopciones_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    return FileResponse(
+        job["file_path"],
+        filename=fname,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+# (Opcional) Endpoint directo "one-shot" (bloquea este worker hasta terminar el Excel)
+@estadisticas_router.get(
+    "/informe_general_excel",
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(require_roles(["administrador","supervision","supervisora","coordinadora"]))
+    ],
+)
+async def informe_general_excel_directo():
+    tmp = NamedTemporaryFile(delete=False, suffix=".xlsx")
+    tmp_path = tmp.name
+    tmp.close()
+    await run_in_threadpool(_build_excel_file, tmp_path)
+    return FileResponse(
+        tmp_path,
+        filename=f"estadisticas_adopciones_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )

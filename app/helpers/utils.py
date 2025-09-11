@@ -12,7 +12,7 @@ import bcrypt
 
 from fpdf import FPDF
 
-from typing import Optional
+from typing import Optional,  Dict, Any
 
 from fastapi import HTTPException
 
@@ -23,8 +23,6 @@ from models.notif_y_observaciones import ObservacionesProyectos, ObservacionesPr
 from models.convocatorias import DetalleProyectoPostulacion, Postulacion
 from models.eventos_y_configs import RuaEvento, UsuarioNotificadoRatificacion
 from models.users import User, Group, UserGroup 
-
-
 
 from models.nna import Nna
 from models.ddjj import DDJJ
@@ -38,7 +36,19 @@ from models.eventos_y_configs import SecSettings
 
 import httpx
 
+import uuid, json, time
 
+
+
+# Para almacenar el excel de estadísticas
+JOBSTORE_EXPORT_DIR = os.getenv("EXPORT_DIR")
+if not JOBSTORE_EXPORT_DIR:
+    raise RuntimeError("La variable de entorno EXPORT_DIR no está definida. Verificá tu archivo .env")
+os.makedirs(JOBSTORE_EXPORT_DIR, exist_ok=True)
+
+
+# Archivo donde se guardan los jobs (queda dentro del EXPORT_DIR montado)
+JOBSTORE_PATH = os.path.join(JOBSTORE_EXPORT_DIR, "_jobs.json")
 
 
 RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY")
@@ -65,6 +75,61 @@ async def verificar_recaptcha(token: str, remote_ip: str = "", threshold: float 
 
 
 
+
+
+def _jobstore_load() -> Dict[str, Any]:
+    if not os.path.exists(JOBSTORE_PATH):
+        return {}
+    try:
+        with open(JOBSTORE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        # si se corrompe, empezamos limpio
+        return {}
+
+def _jobstore_save(data: Dict[str, Any]) -> None:
+    tmp = JOBSTORE_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, JOBSTORE_PATH)  # write atomic
+
+def jobstore_create_job(kind: str, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    data = _jobstore_load()
+    job_id = uuid.uuid4().hex
+    now = int(time.time())
+    job = {
+        "id": job_id,
+        "kind": kind,
+        "status": "pending",     # pending | running | done | error
+        "created_at": now,
+        "updated_at": now,
+        "file_path": None,
+        "error": None,
+        "meta": meta or {},
+    }
+    data[job_id] = job
+    _jobstore_save(data)
+    return job
+
+def jobstore_update_job(job_id: str, **fields) -> Optional[Dict[str, Any]]:
+    data = _jobstore_load()
+    job = data.get(job_id)
+    if not job:
+        return None
+    job.update(fields)
+    job["updated_at"] = int(time.time())
+    data[job_id] = job
+    _jobstore_save(data)
+    return job
+
+def jobstore_read_job(job_id: str) -> Optional[Dict[str, Any]]:
+    data = _jobstore_load()
+    return data.get(job_id)
+
+def jobstore_job_exists(job_id: str) -> bool:
+    return jobstore_read_job(job_id) is not None
+
+    
 
 
 # ---------------------------
@@ -446,126 +511,6 @@ def _estadisticas_proyectos(db: Session) -> dict:
         "por_ingreso": por_ingreso
     }
 
-    # monoparentales = db.query(Proyecto).filter(Proyecto.proyecto_tipo == 'Monoparental').count()
-    # en_pareja = db.query(Proyecto).filter(Proyecto.proyecto_tipo != 'Monoparental').count()
-
-    # monop_subiendo = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo == 'Monoparental',
-    #     Proyecto.estado_general.in_(('confeccionando','actualizando'))
-    # ).count()
-    # pareja_subiendo = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo != 'Monoparental',
-    #     Proyecto.estado_general.in_(('confeccionando','actualizando'))
-    # ).count()
-
-    # monop_revision = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo == 'Monoparental',
-    #     Proyecto.estado_general == 'en_revision'
-    # ).count()
-    # pareja_revision = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo != 'Monoparental',
-    #     Proyecto.estado_general == 'en_revision'
-    # ).count()
-
-    # monop_aprob_calendar = _aprobados_para_calendarizar(True)
-    # pareja_aprob_calendar = _aprobados_para_calendarizar(False)
-
-    # entrevistando_monop = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo == 'Monoparental',
-    #     Proyecto.estado_general.in_(('calendarizando','entrevistando'))
-    # ).count()
-    # entrevistando_pareja = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo != 'Monoparental',
-    #     Proyecto.estado_general.in_(('calendarizando','entrevistando'))
-    # ).count()
-
-    # # Viables por tipo
-    # monop_viable = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo == 'Monoparental',
-    #     Proyecto.estado_general == 'viable'
-    # ).count()
-    # pareja_viable = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo != 'Monoparental',
-    #     Proyecto.estado_general == 'viable'
-    # ).count()
-
-    # # Adopción definitiva por tipo
-    # adop_def_mono = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo == "Monoparental",
-    #     Proyecto.estado_general == "adopcion_definitiva"
-    # ).count()
-    # adop_def_pareja = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo != "Monoparental",
-    #     Proyecto.estado_general == "adopcion_definitiva"
-    # ).count()
-
-    # # Sin nro de orden
-    # mono_sin_orden = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo == "Monoparental",
-    #     or_(Proyecto.nro_orden_rua.is_(None), func.trim(Proyecto.nro_orden_rua) == "")
-    # ).count()
-    # pareja_sin_orden = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo != "Monoparental",
-    #     or_(Proyecto.nro_orden_rua.is_(None), func.trim(Proyecto.nro_orden_rua) == "")
-    # ).count()
-
-    # # En valoración (calendarizando)
-    # para_valorar = por_estado.get('para_valorar', 0)
-
-    # # Ingreso por fuente
-    # por_ingreso = {
-    #     'rua': db.query(Proyecto).filter(Proyecto.ingreso_por == 'rua').count(),
-    #     'oficio': db.query(Proyecto).filter(Proyecto.ingreso_por == 'oficio').count(),
-    #     'convocatoria': db.query(Proyecto).filter(Proyecto.ingreso_por == 'convocatoria').count(),
-    # }
-
-    # monop_baja_def = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo == 'Monoparental',
-    #     Proyecto.estado_general.in_(BAJAS)
-    # ).count()
-
-    # pareja_baja_def = db.query(Proyecto).filter(
-    #     Proyecto.proyecto_tipo != 'Monoparental',
-    #     Proyecto.estado_general.in_(BAJAS)
-    # ).count()
-
-    # return {
-    #     "por_estado": por_estado,
-    #     "resumen": {
-    #         "proyectos_viables": proyectos_viables,
-    #         "proyectos_en_entrevistas_rua": proyectos_en_entrevistas_rua,
-    #         "proyectos_en_entrevistas_convocatoria": proyectos_en_entrevistas_convocatoria,
-    #         "proyectos_en_suspenso": proyectos_en_suspenso,
-    #         "proyectos_no_viables": proyectos_no_viables,
-    #         "proyectos_en_carpeta": proyectos_enviados_juzgado,
-    #         "proyectos_en_guarda_provisoria": proyectos_en_guarda_provisoria,
-    #         "proyectos_en_guarda_confirmada": proyectos_en_guarda_confirmada,
-    #         "proyectos_en_vinculacion": proyectos_en_vinculacion,
-    #         "proyectos_adopcion_definitiva": proyectos_adopcion_definitiva,
-    #     },
-    #     "tipos": {
-    #         "proyectos_monoparentales": monoparentales,
-    #         "proyectos_en_pareja": en_pareja,
-    #         "monoparentales_subiendo_documentacion": monop_subiendo,
-    #         "en_pareja_subiendo_documentacion": pareja_subiendo,
-    #         "monoparentales_en_revision": monop_revision,
-    #         "en_pareja_en_revision": pareja_revision,
-    #         "monoparentales_aprobados_para_calendarizar": monop_aprob_calendar,
-    #         "en_pareja_aprobados_para_calendarizar": pareja_aprob_calendar,
-    #         "entrevistando_monoparental": entrevistando_monop,
-    #         "entrevistando_en_pareja": entrevistando_pareja,
-    #         "proyectos_monoparental_viable": monop_viable,
-    #         "proyectos_en_pareja_viable": pareja_viable,
-    #         "proyectos_adopcion_definitiva_monoparental": adop_def_mono,
-    #         "proyectos_adopcion_definitiva_pareja": adop_def_pareja,
-    #         "monoparentales_sin_nro_orden": mono_sin_orden,
-    #         "en_pareja_sin_nro_orden": pareja_sin_orden,
-    #         "proyectos_para_valorar": para_valorar,
-    #         "monoparentales_baja_definitiva": monop_baja_def,
-    #         "en_pareja_baja_definitiva": pareja_baja_def,
-    #     },
-    #     "por_ingreso": por_ingreso
-    # }
 
 # ---------------------------
 # BLOQUE NNA
@@ -1241,3 +1186,5 @@ def convertir_booleans_a_string(d: dict) -> dict:
         else:
             convertido[k] = v
     return convertido
+
+
