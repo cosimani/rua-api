@@ -404,18 +404,52 @@ def _get_engine():
     # tomamos el engine desde la SessionLocal
     return SessionLocal().bind
 
+
+
 PROJECTS_HEADERS = [
-    "proyecto_id","nro_orden_rua","proyecto_tipo","ingreso_por","estado_general",
+    "proyecto_id","nro_orden_rua","proyecto_tipo","estado_general","fecha_estado",
+    "Cant. NNA/s","NNA/s",
     "login_1_nombre","login_1","login_2_nombre","login_2",
     "localidad","provincia","ultimo_cambio_de_estado","fecha_asignacion_nro_orden",
     "tiene_dictamen","tiene_informe_vinculacion","tiene_seguimiento_guarda",
     "tiene_sentencia_guarda","tiene_informe_conclusivo","tiene_sentencia_adopcion"
 ]
 
+
 def _stream_proyectos_rows(conn, estado_filter: Optional[str] = None):
+    # por si el GROUP_CONCAT queda largo
+    try:
+        conn.exec_driver_sql("SET SESSION group_concat_max_len = 8192")
+        # opcional: unificar la collation de la conexión
+        conn.exec_driver_sql("SET collation_connection = 'utf8mb4_general_ci'")
+    except Exception:
+        pass
+
     sql_txt = """
         SELECT
-            p.proyecto_id, p.nro_orden_rua, p.proyecto_tipo, p.ingreso_por, p.estado_general,
+            p.proyecto_id,
+            p.nro_orden_rua,
+            p.proyecto_tipo,
+            p.estado_general,
+
+            /* fecha del último cambio al estado actual (o fallback al último cambio de estado del proyecto) */
+            DATE(
+              COALESCE(
+                (
+                  SELECT MAX(he.fecha_hora)
+                  FROM proyecto_historial_estado he
+                  WHERE he.proyecto_id = p.proyecto_id
+                    AND he.estado_nuevo COLLATE utf8mb4_general_ci
+                        = p.estado_general COLLATE utf8mb4_general_ci
+                ),
+                p.ultimo_cambio_de_estado
+              )
+            ) AS fecha_estado,
+
+            /* NNA relacionados */
+            COALESCE(nn.cant_nnas, 0)    AS cant_nnas,
+            COALESCE(nn.nna_nombres, '') AS nna_nombres,
+
             u1.nombre AS login_1_nombre, u1.apellido AS login_1_apellido, p.login_1,
             u2.nombre AS login_2_nombre, u2.apellido AS login_2_apellido, p.login_2,
             p.proyecto_localidad AS localidad, p.proyecto_provincia AS provincia,
@@ -429,28 +463,88 @@ def _stream_proyectos_rows(conn, estado_filter: Optional[str] = None):
         FROM proyecto p
         LEFT JOIN sec_users u1 ON u1.login = p.login_1
         LEFT JOIN sec_users u2 ON u2.login = p.login_2
+
+        /* subquery que junta los NNA por proyecto */
+        LEFT JOIN (
+            SELECT
+                dp.proyecto_id AS pid,
+                COUNT(DISTINCT dn.nna_id) AS cant_nnas,
+                GROUP_CONCAT(
+                    DISTINCT TRIM(CONCAT(COALESCE(n.nna_nombre,''),' ',COALESCE(n.nna_apellido,'')))
+                    ORDER BY n.nna_nombre, n.nna_apellido
+                    SEPARATOR ' - '
+                ) AS nna_nombres
+            FROM detalle_proyectos_en_carpeta dp
+            JOIN detalle_nna_en_carpeta dn ON dn.carpeta_id = dp.carpeta_id
+            JOIN nna n ON n.nna_id = dn.nna_id
+            GROUP BY dp.proyecto_id
+        ) nn ON nn.pid = p.proyecto_id
     """
+
+    # Sólo proyectos RUA, y opcionalmente por estado
+    where_clauses = ["p.ingreso_por COLLATE utf8mb4_general_ci = 'rua'"]
     params = {}
     if estado_filter:
-        sql_txt += " WHERE p.estado_general = :estado"
+        where_clauses.append("p.estado_general = :estado")
         params["estado"] = estado_filter
+
+    sql_txt += " WHERE " + " AND ".join(where_clauses)
 
     sql = text(sql_txt).execution_options(stream_results=True)
     cur = conn.execution_options(stream_results=True).execute(sql, params)
     try:
         for row in cur:
+            # fecha_estado ya viene como DATE(COALESCE(...)), lo formateamos a YYYY-MM-DD
+            if row.fecha_estado:
+                try:
+                    fecha_estado_str = row.fecha_estado.strftime("%Y-%m-%d")
+                except Exception:
+                    fecha_estado_str = str(row.fecha_estado)[:10]
+            else:
+                # fallback extra (por si COALESCE no se aplicara)
+                if row.ultimo_cambio_de_estado:
+                    try:
+                        fecha_estado_str = row.ultimo_cambio_de_estado.strftime("%Y-%m-%d")
+                    except Exception:
+                        # si viniera datetime, tratamos de tomar la parte de fecha
+                        try:
+                            fecha_estado_str = row.ultimo_cambio_de_estado.date().isoformat()
+                        except Exception:
+                            fecha_estado_str = str(row.ultimo_cambio_de_estado)[:10]
+                else:
+                    fecha_estado_str = None
+
             yield [
-                row.proyecto_id, row.nro_orden_rua, row.proyecto_tipo, row.ingreso_por, row.estado_general,
-                f"{(row.login_1_nombre or '')} {(row.login_1_apellido or '')}".strip(), row.login_1,
-                f"{(row.login_2_nombre or '')} {(row.login_2_apellido or '')}".strip(), row.login_2,
-                row.localidad, row.provincia,
+                row.proyecto_id,
+                row.nro_orden_rua,
+                row.proyecto_tipo,
+                row.estado_general,
+                fecha_estado_str,
+
+                int(row.cant_nnas or 0),
+                row.nna_nombres or "",
+
+                f"{(row.login_1_nombre or '')} {(row.login_1_apellido or '')}".strip(),
+                row.login_1,
+                f"{(row.login_2_nombre or '')} {(row.login_2_apellido or '')}".strip(),
+                row.login_2,
+
+                row.localidad,
+                row.provincia,
                 (row.ultimo_cambio_de_estado.isoformat() if row.ultimo_cambio_de_estado else None),
                 (row.fecha_asignacion_nro_orden.isoformat() if row.fecha_asignacion_nro_orden else None),
-                row.tiene_dictamen, row.tiene_informe_vinculacion, row.tiene_seguimiento_guarda,
-                row.tiene_sentencia_guarda, row.tiene_informe_conclusivo, row.tiene_sentencia_adopcion,
+                row.tiene_dictamen,
+                row.tiene_informe_vinculacion,
+                row.tiene_seguimiento_guarda,
+                row.tiene_sentencia_guarda,
+                row.tiene_informe_conclusivo,
+                row.tiene_sentencia_adopcion,
             ]
     finally:
         cur.close()
+
+
+
 
 NNA_HEADERS = [
     "nna_id","nombre","apellido","dni","fecha_nacimiento","edad",
@@ -508,27 +602,26 @@ def _stream_conv_rows(conn):
         cur.close()
 
 
+
 def _build_excel_file(path: str):
     eng = _get_engine()
     with eng.connect() as conn:
-        # Lectura sin bloquear escrituras (y viceversa) — reduce contención
         try:
             conn.exec_driver_sql("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
             conn.exec_driver_sql("SET SESSION TRANSACTION READ ONLY")
             conn.exec_driver_sql("SET SESSION innodb_lock_wait_timeout=5")
         except Exception:
-            # si no soporta alguno, seguimos igual
             pass
 
         wb = Workbook(write_only=True)
 
-        # --- Hoja Proyectos ---
-        ws_p = wb.create_sheet("Proyectos")
+        # --- Hoja Proyectos RUA ---
+        ws_p = wb.create_sheet("Proyectos RUA")
         ws_p.append(PROJECTS_HEADERS)
         for row in _stream_proyectos_rows(conn):
             ws_p.append(row)
 
-        # --- Hoja Proy_AdopcionDef ---
+        # --- Hoja Proy_AdopcionDef (también solo RUA por el stream) ---
         ws_pad = wb.create_sheet("Proy_AdopcionDef")
         ws_pad.append(PROJECTS_HEADERS)
         for row in _stream_proyectos_rows(conn, estado_filter="adopcion_definitiva"):
@@ -546,23 +639,23 @@ def _build_excel_file(path: str):
         for row in _stream_conv_rows(conn):
             ws_c.append(row)
 
-        # Guardamos primero (write_only no permite formateo avanzado)
+        # Guardado en etapa
         root, _ = os.path.splitext(path)
         stage_path = root + ".__stage__.xlsx"
         wb.save(stage_path)
 
-    # Reabrimos para aplicar autofiltro, freeze panes y ancho de columnas
+    # Reabrimos para formatear
     wb2 = load_workbook(stage_path)
-    for name in ["Proyectos", "Proy_AdopcionDef", "NNA", "Convocatorias"]:
+    for name in ["Proyectos RUA", "Proy_AdopcionDef", "NNA", "Convocatorias"]:
         if name in wb2.sheetnames:
             _autoformat_sheet(wb2[name])
     wb2.save(path)
 
-    # Limpieza del archivo de etapa
     try:
         os.remove(stage_path)
     except Exception:
         pass
+
 
 
 
