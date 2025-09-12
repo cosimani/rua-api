@@ -542,63 +542,102 @@ def _stream_proyectos_rows(conn, estado_filter: Optional[str] = None):
         cur.close()
 
 
-
-
-
 NNA_HEADERS = [
-    "nna_id","nombre","apellido","dni","fecha_nacimiento","edad",
-    "localidad","provincia","estado","en_convocatoria","5A","5B","tiene_sentencia"
+    "nombre",
+    "apellido",
+    "dni",
+    "fecha_nacimiento",
+    "edad",
+    "estado",
+    "proyecto",
+    "nna_id",
 ]
+
+
 
 def _stream_nna_rows(conn):
-    # Evitamos alias que empiecen con número porque no se pueden acceder como atributos
     sql = text("""
         SELECT
-          nna_id, nna_nombre, nna_apellido, nna_dni, nna_fecha_nacimiento,
-          nna_localidad AS localidad, nna_provincia AS provincia, nna_estado,
-          COALESCE(nna_en_convocatoria,'N') AS en_convocatoria,
-          COALESCE(nna_5A,'N') AS cincoA, COALESCE(nna_5B,'N') AS cincoB,
-          IF(nna_sentencia IS NULL OR nna_sentencia='', 'N','Y') AS tiene_sentencia
-        FROM nna
+            /* === columnas en el orden de NNA_HEADERS === */
+            n.nna_nombre AS nombre,
+            n.nna_apellido AS apellido,
+            n.nna_dni AS dni,
+            n.nna_fecha_nacimiento AS fecha_nacimiento,
+            TIMESTAMPDIFF(YEAR, n.nna_fecha_nacimiento, CURDATE()) AS edad,
+            n.nna_estado AS estado,
+            COALESCE(proj.pretensos, '') AS proyecto,
+            n.nna_id
+
+        FROM nna n
+
+        /* Proyecto "más reciente" por NNA (si existe) */
+        LEFT JOIN (
+            SELECT x.nna_id,
+                   x.proyecto_id,
+                   TRIM(
+                     CONCAT(
+                       COALESCE(x.u1_nombre,''),' ',COALESCE(x.u1_apellido,''),
+                       CASE
+                         WHEN x.es_mono = 1 OR x.login_2 IS NULL OR x.login_2 = '' THEN ''
+                         ELSE CONCAT(' - ', COALESCE(x.u2_nombre,''),' ',COALESCE(x.u2_apellido,''))
+                       END
+                     )
+                   ) AS pretensos
+            FROM (
+                SELECT
+                    dn.nna_id,
+                    p.proyecto_id,
+                    p.login_1,
+                    p.login_2,
+                    CASE WHEN p.proyecto_tipo = 'Monoparental' THEN 1 ELSE 0 END AS es_mono,
+                    u1.nombre AS u1_nombre, u1.apellido AS u1_apellido,
+                    u2.nombre AS u2_nombre, u2.apellido AS u2_apellido,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY dn.nna_id
+                        ORDER BY
+                          COALESCE(p.ultimo_cambio_de_estado, p.fecha_asignacion_nro_orden, '1970-01-01') DESC,
+                          p.proyecto_id DESC
+                    ) AS rn
+                FROM detalle_nna_en_carpeta dn
+                JOIN detalle_proyectos_en_carpeta dp ON dp.carpeta_id = dn.carpeta_id
+                JOIN proyecto p ON p.proyecto_id = dp.proyecto_id
+                LEFT JOIN sec_users u1 ON u1.login = p.login_1
+                LEFT JOIN sec_users u2 ON u2.login = p.login_2
+            ) x
+            WHERE x.rn = 1
+        ) proj ON proj.nna_id = n.nna_id
     """).execution_options(stream_results=True)
+
     cur = conn.execution_options(stream_results=True).execute(sql)
     try:
         for row in cur:
+            # fecha_nacimiento a ISO si existe
+            if row.fecha_nacimiento:
+                try:
+                    fecha_nac_str = row.fecha_nacimiento.isoformat()
+                except Exception:
+                    fecha_nac_str = str(row.fecha_nacimiento)[:10]
+            else:
+                fecha_nac_str = None
+
+            # edad: int o None
+            edad_val = int(row.edad) if row.edad is not None else None
+
             yield [
-                row.nna_id, row.nna_nombre, row.nna_apellido, row.nna_dni,
-                (row.nna_fecha_nacimiento.isoformat() if row.nna_fecha_nacimiento else None),
-                None,  # edad (omito cálculo costoso; se puede agregar luego)
-                row.localidad, row.provincia, row.nna_estado, row.en_convocatoria,
-                row.cincoA, row.cincoB, row.tiene_sentencia
+                row.nombre,
+                row.apellido,
+                row.dni,
+                fecha_nac_str,
+                edad_val,
+                row.estado,
+                row.proyecto or "",
+                row.nna_id,
             ]
     finally:
         cur.close()
 
-CONV_HEADERS = [
-    "convocatoria_id","referencia","llamado","edad_es","residencia_postulantes",
-    "fecha_publicacion","online","juzgado_interviniente"
-]
 
-def _stream_conv_rows(conn):
-    sql = text("""
-        SELECT
-         convocatoria_id, convocatoria_referencia AS referencia, convocatoria_llamado AS llamado,
-         convocatoria_edad_es AS edad_es, convocatoria_residencia_postulantes AS residencia_postulantes,
-         convocatoria_fecha_publicacion AS fecha_publicacion, convocatoria_online AS online,
-         convocatoria_juzgado_interviniente AS juzgado_interviniente
-        FROM convocatorias
-    """).execution_options(stream_results=True)
-    cur = conn.execution_options(stream_results=True).execute(sql)
-    try:
-        for row in cur:
-            yield [
-                row.convocatoria_id, row.referencia, row.llamado,
-                row.edad_es, row.residencia_postulantes,
-                (row.fecha_publicacion.isoformat() if row.fecha_publicacion else None),
-                row.online, row.juzgado_interviniente
-            ]
-    finally:
-        cur.close()
+
 
 
 
@@ -620,23 +659,11 @@ def _build_excel_file(path: str):
         for row in _stream_proyectos_rows(conn):
             ws_p.append(row)
 
-        # --- Hoja Proy_AdopcionDef (también solo RUA por el stream) ---
-        ws_pad = wb.create_sheet("Proy_AdopcionDef")
-        ws_pad.append(PROJECTS_HEADERS)
-        for row in _stream_proyectos_rows(conn, estado_filter="adopcion_definitiva"):
-            ws_pad.append(row)
-
         # --- Hoja NNA ---
         ws_nna = wb.create_sheet("NNA")
         ws_nna.append(NNA_HEADERS)
         for row in _stream_nna_rows(conn):
             ws_nna.append(row)
-
-        # --- Hoja Convocatorias ---
-        ws_c = wb.create_sheet("Convocatorias")
-        ws_c.append(CONV_HEADERS)
-        for row in _stream_conv_rows(conn):
-            ws_c.append(row)
 
         # Guardado en etapa
         root, _ = os.path.splitext(path)
@@ -645,7 +672,7 @@ def _build_excel_file(path: str):
 
     # Reabrimos para formatear
     wb2 = load_workbook(stage_path)
-    for name in ["Proyectos RUA", "Proy_AdopcionDef", "NNA", "Convocatorias"]:
+    for name in ["Proyectos RUA", "NNA"]:
         if name in wb2.sheetnames:
             _autoformat_sheet(wb2[name])
     wb2.save(path)
