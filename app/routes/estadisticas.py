@@ -407,32 +407,38 @@ def _get_engine():
 
 
 PROJECTS_HEADERS = [
-    "proyecto_id","nro_orden_rua","proyecto_tipo","estado_general","fecha_estado",
-    "Cant. NNA/s","NNA/s",
-    "login_1_nombre","login_1","login_2_nombre","login_2",
-    "localidad","provincia","ultimo_cambio_de_estado","fecha_asignacion_nro_orden",
-    "tiene_dictamen","tiene_informe_vinculacion","tiene_seguimiento_guarda",
-    "tiene_sentencia_guarda","tiene_informe_conclusivo","tiene_sentencia_adopcion"
+    "nro_orden_rua",
+    "proyecto_tipo",
+    "estado_general",
+    "fecha_estado",
+    "login_1",
+    "login_1_nombre",
+    "login_2",
+    "login_2_nombre",
+    "localidad",
+    "Cant. NNA/s",
+    "NNA/s",
+    "fecha_asignacion_nro_orden",
+    "proyecto_id",
 ]
 
 
 def _stream_proyectos_rows(conn, estado_filter: Optional[str] = None):
-    # por si el GROUP_CONCAT queda largo
+    # Por si el GROUP_CONCAT queda largo y para evitar problemas de collation
     try:
         conn.exec_driver_sql("SET SESSION group_concat_max_len = 8192")
-        # opcional: unificar la collation de la conexión
         conn.exec_driver_sql("SET collation_connection = 'utf8mb4_general_ci'")
     except Exception:
         pass
 
     sql_txt = """
         SELECT
-            p.proyecto_id,
+            /* === campos en el orden del header === */
             p.nro_orden_rua,
             p.proyecto_tipo,
             p.estado_general,
 
-            /* fecha del último cambio al estado actual (o fallback al último cambio de estado del proyecto) */
+            /* fecha del último cambio al estado actual (o fallback) en formato DATE */
             DATE(
               COALESCE(
                 (
@@ -446,25 +452,28 @@ def _stream_proyectos_rows(conn, estado_filter: Optional[str] = None):
               )
             ) AS fecha_estado,
 
+            p.login_1,
+            TRIM(CONCAT(COALESCE(u1.nombre,''),' ',COALESCE(u1.apellido,''))) AS login_1_nombre,
+            p.login_2,
+            TRIM(CONCAT(COALESCE(u2.nombre,''),' ',COALESCE(u2.apellido,''))) AS login_2_nombre,
+
+            p.proyecto_localidad AS localidad,
+
             /* NNA relacionados */
             COALESCE(nn.cant_nnas, 0)    AS cant_nnas,
             COALESCE(nn.nna_nombres, '') AS nna_nombres,
 
-            u1.nombre AS login_1_nombre, u1.apellido AS login_1_apellido, p.login_1,
-            u2.nombre AS login_2_nombre, u2.apellido AS login_2_apellido, p.login_2,
-            p.proyecto_localidad AS localidad, p.proyecto_provincia AS provincia,
-            p.ultimo_cambio_de_estado, p.fecha_asignacion_nro_orden,
-            IF(p.doc_dictamen IS NULL OR p.doc_dictamen='', 'N','Y') AS tiene_dictamen,
-            IF(p.doc_informe_vinculacion IS NULL OR p.doc_informe_vinculacion='', 'N','Y') AS tiene_informe_vinculacion,
-            IF(p.doc_informe_seguimiento_guarda IS NULL OR p.doc_informe_seguimiento_guarda='', 'N','Y') AS tiene_seguimiento_guarda,
-            IF(p.doc_sentencia_guarda IS NULL OR p.doc_sentencia_guarda='', 'N','Y') AS tiene_sentencia_guarda,
-            IF(p.doc_informe_conclusivo IS NULL OR p.doc_informe_conclusivo='', 'N','Y') AS tiene_informe_conclusivo,
-            IF(p.doc_sentencia_adopcion IS NULL OR p.doc_sentencia_adopcion='', 'N','Y') AS tiene_sentencia_adopcion
+            p.fecha_asignacion_nro_orden,
+            p.proyecto_id,
+
+            /* este campo no se exporta, solo por si hiciera falta fallback en Python */
+            p.ultimo_cambio_de_estado
+
         FROM proyecto p
         LEFT JOIN sec_users u1 ON u1.login = p.login_1
         LEFT JOIN sec_users u2 ON u2.login = p.login_2
 
-        /* subquery que junta los NNA por proyecto */
+        /* Subquery que junta los NNA por proyecto */
         LEFT JOIN (
             SELECT
                 dp.proyecto_id AS pid,
@@ -481,7 +490,7 @@ def _stream_proyectos_rows(conn, estado_filter: Optional[str] = None):
         ) nn ON nn.pid = p.proyecto_id
     """
 
-    # Sólo proyectos RUA, y opcionalmente por estado
+    # Solo proyectos RUA, y opcionalmente por estado
     where_clauses = ["p.ingreso_por COLLATE utf8mb4_general_ci = 'rua'"]
     params = {}
     if estado_filter:
@@ -494,54 +503,44 @@ def _stream_proyectos_rows(conn, estado_filter: Optional[str] = None):
     cur = conn.execution_options(stream_results=True).execute(sql, params)
     try:
         for row in cur:
-            # fecha_estado ya viene como DATE(COALESCE(...)), lo formateamos a YYYY-MM-DD
+            # fecha_estado viene como DATE; formateo seguro a YYYY-MM-DD
             if row.fecha_estado:
                 try:
                     fecha_estado_str = row.fecha_estado.strftime("%Y-%m-%d")
                 except Exception:
                     fecha_estado_str = str(row.fecha_estado)[:10]
             else:
-                # fallback extra (por si COALESCE no se aplicara)
-                if row.ultimo_cambio_de_estado:
+                # fallback extra a ultimo_cambio_de_estado (no exportado)
+                uce = getattr(row, "ultimo_cambio_de_estado", None)
+                if uce:
                     try:
-                        fecha_estado_str = row.ultimo_cambio_de_estado.strftime("%Y-%m-%d")
+                        fecha_estado_str = uce.strftime("%Y-%m-%d")
                     except Exception:
-                        # si viniera datetime, tratamos de tomar la parte de fecha
                         try:
-                            fecha_estado_str = row.ultimo_cambio_de_estado.date().isoformat()
+                            fecha_estado_str = uce.date().isoformat()
                         except Exception:
-                            fecha_estado_str = str(row.ultimo_cambio_de_estado)[:10]
+                            fecha_estado_str = str(uce)[:10]
                 else:
                     fecha_estado_str = None
 
             yield [
-                row.proyecto_id,
                 row.nro_orden_rua,
                 row.proyecto_tipo,
                 row.estado_general,
                 fecha_estado_str,
-
+                row.login_1,
+                (row.login_1_nombre or "").strip(),
+                row.login_2,
+                (row.login_2_nombre or "").strip(),
+                row.localidad,
                 int(row.cant_nnas or 0),
                 row.nna_nombres or "",
-
-                f"{(row.login_1_nombre or '')} {(row.login_1_apellido or '')}".strip(),
-                row.login_1,
-                f"{(row.login_2_nombre or '')} {(row.login_2_apellido or '')}".strip(),
-                row.login_2,
-
-                row.localidad,
-                row.provincia,
-                (row.ultimo_cambio_de_estado.isoformat() if row.ultimo_cambio_de_estado else None),
                 (row.fecha_asignacion_nro_orden.isoformat() if row.fecha_asignacion_nro_orden else None),
-                row.tiene_dictamen,
-                row.tiene_informe_vinculacion,
-                row.tiene_seguimiento_guarda,
-                row.tiene_sentencia_guarda,
-                row.tiene_informe_conclusivo,
-                row.tiene_sentencia_adopcion,
+                row.proyecto_id,
             ]
     finally:
         cur.close()
+
 
 
 
