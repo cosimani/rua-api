@@ -807,6 +807,10 @@ def calcular_estadisticas_generales(db: Session) -> dict:
 
 
 
+
+
+
+
 def get_setting_value(db: Session, setting_name: str) -> str:
     """
     Obtiene el valor de una configuración desde la tabla sec_settings.

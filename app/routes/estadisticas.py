@@ -4,15 +4,16 @@ from database.config import get_db  # Importá get_db desde config.py
 
 from models.users import User, UserGroup, Group
 from models.proyecto import Proyecto
-# from models.detalles import DetalleNnaEnCarpeta
+from models.carpeta import Carpeta, DetalleNNAEnCarpeta, DetalleProyectosEnCarpeta
 from models.nna import Nna
+
+
 
 from helpers.utils import parse_date
 from models.eventos_y_configs import RuaEvento
 from security.security import get_current_user, verify_api_key, require_roles
 
 from sqlalchemy.sql import func, or_
-from security.security import get_current_user, require_roles, verify_api_key
 
 from fastapi.responses import FileResponse
 from helpers.utils import EstadisticasPDF, calcular_estadisticas_generales
@@ -24,7 +25,7 @@ from typing import List, Dict, Any, Optional
 from models.nna import Nna
 from models.convocatorias import Convocatoria
 
-from sqlalchemy import text
+from sqlalchemy import text, func, distinct, or_
 
 import os
 from fastapi import BackgroundTasks
@@ -67,6 +68,64 @@ def g(stats: dict, path: str, default=0):
                                        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
 def get_estadisticas(db: Session = Depends(get_db)):
     return calcular_estadisticas_generales(db)
+
+
+
+
+@estadisticas_router.get(
+    "/estadisticas-portada",
+    response_model=dict,
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(require_roles(["administrador","supervision","supervisora","profesional","coordinadora"]))
+    ]
+)
+def get_estadisticas_portada(db: Session = Depends(get_db)):
+    try:
+        # 1) Proyectos viables (solo RUA)
+        proyectos_viables = (
+            db.query(Proyecto)
+              .filter(Proyecto.ingreso_por == 'rua',
+                      Proyecto.estado_general == 'viable')
+              .count()
+        )
+
+        # 2) Proyectos en entrevistas (RUA + convocatoria)
+        proyectos_en_entrevistas = (
+            db.query(Proyecto)
+              .filter(Proyecto.estado_general.in_(('calendarizando','entrevistando')))
+              .count()
+        )
+
+        # 3) NNAs en guarda (provisoria o confirmada) – contar DISTINCT nna_id
+        nna_en_guarda = (
+            db.query(func.count(distinct(DetalleNNAEnCarpeta.nna_id)))
+              .join(DetalleProyectosEnCarpeta,
+                    DetalleProyectosEnCarpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
+              .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
+              .filter(Proyecto.estado_general.in_(('guarda_provisoria','guarda_confirmada')))
+              .scalar()
+        ) or 0
+
+        # 4) NNAs en adopción definitiva – DISTINCT nna_id
+        nna_en_adopcion_definitiva = (
+            db.query(func.count(distinct(DetalleNNAEnCarpeta.nna_id)))
+              .join(DetalleProyectosEnCarpeta,
+                    DetalleProyectosEnCarpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id)
+              .join(Proyecto, Proyecto.proyecto_id == DetalleProyectosEnCarpeta.proyecto_id)
+              .filter(Proyecto.estado_general == 'adopcion_definitiva')
+              .scalar()
+        ) or 0
+
+        return {
+            "proyectos_viables": proyectos_viables,
+            "proyectos_en_entrevistas": proyectos_en_entrevistas,
+            "nna_en_guarda": nna_en_guarda,
+            "nna_en_adopcion_definitiva": nna_en_adopcion_definitiva,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 
