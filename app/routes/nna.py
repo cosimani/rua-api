@@ -12,11 +12,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from models.nna import Nna
 from models.carpeta import DetalleNNAEnCarpeta, Carpeta, DetalleProyectosEnCarpeta
+
+from models.convocatorias import Convocatoria, DetalleNNAEnConvocatoria
+
 from models.proyecto import Proyecto
 from models.users import User
 from security.security import get_current_user, verify_api_key, require_roles
 
-from sqlalchemy import and_, func, or_, text, literal_column
+from sqlalchemy import and_, func, or_, text, literal_column, exists, select, desc
 
 from datetime import date
 from helpers.utils import edad_como_texto, normalizar_y_validar_dni
@@ -107,7 +110,7 @@ def get_nnas(
             "2": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 4 AND 6"),
             "3": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 7 AND 11"),
             "4": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) BETWEEN 12 AND 17"),
-            "Mayor": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) >= 18"),
+            "MAYOR": text("TIMESTAMPDIFF(YEAR, nna.nna_fecha_nacimiento, CURDATE()) >= 18"),
             "5A": Nna.nna_5A == "Y",
             "5B": Nna.nna_5B == "Y",
         }
@@ -115,7 +118,7 @@ def get_nnas(
         if subregistros:
             filtros_edad, filtros_salud = [], []
             for sr in subregistros:
-                if sr in ["1", "2", "3", "4", "Mayor"]:
+                if sr in ["1", "2", "3", "4", "MAYOR"]:
                     filtro = subregistro_field_map.get(sr)
                     if filtro is not None:
                         filtros_edad.append(filtro)
@@ -134,13 +137,76 @@ def get_nnas(
         # if estado_filtro:
         #     query = query.filter(Nna.nna_estado.in_(estado_filtro))
 
-        # —— Filtrado por estado —— 
+
+
+        # —— Filtrado por estado / convocatoria —— 
+        # Definimos si hay búsqueda efectiva (tu regla de ≥ 3 chars)
+        busqueda_activa = bool(search and len(search.strip()) >= 3)
+
         if estado_filtro:
-            # Si me piden explícitamente 'no_disponible', lo incluyo junto a los que haya en la lista
-            query = query.filter(Nna.nna_estado.in_(estado_filtro))
+            # Normalizar a lista
+            estados = estado_filtro if isinstance(estado_filtro, list) else [estado_filtro]
+
+            # ¿Pidieron "en_convocatoria" (vía relación)?
+            quiere_conv = "en_convocatoria" in estados
+            otros_estados = [e for e in estados if e != "en_convocatoria"]
+
+            condiciones = []
+
+            if otros_estados:
+                condiciones.append(Nna.nna_estado.in_(otros_estados))
+
+            if quiere_conv:
+                condiciones.append(
+                    exists(
+                        select(1).select_from(DetalleNNAEnConvocatoria).where(
+                            DetalleNNAEnConvocatoria.nna_id == Nna.nna_id
+                        )
+                    )
+                )
+
+            if condiciones:
+                query = query.filter(or_(*condiciones))
         else:
-            # Por defecto oculto los no_disponible
-            query = query.filter(Nna.nna_estado != "no_disponible")
+            # ✅ Si NO hay estado_filtro:
+            #    - con búsqueda activa → NO oculto no_disponible
+            #    - sin búsqueda activa → oculto no_disponible (comportamiento actual)
+            if not busqueda_activa:
+                query = query.filter(Nna.nna_estado != "no_disponible")
+                
+
+        # # —— Filtrado por estado / convocatoria —— 
+        # if estado_filtro:
+        #     # Normalizar a lista
+        #     estados = estado_filtro if isinstance(estado_filtro, list) else [estado_filtro]
+
+        #     # ¿Pidieron "en_convocatoria" (vía relación)?
+        #     quiere_conv = "en_convocatoria" in estados
+        #     otros_estados = [e for e in estados if e != "en_convocatoria"]
+
+        #     condiciones = []
+
+        #     if otros_estados:
+        #         # estados "normales" filtran por la columna nna_estado
+        #         condiciones.append(Nna.nna_estado.in_(otros_estados))
+
+        #     if quiere_conv:
+        #         # EXISTS: hay al menos una fila en detalle_nna_en_convocatoria para este NNA
+        #         condiciones.append(
+        #             exists(
+        #                 select(1).select_from(DetalleNNAEnConvocatoria).where(
+        #                     DetalleNNAEnConvocatoria.nna_id == Nna.nna_id
+        #                 )
+        #             )
+        #         )
+
+        #     # Combinar: (estado IN otros) OR (EXISTS conv)
+        #     if condiciones:
+        #         query = query.filter(or_(*condiciones))
+        # else:
+        #     # Por defecto oculto los no_disponible
+        #     query = query.filter(Nna.nna_estado != "no_disponible")
+
 
         # Si se especifican IDs a excluir, los filtramos
         if excluir_nna_ids:
@@ -162,6 +228,45 @@ def get_nnas(
         nnas = query.offset((page - 1) * limit).limit(limit).all()
 
 
+        # ====== PRE-CARGA: saber qué NNA están en al menos 1 convocatoria ======
+        ids_pagina = [n.nna_id for n in nnas]
+        nna_en_conv_set = set()
+        if ids_pagina:
+            nna_en_conv_set = {
+                row[0]
+                for row in db.query(DetalleNNAEnConvocatoria.nna_id)
+                            .filter(DetalleNNAEnConvocatoria.nna_id.in_(ids_pagina))
+                            .all()
+            }
+
+        def traducir_detalle_estado(estado: Optional[str], en_conv: bool) -> str:
+            if not estado:
+                return ""
+            # Casos especiales "disponible"
+            if estado == "disponible":
+                return "Esperando flia. en CONV" if en_conv else "Esperando familia"
+            # Mapeo fijo
+            mapa = {
+                "sin_ficha_sin_sentencia": "Sin ficha ni sentencia",
+                "con_ficha_sin_sentencia": "Sólo con ficha",
+                "sin_ficha_con_sentencia": "Sólo con sentencia",
+                "preparando_carpeta": "Preparando carpeta",
+                "enviada_a_juzgado": "Enviado a juzgado",
+                "proyecto_seleccionado": "Proyecto seleccionado",
+                "vinculacion": "Vinculación",
+                "guarda_provisoria": "Guarda provisoria",
+                "guarda_confirmada": "Guarda confirmada",
+                "adopcion_definitiva": "Adopcion definitiva",
+                "interrupcion": "Interrupción",
+                "mayor_sin_adopcion": "Mayor",
+                "no_disponible": "No disponible",
+                "en_convocatoria": "Convocatoria",
+            }
+            return mapa.get(estado, estado)
+
+
+
+
         # 💡 Armar resultado con estado
         nnas_list = []
         for nna in nnas:
@@ -176,8 +281,11 @@ def get_nnas(
                 "4" if edad <= 17 else "Mayor"
             )
 
-            estado = "Disponible"
-            comentarios_estado = ""
+            # ¿Está en alguna convocatoria según la tabla puente?
+            esta_en_conv = nna.nna_id in nna_en_conv_set
+
+            # Detalle de estado según reglas
+            detalle_estado = traducir_detalle_estado(nna.nna_estado, esta_en_conv)
 
             # Ver si tiene hermanos (sin incluirse a sí mismo)
             tiene_hermanos = False
@@ -188,7 +296,6 @@ def get_nnas(
                 ).first()
                 tiene_hermanos = otros_hermanos is not None
 
-            
             nnas_list.append({
                 "nna_id": nna.nna_id,
                 "nna_nombre": nna.nna_nombre,
@@ -206,12 +313,12 @@ def get_nnas(
                 "nna_provincia": nna.nna_provincia,
                 "nna_5A": nna.nna_5A,
                 "nna_5B": nna.nna_5B,
-                "nna_en_convocatoria": nna.nna_en_convocatoria,
+                "nna_en_convocatoria": nna.nna_en_convocatoria,  # <- si no querés exponerlo, podés quitar esta línea
                 "nna_ficha": nna.nna_ficha,
                 "nna_sentencia": nna.nna_sentencia,
                 "nna_archivado": nna.nna_archivado,
                 "estado": nna.nna_estado,
-                "comentarios_estado": comentarios_estado,
+                "detalle_estado": detalle_estado,
                 "tiene_hermanos": tiene_hermanos
             })
 
@@ -280,39 +387,88 @@ def get_nna_by_id(nna_id: int, db: Session = Depends(get_db)):
         subquery_ids = db.query(DetalleNNAEnCarpeta.nna_id).distinct()
         esta_disponible = nna.nna_id not in [row[0] for row in subquery_ids.all()]
 
-        # ---- comentarios_estado desde carpeta/proyecto (tal cual estaba)
+
+        # ---- comentarios_estado: prioridad a convocatoria; si no, carpeta/proyecto
         comentarios_estado = ""
-        carpeta = (
-            db.query(Carpeta)
-            .join(DetalleNNAEnCarpeta)
-            .filter(DetalleNNAEnCarpeta.nna_id == nna.nna_id)
-            .order_by(Carpeta.fecha_creacion.desc())
-            .first()
+
+        # 1) ¿Está en convocatoria? Traemos la referencia más reciente
+        conv_ref = (
+            db.query(Convocatoria.convocatoria_referencia)
+              .join(DetalleNNAEnConvocatoria, DetalleNNAEnConvocatoria.convocatoria_id == Convocatoria.convocatoria_id)
+              .filter(DetalleNNAEnConvocatoria.nna_id == nna.nna_id)
+              .order_by(desc(Convocatoria.convocatoria_fecha_publicacion))
+              .limit(1)
+              .first()
         )
-        if carpeta:
-            if carpeta.estado_carpeta == "proyecto_seleccionado":
-                proyecto = (
-                    db.query(Proyecto)
-                    .join(DetalleProyectosEnCarpeta)
-                    .filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta.carpeta_id)
-                    .order_by(Proyecto.proyecto_id.desc())
-                    .first()
-                )
-                if proyecto:
-                    pretensos = []
-                    usuario_1 = db.query(User).filter(User.login == proyecto.login_1).first()
-                    if usuario_1:
-                        pretensos.append(f"{usuario_1.nombre} {usuario_1.apellido or ''}".strip())
-                    if proyecto.login_2:
-                        usuario_2 = db.query(User).filter(User.login == proyecto.login_2).first()
-                        if usuario_2:
-                            pretensos.append(f"{usuario_2.nombre} {usuario_2.apellido or ''}".strip())
-                    comentarios_estado = " y ".join(pretensos) if pretensos else ""
+        if conv_ref and conv_ref[0]:
+            comentarios_estado = conv_ref[0]
+        else:
+            # 2) Fallback: lo que ya tenías desde carpeta/proyecto
+            carpeta = (
+                db.query(Carpeta)
+                .join(DetalleNNAEnCarpeta)
+                .filter(DetalleNNAEnCarpeta.nna_id == nna.nna_id)
+                .order_by(Carpeta.fecha_creacion.desc())
+                .first()
+            )
+            if carpeta:
+                if carpeta.estado_carpeta == "proyecto_seleccionado":
+                    proyecto = (
+                        db.query(Proyecto)
+                        .join(DetalleProyectosEnCarpeta)
+                        .filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta.carpeta_id)
+                        .order_by(Proyecto.proyecto_id.desc())
+                        .first()
+                    )
+                    if proyecto:
+                        pretensos = []
+                        usuario_1 = db.query(User).filter(User.login == proyecto.login_1).first()
+                        if usuario_1:
+                            pretensos.append(f"{usuario_1.nombre} {usuario_1.apellido or ''}".strip())
+                        if proyecto.login_2:
+                            usuario_2 = db.query(User).filter(User.login == proyecto.login_2).first()
+                            if usuario_2:
+                                pretensos.append(f"{usuario_2.nombre} {usuario_2.apellido or ''}".strip())
+                        comentarios_estado = " y ".join(pretensos) if pretensos else ""
+                    else:
+                        comentarios_estado = ""
                 else:
-                    # Antes acá seteabas estado = "Con dictamen"; ahora solo comentario opcional
-                    comentarios_estado = ""
-            else:
-                comentarios_estado = carpeta.estado_carpeta or ""
+                    comentarios_estado = carpeta.estado_carpeta or ""
+
+
+        # # ---- comentarios_estado desde carpeta/proyecto (tal cual estaba)
+        # comentarios_estado = ""
+        # carpeta = (
+        #     db.query(Carpeta)
+        #     .join(DetalleNNAEnCarpeta)
+        #     .filter(DetalleNNAEnCarpeta.nna_id == nna.nna_id)
+        #     .order_by(Carpeta.fecha_creacion.desc())
+        #     .first()
+        # )
+        # if carpeta:
+        #     if carpeta.estado_carpeta == "proyecto_seleccionado":
+        #         proyecto = (
+        #             db.query(Proyecto)
+        #             .join(DetalleProyectosEnCarpeta)
+        #             .filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta.carpeta_id)
+        #             .order_by(Proyecto.proyecto_id.desc())
+        #             .first()
+        #         )
+        #         if proyecto:
+        #             pretensos = []
+        #             usuario_1 = db.query(User).filter(User.login == proyecto.login_1).first()
+        #             if usuario_1:
+        #                 pretensos.append(f"{usuario_1.nombre} {usuario_1.apellido or ''}".strip())
+        #             if proyecto.login_2:
+        #                 usuario_2 = db.query(User).filter(User.login == proyecto.login_2).first()
+        #                 if usuario_2:
+        #                     pretensos.append(f"{usuario_2.nombre} {usuario_2.apellido or ''}".strip())
+        #             comentarios_estado = " y ".join(pretensos) if pretensos else ""
+        #         else:
+        #             # Antes acá seteabas estado = "Con dictamen"; ahora solo comentario opcional
+        #             comentarios_estado = ""
+        #     else:
+        #         comentarios_estado = carpeta.estado_carpeta or ""
 
         # ---- Hermanos
         hermanos = []
@@ -335,6 +491,7 @@ def get_nna_by_id(nna_id: int, db: Session = Depends(get_db)):
             "nna_barrio": nna.nna_barrio,
             "nna_localidad": nna.nna_localidad,
             "nna_provincia": nna.nna_provincia,
+            "nna_otra_jurisdiccion": nna.nna_otra_jurisdiccion,
             "nna_5A": nna.nna_5A,
             "nna_5B": nna.nna_5B,
             "nna_en_convocatoria": nna.nna_en_convocatoria,
@@ -544,6 +701,16 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
         return (True, None)
 
 
+    def _yn(val):
+        if val is None:
+            return None
+        s = str(val).strip().lower()
+        if s in {"y", "1", "true", "t", "sí", "si"}:
+            return "Y"
+        if s in {"n", "0", "false", "f"}:
+            return "N"
+        # fallback: si te llega ya "Y"/"N" u otro string
+        return "Y" if str(val).strip().upper() == "Y" else "N"
 
     try:
         # 1) Validar DNI
@@ -572,7 +739,7 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
             "nna_nombre", "nna_apellido", "nna_fecha_nacimiento", "nna_calle_y_nro",
             "nna_depto_etc", "nna_barrio", "nna_localidad", "nna_provincia",
             "nna_subregistro_salud", "nna_en_convocatoria", "nna_archivado",
-            "nna_5A", "nna_5B", "nna_ficha", "nna_sentencia"
+            "nna_5A", "nna_5B", "nna_ficha", "nna_sentencia", "nna_otra_jurisdiccion"
         ]
         flag_disp = nna_data.get("nna_no_disponible")  # "Y" | "N" | None
 
@@ -603,7 +770,10 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
             nna_existente.nna_dni = dni
             for campo in campos:
                 if campo in nna_data:
-                    setattr(nna_existente, campo, nna_data[campo])
+                    if campo == "nna_otra_jurisdiccion":
+                        setattr(nna_existente, campo, _yn(nna_data[campo]))
+                    else:
+                        setattr(nna_existente, campo, nna_data[campo])
 
             db.commit()
             db.refresh(nna_existente)
@@ -622,7 +792,10 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
 
             for campo in campos:
                 if campo in nna_data:
-                    setattr(nna_existente, campo, nna_data[campo])
+                    if campo == "nna_otra_jurisdiccion":
+                        setattr(nna_existente, campo, _yn(nna_data[campo]))
+                    else:
+                        setattr(nna_existente, campo, nna_data[campo])
 
             db.commit()
             db.refresh(nna_existente)
@@ -645,8 +818,10 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
         nuevo_nna = Nna(
             nna_dni=dni,
             nna_estado=estado_inicial,
-            **{campo: nna_data.get(campo) for campo in campos}
+            **{campo: (_yn(nna_data.get(campo)) if campo == "nna_otra_jurisdiccion" else nna_data.get(campo))
+              for campo in campos}
         )
+                
         db.add(nuevo_nna)
         db.commit()
         db.refresh(nuevo_nna)

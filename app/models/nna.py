@@ -24,6 +24,8 @@ class Nna(Base):
     nna_localidad = Column(String(50), nullable=True)
     nna_provincia = Column(String(50), nullable=True)
 
+    nna_otra_jurisdiccion = Column(String(1), nullable=True)
+
     # Información adicional
     nna_subregistro_salud = Column(String(50), nullable=True)
     nna_en_convocatoria = Column(String(1), nullable=True, default="N")
