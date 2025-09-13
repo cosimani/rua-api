@@ -93,7 +93,10 @@ def get_estadisticas_portada(db: Session = Depends(get_db)):
         # 2) Proyectos en entrevistas (RUA + convocatoria)
         proyectos_en_entrevistas = (
             db.query(Proyecto)
-              .filter(Proyecto.estado_general.in_(('calendarizando','entrevistando')))
+              .filter(
+                  Proyecto.estado_general == 'entrevistando',
+                  Proyecto.ingreso_por.in_(('rua', 'convocatoria'))
+              )
               .count()
         )
 
