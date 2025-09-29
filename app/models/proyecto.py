@@ -64,7 +64,8 @@ class Proyecto(Base):
                                   'calendarizando', 'entrevistando', 'para_valorar', 'viable', 'viable_no_disponible', 
                                   'en_suspenso', 'no_viable', 'en_carpeta', 'vinculacion', 'guarda_provisoria', 
                                   'guarda_confirmada', 'adopcion_definitiva', 'baja_anulacion', 'baja_caducidad', 
-                                  'baja_por_convocatoria', 'baja_rechazo_invitacion', 'baja_interrupcion' ), nullable=True)             
+                                  'baja_por_convocatoria', 'baja_rechazo_invitacion', 'baja_interrupcion',
+                                   'baja_desistimiento' ), nullable=True)             
 
     ingreso_por = Column(Enum( 'rua', 'oficio', 'convocatoria' ), nullable=True)         
 

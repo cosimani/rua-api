@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Request, status, B
 from typing import List, Optional, Literal, Tuple
 from sqlalchemy.orm import Session, aliased, joinedload, noload
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import func, case, and_, or_, Integer, literal_column, desc, cast
+from sqlalchemy import func, case, and_, or_, Integer, literal_column, desc, cast, exists, select
 from urllib.parse import unquote
 
 
@@ -1502,6 +1502,7 @@ def get_proyecto_por_id(
             "baja_por_convocatoria": "P. BAJA POR C.",
             "baja_rechazo_invitacion": "P. BAJA RECHAZO",
             "baja_interrupcion": "P. BAJA INTERR.",
+            "baja_desistimiento": "P. BAJA DESIST.",
         }.get(proyecto.estado_general, "ESTADO DESCONOCIDO")
 
         texto_ingreso_por = {
@@ -2953,26 +2954,6 @@ def solicitar_valoracion(
                     "tiempo_mensaje": 6,
                     "next_page": "actual"
                 }
-
-
-        # # Asignar nro_orden_rua solo si no está ya asignado
-        # if not proyecto.nro_orden_rua:
-        #     ultimos_nros = db.query(Proyecto.nro_orden_rua)\
-        #         .filter(Proyecto.nro_orden_rua != None)\
-        #         .all()
-
-        #     # Filtrar solo los que tienen menos de 5 dígitos y son números válidos
-        #     numeros_validos = [
-        #         int(p.nro_orden_rua) for p in ultimos_nros
-        #         if p.nro_orden_rua.isdigit() and len(p.nro_orden_rua) < 5
-        #     ]
-
-        #     nuevo_nro_orden = str(max(numeros_validos) + 1) if numeros_validos else "1"
-
-        #     proyecto.nro_orden_rua = nuevo_nro_orden
-        #     proyecto.fecha_asignacion_nro_orden = date.today()
-        # else:
-        #     nuevo_nro_orden = proyecto.nro_orden_rua
 
 
         # Solo asignar nro de orden para proyectos que ingresaron por RUA
@@ -7594,7 +7575,8 @@ def actualizar_estado_proyecto(
     fecha_suspenso = data.get("fecha_suspenso")    # "YYYY-MM-DD" | None
 
     estados_validos = {"aprobado", "entrevistando", "viable", "en_suspenso",
-                       "no_viable", "baja_anulacion"}
+                       "no_viable", "baja_anulacion", "baja_caducidad", "baja_desistimiento"}
+    
     if nuevo_estado not in estados_validos :
         return {
             "success": False,
@@ -7617,6 +7599,95 @@ def actualizar_estado_proyecto(
             "next_page": "actual"
         }
 
+    estado_anterior = proyecto.estado_general
+
+    # -- helper: transiciones entre estados de "baja"
+    BAJA_STATES = {"baja_anulacion", "baja_caducidad", "baja_desistimiento"}
+    both_baja = (estado_anterior in BAJA_STATES) and (nuevo_estado in BAJA_STATES) and (estado_anterior != nuevo_estado)
+
+
+    # ───────── validaciones especiales para BAJA POR DESISTIMIENTO ─────────
+    if nuevo_estado == "baja_desistimiento" and not both_baja:
+        incumplimientos = []
+
+        # a) Estado actual permitido
+        permitidos = {"aprobado", "viable", "calendarizando", "entrevistando"}
+        if estado_anterior not in permitidos:
+            incumplimientos.append(
+                'el estado actual no permite "baja por desistimiento" '
+                f'(debe ser uno de: {", ".join(sorted(permitidos))})'
+            )
+
+        # b) No debe estar en ninguna carpeta
+        en_carpeta = db.query(
+            exists().where(DetalleProyectosEnCarpeta.proyecto_id == proyecto_id)
+        ).scalar()
+        if en_carpeta:
+            incumplimientos.append("el proyecto está asociado a una carpeta")
+
+        # c) No debe estar en ninguna postulación
+        en_postulacion = db.query(
+            exists().where(DetalleProyectoPostulacion.proyecto_id == proyecto_id)
+        ).scalar()
+        if en_postulacion:
+            incumplimientos.append("el proyecto está asociado a una postulación")
+
+        # d) Debe haber ingresado por RUA
+        if proyecto.ingreso_por != "rua":
+            incumplimientos.append('el proyecto no ingresó por "rua"')
+
+        if incumplimientos:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "No se puede dar de baja por desistimiento porque: " + "; ".join(incumplimientos) + ".",
+                "tiempo_mensaje": 7,
+                "next_page": "actual",
+            }
+
+
+    # ───────── validaciones especiales para BAJA POR CADUCIDAD ─────────
+    if nuevo_estado == "baja_caducidad" and not both_baja: 
+
+        incumplimientos = []
+
+        # a) Debe estar en en_suspenso
+        if estado_anterior != "en_suspenso":
+            incumplimientos.append('el proyecto no está en estado "en_suspenso"')
+
+        # b) No debe estar en ninguna carpeta
+        en_carpeta = db.query(
+            exists().where(DetalleProyectosEnCarpeta.proyecto_id == proyecto_id)
+        ).scalar()
+            
+        if en_carpeta:
+            incumplimientos.append("el proyecto está asociado a una carpeta")
+
+        # c) No debe estar en ninguna postulación
+        en_postulacion = db.query(
+            exists().where(DetalleProyectoPostulacion.proyecto_id == proyecto_id)
+        ).scalar()
+            
+        if en_postulacion:
+            incumplimientos.append("el proyecto está asociado a una postulación")
+
+        # d) Debe haber ingresado por RUA
+        if proyecto.ingreso_por != "rua":
+            incumplimientos.append('el proyecto no ingresó por "rua"')
+
+        if incumplimientos:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": (
+                    "No se puede dar de baja por caducidad porque: "
+                    + "; ".join(incumplimientos) + "."
+                ),
+                "tiempo_mensaje": 7,
+                "next_page": "actual"
+            }
+        
+
     # ───────── validación: si está en carpeta, no permitir ─────────
     proyecto_en_carpeta = db.query(DetalleProyectosEnCarpeta).filter_by(proyecto_id=proyecto_id).first()
     if proyecto_en_carpeta:
@@ -7631,7 +7702,7 @@ def actualizar_estado_proyecto(
             "next_page": "actual"
         }
 
-    estado_anterior = proyecto.estado_general
+    
 
     # ───────── nueva validación ─────────
     if estado_anterior == nuevo_estado:
@@ -7644,7 +7715,8 @@ def actualizar_estado_proyecto(
         }
 
     # ───────── observación obligatoria para ciertos estados ─────────
-    if nuevo_estado in {"no_viable", "en_suspenso", "baja_anulacion"} and not observacion:
+    if nuevo_estado in {"no_viable", "en_suspenso", "baja_anulacion", 
+                        "baja_caducidad", "baja_desistimiento"} and not observacion:
         return {
             "success": False,
             "tipo_mensaje": "naranja",
