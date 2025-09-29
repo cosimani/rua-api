@@ -4,11 +4,10 @@ import os, shutil
 from datetime import datetime
 
 from fastapi.responses import FileResponse
-from fastapi import Query
 
 from typing import List, Optional, Literal
 from database.config import get_db
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import SQLAlchemyError
 from models.nna import Nna
 from models.carpeta import DetalleNNAEnCarpeta, Carpeta, DetalleProyectosEnCarpeta
@@ -24,8 +23,6 @@ from sqlalchemy import and_, func, or_, text, literal_column, exists, select, de
 from datetime import date
 from helpers.utils import edad_como_texto, normalizar_y_validar_dni
 from dotenv import load_dotenv
-
-from sqlalchemy import select, exists
 
 import json
 
@@ -71,6 +68,9 @@ def get_nnas(
     subregistros: Optional[List[str]] = Query(None, alias="subregistro_portada"),
     estado_filtro: Optional[List[str]] = Query(None),
     excluir_nna_ids: Optional[List[int]] = Query(None),
+
+    otra_jurisdiccion: Optional[bool] = Query(None),
+    hermanos: Optional[str] = Query(None, regex="^(grupo|sin)$"),
 ):
     try:
         query = db.query(Nna)
@@ -129,35 +129,58 @@ def get_nnas(
             elif filtros_salud:
                 query = query.filter(or_(*filtros_salud))
 
+
         # --- estados / convocatoria / nna_otra_jurisdiccion ---
         busqueda_activa = bool(search and len(search.strip()) >= 3)
 
         if estado_filtro:
-            estados = estado_filtro if isinstance(estado_filtro, list) else [estado_filtro]
+            estados = list(estado_filtro) if isinstance(estado_filtro, list) else [estado_filtro]
+            estados = [e for e in estados if e]
 
             quiere_conv = "en_convocatoria" in estados
-            quiere_oj = "nna_otra_jurisdiccion" in estados  # ← valor virtual dentro de estado_filtro
-            otros_estados = [e for e in estados if e not in ("en_convocatoria", "nna_otra_jurisdiccion")]
+            quiere_oj_token = "nna_otra_jurisdiccion" in estados
 
-            condiciones = []
-            if otros_estados:
-                condiciones.append(Nna.nna_estado.in_(otros_estados))
+            estados_reales = [e for e in estados if e not in ("en_convocatoria", "nna_otra_jurisdiccion")]
+
+            # AND: cada condición se agrega con .filter(...)
+            if estados_reales:
+                query = query.filter(Nna.nna_estado.in_(estados_reales))
             if quiere_conv:
-                condiciones.append(
+                query = query.filter(
                     exists(
-                        select(1).select_from(DetalleNNAEnConvocatoria).where(
-                            DetalleNNAEnConvocatoria.nna_id == Nna.nna_id
-                        )
+                        select(1)
+                        .select_from(DetalleNNAEnConvocatoria)
+                        .where(DetalleNNAEnConvocatoria.nna_id == Nna.nna_id)
                     )
                 )
-            if quiere_oj:
-                condiciones.append(Nna.nna_otra_jurisdiccion == "Y")
-
-            if condiciones:
-                query = query.filter(or_(*condiciones))
+            if quiere_oj_token:
+                query = query.filter(Nna.nna_otra_jurisdiccion == "Y")
         else:
             if not busqueda_activa:
                 query = query.filter(Nna.nna_estado != "no_disponible")
+
+        # Aplico también el parámetro directo (AND con lo anterior) sin romper compatibilidad
+        if otra_jurisdiccion is not None:
+            query = query.filter(Nna.nna_otra_jurisdiccion == ("Y" if otra_jurisdiccion else "N"))
+
+                
+        # ✅ Filtro de hermanos (AND con lo anterior)
+        if hermanos in ("grupo", "sin"):
+            Nna2 = aliased(Nna)
+            existe_otro = exists(
+                select(1).where(
+                    and_(
+                        Nna.hermanos_id.isnot(None),
+                        Nna2.hermanos_id == Nna.hermanos_id,
+                        Nna2.nna_id != Nna.nna_id,
+                    )
+                )
+            )
+            if hermanos == "grupo":
+                query = query.filter(existe_otro)
+            else:  # "sin"
+                query = query.filter(~existe_otro)
+
 
         if excluir_nna_ids:
             query = query.filter(~Nna.nna_id.in_(excluir_nna_ids))
@@ -246,9 +269,6 @@ def get_nnas(
                     Nna.nna_id != nna.nna_id
                 ).first()
                 tiene_hermanos = otros_hermanos is not None
-
-            esta_en_conv = nna.nna_id in nna_en_conv_set
-            detalle_estado = traducir_detalle_estado(nna.nna_estado, esta_en_conv)
 
             nnas_list.append({
                 "nna_id": nna.nna_id,
