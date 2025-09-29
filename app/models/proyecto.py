@@ -65,7 +65,7 @@ class Proyecto(Base):
                                   'en_suspenso', 'no_viable', 'en_carpeta', 'vinculacion', 'guarda_provisoria', 
                                   'guarda_confirmada', 'adopcion_definitiva', 'baja_anulacion', 'baja_caducidad', 
                                   'baja_por_convocatoria', 'baja_rechazo_invitacion', 'baja_interrupcion',
-                                   'baja_desistimiento' ), nullable=True)             
+                                  'baja_desistimiento' ), nullable=True)             
 
     ingreso_por = Column(Enum( 'rua', 'oficio', 'convocatoria' ), nullable=True)         
 
@@ -78,6 +78,7 @@ class Proyecto(Base):
     doc_informe_conclusivo = Column(Text, nullable=True)
     doc_sentencia_adopcion = Column(String(1024), nullable=True)
     doc_interrupcion = Column(Text, nullable=True)
+    doc_baja_convocatoria = Column(Text, nullable=True)
     
     
 

@@ -89,14 +89,16 @@ REAL_FIELDS = {
     "doc_sentencia_guarda",
     "doc_informe_conclusivo",
     "doc_sentencia_adopcion",
-    "doc_interrupcion"
+    "doc_interrupcion",
+    "doc_baja_convocatoria",
 }
 
 # Alias aceptados desde el front → columna real
 ALIASES = {
     "sentencia_adopcion": "doc_sentencia_adopcion",
     "sentencia_guarda": "doc_sentencia_guarda",
-    "doc_interrupcion": "doc_interrupcion"
+    "doc_interrupcion": "doc_interrupcion",
+    "doc_baja_convocatoria": "doc_baja_convocatoria",
     # sumá más si necesitás
 }
 
@@ -808,6 +810,7 @@ def get_proyecto_por_id(
                 Proyecto.doc_informe_conclusivo.label("doc_informe_conclusivo"),
                 Proyecto.doc_sentencia_adopcion.label("doc_sentencia_adopcion"),
                 Proyecto.doc_interrupcion.label("doc_interrupcion"),
+                Proyecto.doc_baja_convocatoria.label("doc_baja_convocatoria"),
                 Proyecto.subregistro_1.label("subregistro_1"),
                 Proyecto.subregistro_2.label("subregistro_2"),
                 Proyecto.subregistro_3.label("subregistro_3"),
@@ -972,7 +975,7 @@ def get_proyecto_por_id(
             "adopcion_definitiva": "ADOPCIÓN DEF.",
             "baja_anulacion": "P. BAJA ANUL.",
             "baja_caducidad": "P. BAJA CADUC.",
-            "baja_por_convocatoria": "P. BAJA POR C.",
+            "baja_por_convocatoria": "P. BAJA CONV.",
             "baja_rechazo_invitacion": "P. BAJA RECHAZO",
             "baja_interrupcion": "P. BAJA INTERR.",
             "baja_desistimiento": "P. BAJA DESIST.",
@@ -1044,6 +1047,7 @@ def get_proyecto_por_id(
             "doc_informe_conclusivo": proyecto.doc_informe_conclusivo,
             "doc_sentencia_adopcion": proyecto.doc_sentencia_adopcion,
             "doc_interrupcion": proyecto.doc_interrupcion,
+            "doc_baja_convocatoria": proyecto.doc_baja_convocatoria,
 
             "boton_solicitar_actualizacion_proyecto": proyecto.estado_general == "en_revision" and \
                 proyecto.proyecto_tipo in ("Matrimonio", "Unión convivencial"),
@@ -5096,6 +5100,107 @@ def interrumpir_vinculacion_o_guarda(
             "next_page": "actual",
         }
 
+
+
+
+@proyectos_router.put("/baja-por-convocatoria/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
+def baja_por_convocatoria(
+    proyecto_id: int,
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Marca el proyecto como 'baja_por_convocatoria'.
+    Requisitos:
+    - Proyecto existente.
+    - proyecto.ingreso_por == 'convocatoria'
+
+    Efectos:
+    - Cambia estado_general -> 'baja_por_convocatoria'
+    - Agrega evento RUA y observación (opcional)
+    - Agrega historial de cambio de estado
+    - No toca carpetas ni NNAs
+    """
+    observacion = (body.get("observacion") or "").strip()
+
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "Proyecto no encontrado.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual",
+        }
+
+    # Validación: sólo proyectos ingresados por convocatoria
+    if proyecto.ingreso_por != "convocatoria":
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Este proyecto no ingresó por convocatoria. No corresponde la baja por convocatoria.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual",
+        }
+
+    try:
+        estado_anterior = proyecto.estado_general
+
+        # Evento RUA
+        db.add(
+            RuaEvento(
+                login=current_user["user"]["login"],
+                evento_detalle=f"Se confirmó baja por convocatoria del proyecto #{proyecto_id}",
+                evento_fecha=datetime.now(),
+            )
+        )
+
+        # Observación (opcional)
+        if observacion:
+            db.add(
+                ObservacionesProyectos(
+                    observacion_a_cual_proyecto=proyecto_id,
+                    observacion=observacion,
+                    login_que_observo=current_user["user"]["login"],
+                    observacion_fecha=datetime.now(),
+                )
+            )
+
+        # Historial de estado
+        db.add(
+            ProyectoHistorialEstado(
+                proyecto_id=proyecto_id,
+                estado_anterior=estado_anterior,
+                estado_nuevo="baja_por_convocatoria",
+                fecha_hora=datetime.now(),
+            )
+        )
+
+        # Estado del proyecto
+        proyecto.estado_general = "baja_por_convocatoria"
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "Baja por convocatoria confirmada. Estado del proyecto actualizado.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual",
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al confirmar la baja por convocatoria: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual",
+        }
 
 
 
