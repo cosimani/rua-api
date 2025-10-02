@@ -1,9 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Body
 from typing import List, Optional, Tuple
-from sqlalchemy.orm import Session, joinedload, aliased
+from sqlalchemy.orm import Session, joinedload, aliased, noload
 from sqlalchemy.exc import SQLAlchemyError
 
 from sqlalchemy import and_, or_, func, literal, select, literal_column  
+
 import re
 
 from database.config import get_db
@@ -14,6 +15,7 @@ from helpers.utils import normalizar_y_validar_dni, verificar_recaptcha, validar
 
 from datetime import datetime
 from models.convocatorias import Postulacion, Convocatoria, DetalleProyectoPostulacion, DetalleNNAEnConvocatoria  
+from models.notif_y_observaciones import ObservacionesProyectos
 from models.eventos_y_configs import RuaEvento
 from models.users import User, Group, UserGroup 
 from models.ddjj import DDJJ
@@ -604,6 +606,135 @@ def delete_convocatoria(convocatoria_id: int, db: Session = Depends(get_db)):
     except SQLAlchemyError as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al eliminar la convocatoria: {str(e)}")
+
+
+
+@convocatoria_router.put("/{convocatoria_id}/cerrar-y-eliminar", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def cerrar_y_eliminar_convocatoria(
+    convocatoria_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Cierra y elimina una convocatoria aplicando reglas:
+    - Si hay proyectos 'avanzados' (vinculación, guarda provisoria/confirmada, adopción definitiva) asociados a sus postulaciones -> BLOQUEA.
+    - NNA asociados vuelven a 'disponible' y se limpian vínculos DetalleNNAEnConvocatoria.
+    - Proyectos vinculados a postulaciones de esta convocatoria pasan a 'baja_por_convocatoria' (historial + observación).
+    - No se eliminan las postulaciones (trazabilidad).
+    - Se elimina la convocatoria.
+    """
+    ADVANCED_STATES = ("vinculacion", "guarda_provisoria", "guarda_confirmada", "adopcion_definitiva")
+
+    # No cargar relación para evitar sincronización de hijos en memoria
+    convocatoria = (
+        db.query(Convocatoria)
+          .options(noload(Convocatoria.detalle_nnas))
+          .filter(Convocatoria.convocatoria_id == convocatoria_id)
+          .first()
+    )
+    if not convocatoria:
+        return {
+            "success": False, "tipo_mensaje": "rojo",
+            "mensaje": "Convocatoria no encontrada.", "tiempo_mensaje": 6, "next_page": "actual",
+        }
+
+    try:
+        # 1) Bloqueo si hay proyectos avanzados
+        proyectos_avanzados = (
+            db.query(Proyecto.proyecto_id, Proyecto.estado_general)
+              .join(DetalleProyectoPostulacion, DetalleProyectoPostulacion.proyecto_id == Proyecto.proyecto_id)
+              .join(Postulacion, Postulacion.postulacion_id == DetalleProyectoPostulacion.postulacion_id)
+              .filter(Postulacion.convocatoria_id == convocatoria_id)
+              .filter(Proyecto.estado_general.in_(ADVANCED_STATES))
+              .all()
+        )
+        if proyectos_avanzados:
+            ids = [p[0] for p in proyectos_avanzados]
+            return {
+                "success": False, "tipo_mensaje": "naranja",
+                "mensaje": (
+                    "No se puede eliminar la convocatoria porque hay proyecto(s) en estado avanzado "
+                    f"(vinculación/guarda/adopción): {ids}."
+                ),
+                "tiempo_mensaje": 10, "next_page": "actual",
+            }
+
+        # 2) Liberar NNA y eliminar vínculos
+        nna_ids = [
+            x[0]
+            for x in db.query(DetalleNNAEnConvocatoria.nna_id)
+                       .filter(DetalleNNAEnConvocatoria.convocatoria_id == convocatoria_id)
+                       .all()
+        ]
+        if nna_ids:
+            db.query(Nna).filter(Nna.nna_id.in_(nna_ids)).update(
+                {Nna.nna_estado: "disponible", Nna.nna_en_convocatoria: "N"},
+                synchronize_session=False
+            )
+            db.query(DetalleNNAEnConvocatoria).filter(
+                DetalleNNAEnConvocatoria.convocatoria_id == convocatoria_id
+            ).delete(synchronize_session=False)
+
+            db.flush()  # 👈 clave para que el DELETE se materialice antes de borrar el padre
+
+        # 3) Proyectos asociados -> baja_por_convocatoria (no se borran postulaciones)
+        proyectos_a_bajar = (
+            db.query(Proyecto)
+              .join(DetalleProyectoPostulacion, DetalleProyectoPostulacion.proyecto_id == Proyecto.proyecto_id)
+              .join(Postulacion, Postulacion.postulacion_id == DetalleProyectoPostulacion.postulacion_id)
+              .filter(Postulacion.convocatoria_id == convocatoria_id)
+              .all()
+        )
+        for pr in proyectos_a_bajar:
+            estado_anterior = pr.estado_general
+            if estado_anterior != "baja_por_convocatoria":
+                db.add(ProyectoHistorialEstado(
+                    proyecto_id=pr.proyecto_id,
+                    estado_anterior=estado_anterior,
+                    estado_nuevo="baja_por_convocatoria",
+                    fecha_hora=datetime.now()
+                ))
+                db.add(ObservacionesProyectos(
+                    observacion_a_cual_proyecto=pr.proyecto_id,
+                    observacion=f"[Sistema] Proyecto dado de baja por cierre de convocatoria #{convocatoria_id}.",
+                    login_que_observo=current_user["user"]["login"],
+                    observacion_fecha=datetime.now()
+                ))
+                pr.estado_general = "baja_por_convocatoria"
+
+        # 4) Mantener postulaciones para trazabilidad
+
+        # 5) Evento (solo cantidades) + eliminar la convocatoria
+        db.add(RuaEvento(
+            login=current_user["user"]["login"],
+            evento_detalle=(
+                f"Convocatoria #{convocatoria_id} eliminada. "
+                f"NNA liberados: {len(nna_ids)}; proyectos dados de baja: {len(proyectos_a_bajar)}."
+            ),
+            evento_fecha=datetime.now()
+        ))
+
+        db.delete(convocatoria)
+        db.commit()
+
+        return {
+            "success": True, "tipo_mensaje": "verde",
+            "mensaje": (
+                f"Convocatoria eliminada. NNA puestos en 'disponible': {len(nna_ids)}. "
+                f"Proyectos dados de baja por convocatoria: {len(proyectos_a_bajar)}."
+            ),
+            "tiempo_mensaje": 8, "next_page": "actual",
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False, "tipo_mensaje": "rojo",
+            "mensaje": f"Error al cerrar y eliminar la convocatoria: {str(e)}",
+            "tiempo_mensaje": 8, "next_page": "actual",
+        }
 
 
 
