@@ -70,6 +70,17 @@ os.makedirs(DIR_PDF_GENERADOS, exist_ok=True)
 
 
 
+
+# Destinatarios por defecto para avisos internos del RUA
+DESTINATARIOS_RUA: List[str] = [
+    "misomoza@justiciacordoba.gob.ar",
+    "cesarosimani@gmail.com",
+]
+
+
+
+
+
 proyectos_router = APIRouter()
 
 
@@ -7770,7 +7781,7 @@ def notificar_siguiente_proyecto_para_ratificar(
                 </html>
                 """
                 enviar_mail_multiples(
-                    destinatarios=["misomoza@justiciacordoba.gob.ar", "cesarosimani@gmail.com"],
+                    destinatarios=DESTINATARIOS_RUA,
                     asunto=asunto_int,
                     cuerpo=cuerpo_int,
                 )
@@ -7934,7 +7945,7 @@ def ratificar_proyecto(
 
 
         enviar_mail_multiples(
-            destinatarios=["misomoza@justiciacordoba.gob.ar", "cesarosimani@gmail.com"],
+            destinatarios=DESTINATARIOS_RUA,
             asunto=asunto,
             cuerpo=cuerpo,
             # si preferís que no vean los correos entre sí, usá BCC:
