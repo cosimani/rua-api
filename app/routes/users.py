@@ -312,9 +312,22 @@ def get_users(
             query = query.filter(Proyecto.nro_orden_rua == nro_orden_rua)    
 
         # ——— Filtro por campo operativo ——————————————————————————
-        if operativo is None:          # el cliente no mandó el parámetro
-            operativo = "Y"            # asumimos solo operativos
-        query = query.filter(User.operativo == operativo)
+        # if operativo is None:          # el cliente no mandó el parámetro
+        #     operativo = "Y"            # asumimos solo operativos
+        # query = query.filter(User.operativo == operativo)
+        # ——————————————————————————————————————————————————————————
+
+        # ——— Filtro por campo operativo ——————————————————————————
+        # Regla:
+        # - Si el cliente manda ?operativo=Y|N => respetar ese filtro.
+        # - Si NO manda 'operativo' (operativo is None):
+        #     * Por defecto filtrar solo Y.
+        #     * EXCEPCIÓN: si doc_adoptante_estado == "rechazado", NO filtrar por operativo (incluye Y y N).
+        if operativo is not None:
+            query = query.filter(User.operativo == operativo)
+        else:
+            if not (doc_adoptante_estado and doc_adoptante_estado == "rechazado"):
+                query = query.filter(User.operativo == "Y")
         # ——————————————————————————————————————————————————————————
 
 

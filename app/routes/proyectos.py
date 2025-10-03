@@ -23,7 +23,7 @@ from bs4 import BeautifulSoup
 from models.users import User, Group, UserGroup 
 from database.config import get_db
 from helpers.utils import get_user_name_by_login, construir_subregistro_string, parse_date, generar_codigo_para_link, \
-    enviar_mail, get_setting_value, edad_como_texto
+    enviar_mail, enviar_mail_multiples, get_setting_value, edad_como_texto
 from models.eventos_y_configs import RuaEvento, UsuarioNotificadoRatificacion
 
 from security.security import get_current_user, verify_api_key, require_roles
@@ -7516,6 +7516,7 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
 
 
 
+
 @proyectos_router.post("/ratificar/notificar-siguiente-proyecto", dependencies=[Depends(verify_api_key),
                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
 def notificar_siguiente_proyecto_para_ratificar(
@@ -7524,6 +7525,7 @@ def notificar_siguiente_proyecto_para_ratificar(
     db: Session = Depends(get_db)
 ):
     try:
+
         hoy = datetime.now()
         hace_7 = hoy - timedelta(days=7)
 
@@ -7547,6 +7549,7 @@ def notificar_siguiente_proyecto_para_ratificar(
                 ) > hace_7
             )
         )
+
 
         proyectos = db.query(Proyecto).filter(
             Proyecto.estado_general == "viable",
@@ -7591,6 +7594,15 @@ def notificar_siguiente_proyecto_para_ratificar(
         logins = [proyecto_obj.login_1, proyecto_obj.login_2] if proyecto_obj.login_2 else [proyecto_obj.login_1]
         enviados = []
 
+        # -------------------- NUEVO: control para enviar 1 solo mail interno si se da de baja --------------------
+        baja_caducidad_triggered = False
+        baja_contexto = {
+            "proyecto_id": proyecto_obj.proyecto_id,
+            "logins": [l for l in logins if l],
+            "cuando": None,
+        }
+        # ---------------------------------------------------------------------------------------------------------
+
         for login in logins:
             if not login:
                 continue
@@ -7627,6 +7639,10 @@ def notificar_siguiente_proyecto_para_ratificar(
                 # ✅ Si pasaron más de 7 días del cuarto aviso → cambiar a baja_caducidad
                 if notificacion.mail_enviado_4 and (hoy - notificacion.mail_enviado_4) > timedelta(days=7):
                     proyecto_obj.estado_general = "baja_caducidad"
+                    # Marcamos que debemos enviar el mail interno (una vez)
+                    if not baja_caducidad_triggered:
+                        baja_caducidad_triggered = True
+                        baja_contexto["cuando"] = hoy
                     db.commit()
                     enviados.append({"login": login, "mensaje": "Proyecto pasado a baja_caducidad"})
                 continue
@@ -7704,10 +7720,70 @@ def notificar_siguiente_proyecto_para_ratificar(
             enviados.append({"login": login, "mail": usuario.mail, "proyecto_id": proyecto_obj.proyecto_id, "envio": nro_envio})
 
         db.commit()
+
+        # -------------------- NUEVO: si se gatilló la baja, mail interno (una sola vez) --------------------
+        if baja_caducidad_triggered:
+            try:
+                cuando = baja_contexto["cuando"] or datetime.now()
+                asunto_int = "Proyecto dado de baja por caducidad — RUA"
+                lista_logins = ", ".join(baja_contexto["logins"]) if baja_contexto["logins"] else "(s/d)"
+                cuerpo_int = f"""
+                <html>
+                  <body style="margin:0; padding:0; background-color:#f8f9fa;">
+                    <table cellpadding="0" cellspacing="0" width="100%" style="background-color:#f8f9fa; padding:20px;">
+                      <tr>
+                        <td align="center">
+                          <table cellpadding="0" cellspacing="0" width="600"
+                                 style="background-color:#ffffff; border-radius:10px; padding:30px;
+                                        font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                                        color:#343a40; box-shadow:0 0 10px rgba(0,0,0,0.1);">
+                            <tr>
+                              <td style="font-size:22px; color:#dc2626;">
+                                <strong>Proyecto dado de baja por caducidad</strong>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding-top:16px; font-size:16px;">
+                                <p>Se alcanzó la cantidad máxima de notificaciones y venció el plazo tras el último aviso.</p>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding-top:12px; font-size:16px;">
+                                <div style="background-color:#fef2f2; padding:15px 20px; border-left:4px solid #dc2626; border-radius:6px;">
+                                  <p><strong>Proyecto:</strong> #{baja_contexto['proyecto_id']}</p>
+                                  <p><strong>Logins involucrados:</strong> {lista_logins}</p>
+                                  <p><strong>Fecha/hora:</strong> {cuando.strftime('%d/%m/%Y %H:%M:%S')}</p>
+                                  <p><strong>Nuevo estado:</strong> baja_caducidad</p>
+                                </div>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding-top:20px; font-size:16px;">
+                                <p>Este correo es informativo y no requiere respuesta.</p>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  </body>
+                </html>
+                """
+                enviar_mail_multiples(
+                    destinatarios=["misomoza@justiciacordoba.gob.ar", "cesarosimani@gmail.com"],
+                    asunto=asunto_int,
+                    cuerpo=cuerpo_int,
+                )
+            except Exception as e:
+                # No romper el flujo si el correo interno falla
+                print(f"⚠️ Error enviando correo interno por baja_caducidad: {e}")
+        # -----------------------------------------------------------------------------------------------------
+
         return {
             "message": f"Se enviaron {len(enviados)} notificaciones para el proyecto {proyecto_obj.proyecto_id}.",
             "fecha_ratificacion": fecha_ratif.strftime("%Y-%m-%d"),
-            "detalles": enviados
+            "detalles": enviados,
+            "baja_caducidad_notificada": bool(baja_caducidad_triggered),
         }
 
     except SQLAlchemyError as e:
@@ -7724,8 +7800,12 @@ def ratificar_proyecto(
 ):
     """
     Ratifica la continuidad del proyecto del usuario. Registra un cambio simbólico viable → viable.
+    Y notifica por correo a algunas chicas del RUA
     """
+
     login = current_user["user"]["login"]
+
+    user  = current_user["user"]  # nombre, apellido, mail, etc.
 
     # Buscar el proyecto asociado
     proyecto = db.query(Proyecto).filter(
@@ -7789,14 +7869,6 @@ def ratificar_proyecto(
 
 
         db.commit()
-        
-        return {
-            "success": True,
-            "tipo_mensaje": "verde",
-            "mensaje": "<p>Se ha registrado correctamente la ratificación de su proyecto.</p>",
-            "tiempo_mensaje": 5,
-            "next_page": "actual"
-        }
 
     except SQLAlchemyError as e:
         db.rollback()
@@ -7807,6 +7879,82 @@ def ratificar_proyecto(
             "tiempo_mensaje": 5,
             "next_page": "actual"
         }
+
+
+    # ───────────────────── Envío de correo a responsables internos ─────────────────────
+    try:
+        nombre_completo = f"{user.get('nombre','').strip()} {user.get('apellido','').strip()}".strip() or login
+        asunto = "Ratificación de proyecto — RUA"
+
+        mensaje_html = (
+            f"<p>El/la pretenso/a <strong>{nombre_completo}</strong> ({login}) "
+            f"ratificó la continuidad de su proyecto.</p>"
+            f"<p><strong>Fecha y hora:</strong> {ahora.strftime('%d/%m/%Y %H:%M:%S')}</p>"
+        )
+
+        cuerpo = f"""
+        <html>
+          <body style="margin:0; padding:0; background-color:#f8f9fa;">
+            <table cellpadding="0" cellspacing="0" width="100%" style="background-color:#f8f9fa; padding:20px;">
+              <tr>
+                <td align="center">
+                  <table cellpadding="0" cellspacing="0" width="600"
+                         style="background-color:#ffffff; border-radius:10px; padding:30px;
+                                font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                                color:#343a40; box-shadow:0 0 10px rgba(0,0,0,0.1);">
+                    <tr>
+                      <td style="font-size:22px; color:#0d6efd;">
+                        <strong>Ratificación de proyecto</strong>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding-top:18px; font-size:16px;">
+                        <p>Se registra la siguiente acción en el sistema RUA:</p>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding-top:12px; font-size:16px;">
+                        <div style="background-color:#f1f3f5; padding:15px 20px; border-left:4px solid #0d6efd; border-radius:6px; margin-top:10px;">
+                          {mensaje_html}
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding-top:24px; font-size:16px;">
+                        <p>Este correo es informativo y no requiere respuesta.</p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </body>
+        </html>
+        """
+
+
+        enviar_mail_multiples(
+            destinatarios=["misomoza@justiciacordoba.gob.ar", "cesarosimani@gmail.com"],
+            asunto=asunto,
+            cuerpo=cuerpo,
+            # si preferís que no vean los correos entre sí, usá BCC:
+            # destinatarios=[],
+            # bcc=["misomoza@justiciacordoba.gob.ar", "sfurque@justiciacordoba.gob.ar"],
+        )
+
+    except Exception as e:
+        # No hacemos rollback de la ratificación; solo registramos el error
+        print(f"⚠️ Error enviando correo de ratificación a responsables internos: {e}")
+
+    # Respuesta final al adoptante
+    return {
+        "success": True,
+        "tipo_mensaje": "verde",
+        "mensaje": "<p>Se ha registrado correctamente la ratificación de su proyecto.</p>",
+        "tiempo_mensaje": 5,
+        "next_page": "actual"
+    }
+
 
 
 

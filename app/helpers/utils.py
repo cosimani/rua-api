@@ -12,7 +12,7 @@ import bcrypt
 
 from fpdf import FPDF
 
-from typing import Optional,  Dict, Any
+from typing import Optional, Dict, Any, List
 
 from fastapi import HTTPException
 
@@ -852,6 +852,52 @@ def enviar_mail(destinatario: str, asunto: str, cuerpo: str):
     except Exception as e:
         print(f"❌ Error al enviar el correo: {e}")
         raise
+
+
+def enviar_mail_multiples(
+    destinatarios: List[str],
+    asunto: str,
+    cuerpo: str,
+    cc: Optional[List[str]] = None,
+    bcc: Optional[List[str]] = None,
+):
+    
+    remitente = os.getenv("MAIL_REMITENTE")
+    nombre_remitente = os.getenv("MAIL_NOMBRE_REMITENTE", "RUA")
+    password = os.getenv("MAIL_PASSWORD")
+    smtp_server = os.getenv("MAIL_SERVER", "smtp.office365.com")
+    smtp_port = int(os.getenv("MAIL_PORT", 587))
+
+    # Respeta el “modo solo a César” (por defecto Y)
+    mail_solo_a_cesar = os.getenv("MAIL_SOLO_A_CESAR", "Y").strip().upper() != "N"
+    if mail_solo_a_cesar:
+        destinatarios = ["cesarosimani@gmail.com"]
+        cc = []
+        bcc = []
+
+    cc = cc or []
+    bcc = bcc or []
+
+    # Encabezados visibles (To y Cc). Bcc NO se pone en headers.
+    msg = MIMEMultipart()
+    msg["From"] = formataddr((nombre_remitente, remitente))
+    msg["To"] = ", ".join(destinatarios)
+    if cc:
+        msg["Cc"] = ", ".join(cc)
+    msg["Subject"] = asunto
+    msg.attach(MIMEText(cuerpo, "html"))
+
+    # Lista total de entrega
+    to_addrs = destinatarios + cc + bcc
+
+    with smtplib.SMTP(smtp_server, smtp_port) as server:
+        server.starttls()
+        server.login(remitente, password)
+        # Aseguramos lista completa de destinatarios
+        server.send_message(msg, from_addr=remitente, to_addrs=to_addrs)
+
+
+
 
 
 
