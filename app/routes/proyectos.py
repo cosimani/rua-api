@@ -73,8 +73,9 @@ os.makedirs(DIR_PDF_GENERADOS, exist_ok=True)
 
 # Destinatarios por defecto para avisos internos del RUA
 DESTINATARIOS_RUA: List[str] = [
-    "misomoza@justiciacordoba.gob.ar",
-    "cesarosimani@gmail.com",
+    "registroadopcion@justiciacordoba.gob.ar",
+    "equipotecnicoadopcion@justiciacordoba.gob.ar",
+    "cesarosimani@gmail.com"
 ]
 
 

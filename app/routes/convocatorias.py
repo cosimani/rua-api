@@ -618,16 +618,15 @@ def cerrar_y_eliminar_convocatoria(
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Cierra y elimina una convocatoria aplicando reglas:
+    Cierra una convocatoria aplicando reglas:
     - Si hay proyectos 'avanzados' (vinculación, guarda provisoria/confirmada, adopción definitiva) asociados a sus postulaciones -> BLOQUEA.
     - NNA asociados vuelven a 'disponible' y se limpian vínculos DetalleNNAEnConvocatoria.
-    - Proyectos vinculados a postulaciones de esta convocatoria pasan a 'baja_por_convocatoria' (historial + observación).
+    - Proyectos vinculados a postulaciones de esta convocatoria pasan a 'baja_por_convocatoria' (historial + observación con NNA).
     - No se eliminan las postulaciones (trazabilidad).
-    - Se elimina la convocatoria.
+    - La convocatoria NO se elimina: se marca convocatoria_online = 'N'.
     """
     ADVANCED_STATES = ("vinculacion", "guarda_provisoria", "guarda_confirmada", "adopcion_definitiva")
 
-    # No cargar relación para evitar sincronización de hijos en memoria
     convocatoria = (
         db.query(Convocatoria)
           .options(noload(Convocatoria.detalle_nnas))
@@ -655,19 +654,33 @@ def cerrar_y_eliminar_convocatoria(
             return {
                 "success": False, "tipo_mensaje": "naranja",
                 "mensaje": (
-                    "No se puede eliminar la convocatoria porque hay proyecto(s) en estado avanzado "
+                    "No se puede cerrar la convocatoria porque hay proyecto(s) en estado avanzado "
                     f"(vinculación/guarda/adopción): {ids}."
                 ),
                 "tiempo_mensaje": 10, "next_page": "actual",
             }
 
+        # --- Obtener NNA asociados (IDs y nombres) para usar en varios pasos
+        nna_rows = db.query(DetalleNNAEnConvocatoria.nna_id).filter(
+            DetalleNNAEnConvocatoria.convocatoria_id == convocatoria_id
+        ).all()
+        nna_ids = [x[0] for x in nna_rows]
+
+        # Armar string de nombres "Nombre Apellido" separados por coma
+        if nna_ids:
+            nna_objs = db.query(Nna).filter(Nna.nna_id.in_(nna_ids)).all()
+            nna_nombres_list = []
+            for n in nna_objs:
+                nombre = (n.nna_nombre or "").strip()
+                apellido = (n.nna_apellido or "").strip()
+                full = f"{nombre} {apellido}".strip()
+                if full:  # evita cadenas vacías
+                    nna_nombres_list.append(full)
+            nna_nombres_str = ", ".join(nna_nombres_list) if nna_nombres_list else "NNA sin nombre registrado"
+        else:
+            nna_nombres_str = "Sin NNA asociados"
+
         # 2) Liberar NNA y eliminar vínculos
-        nna_ids = [
-            x[0]
-            for x in db.query(DetalleNNAEnConvocatoria.nna_id)
-                       .filter(DetalleNNAEnConvocatoria.convocatoria_id == convocatoria_id)
-                       .all()
-        ]
         if nna_ids:
             db.query(Nna).filter(Nna.nna_id.in_(nna_ids)).update(
                 {Nna.nna_estado: "disponible", Nna.nna_en_convocatoria: "N"},
@@ -677,7 +690,7 @@ def cerrar_y_eliminar_convocatoria(
                 DetalleNNAEnConvocatoria.convocatoria_id == convocatoria_id
             ).delete(synchronize_session=False)
 
-            db.flush()  # 👈 clave para que el DELETE se materialice antes de borrar el padre
+            db.flush()  # materializar DELETE antes de tocar la "convocatoria"
 
         # 3) Proyectos asociados -> baja_por_convocatoria (no se borran postulaciones)
         proyectos_a_bajar = (
@@ -690,15 +703,21 @@ def cerrar_y_eliminar_convocatoria(
         for pr in proyectos_a_bajar:
             estado_anterior = pr.estado_general
             if estado_anterior != "baja_por_convocatoria":
+                # Historial
                 db.add(ProyectoHistorialEstado(
                     proyecto_id=pr.proyecto_id,
                     estado_anterior=estado_anterior,
                     estado_nuevo="baja_por_convocatoria",
                     fecha_hora=datetime.now()
                 ))
+                # Observación (incluye NNA)
+                obs_text = (
+                    f"[Sistema] Proyecto dado de baja por cierre de convocatoria #{convocatoria_id}. "
+                    f"NNA asociados: {nna_nombres_str}."
+                )
                 db.add(ObservacionesProyectos(
                     observacion_a_cual_proyecto=pr.proyecto_id,
-                    observacion=f"[Sistema] Proyecto dado de baja por cierre de convocatoria #{convocatoria_id}.",
+                    observacion=obs_text,
                     login_que_observo=current_user["user"]["login"],
                     observacion_fecha=datetime.now()
                 ))
@@ -706,23 +725,25 @@ def cerrar_y_eliminar_convocatoria(
 
         # 4) Mantener postulaciones para trazabilidad
 
-        # 5) Evento (solo cantidades) + eliminar la convocatoria
+        # 5) Marcar convocatoria como OFFLINE (no eliminar)
+        convocatoria.convocatoria_online = "N"
+
+        # 6) Evento (solo cantidades)
         db.add(RuaEvento(
             login=current_user["user"]["login"],
             evento_detalle=(
-                f"Convocatoria #{convocatoria_id} eliminada. "
+                f"Convocatoria #{convocatoria_id} cerrada (offline). "
                 f"NNA liberados: {len(nna_ids)}; proyectos dados de baja: {len(proyectos_a_bajar)}."
             ),
             evento_fecha=datetime.now()
         ))
 
-        db.delete(convocatoria)
         db.commit()
 
         return {
             "success": True, "tipo_mensaje": "verde",
             "mensaje": (
-                f"Convocatoria eliminada. NNA puestos en 'disponible': {len(nna_ids)}. "
+                f"Convocatoria cerrada (offline). NNA puestos en 'disponible': {len(nna_ids)}. "
                 f"Proyectos dados de baja por convocatoria: {len(proyectos_a_bajar)}."
             ),
             "tiempo_mensaje": 8, "next_page": "actual",
@@ -732,9 +753,10 @@ def cerrar_y_eliminar_convocatoria(
         db.rollback()
         return {
             "success": False, "tipo_mensaje": "rojo",
-            "mensaje": f"Error al cerrar y eliminar la convocatoria: {str(e)}",
+            "mensaje": f"Error al cerrar la convocatoria: {str(e)}",
             "tiempo_mensaje": 8, "next_page": "actual",
         }
+
 
 
 
