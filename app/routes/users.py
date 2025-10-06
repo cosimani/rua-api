@@ -402,66 +402,80 @@ def get_users(
 
         for user in users:
 
-            # Subconsulta para contar proyectos no definitivos por usuario (login_1 o login_2), según estado_general
-            proyectos_no_definitivos_subquery = (
-                db.query(
-                    func.coalesce(Proyecto.login_1, Proyecto.login_2).label("login"),
-                    func.sum(
-                        case(
-                            (
-                                Proyecto.estado_general.notin_(["baja_definitiva", "adopcion_definitiva"]),
-                                1
-                            ),
-                            else_=0
-                        )
-                    ).label("proyectos_no_definitivos")
+            # ----- proyectos_ids con prioridad (solo Adoptantes) -----
+            es_adoptante = (user.group or "").lower() == "adoptante"
+
+            if es_adoptante:
+                # Prioridad por origen
+                orden_origen = case(
+                    (Proyecto.ingreso_por == "rua", 0),
+                    (Proyecto.ingreso_por == "oficio", 1),
+                    (Proyecto.ingreso_por == "convocatoria", 2),
+                    else_=3
                 )
-                .filter(
-                    or_(
-                        Proyecto.login_1 == user.login,
-                        Proyecto.login_2 == user.login
+    
+                # Prioridad por estado dentro de cada origen
+                estados_ordenados = [
+                    'aprobado',
+                    'calendarizando',
+                    'entrevistando',
+                    'para_valorar',
+                    'viable',
+                    'viable_no_disponible',
+                    'en_suspenso',
+                    'no_viable',
+                    'en_carpeta',
+                    'vinculacion',
+                    'guarda_provisoria',
+                    'guarda_confirmada',
+                    'adopcion_definitiva',
+                ]
+
+                # CASE para ranking de estado
+                orden_estado = case(
+                    *[(Proyecto.estado_general == e, i) for i, e in enumerate(estados_ordenados)],
+                    else_=len(estados_ordenados)
+                )
+
+                # Subquery: última fecha de historial por proyecto
+                hist_max_sq = (
+                    db.query(
+                        ProyectoHistorialEstado.proyecto_id.label("pid"),
+                        func.max(ProyectoHistorialEstado.fecha_hora).label("last_hist")
                     )
+                    .group_by(ProyectoHistorialEstado.proyecto_id)
+                    .subquery()
                 )
-                .group_by(func.coalesce(Proyecto.login_1, Proyecto.login_2))
-                .subquery("proyectos_no_definitivos_subquery")
-            )
 
-            # Ejecutar la subconsulta para obtener el número de proyectos no definitivos
-            result_proyectos_no_definitivos = db.execute(
-                select(proyectos_no_definitivos_subquery.c.proyectos_no_definitivos)
-            ).fetchone()
+                # Usamos la fecha de historial SOLO para 'convocatoria'; para otros orígenes no influye
+                last_hist_cond = case(
+                    (Proyecto.ingreso_por == "convocatoria", hist_max_sq.c.last_hist),
+                    else_=None
+                )
 
-            # Obtener el resultado o asignar 0 si no hay proyectos
-            proyectos_no_definitivos = result_proyectos_no_definitivos[0] if result_proyectos_no_definitivos else 0  
+                proyectos_rows = (
+                    db.query(Proyecto.proyecto_id)
+                      .outerjoin(hist_max_sq, hist_max_sq.c.pid == Proyecto.proyecto_id)
+                      .filter(or_(Proyecto.login_1 == user.login, Proyecto.login_2 == user.login))
+                      .order_by(
+                          orden_origen.asc(),          # 1) origen: rua > oficio > convocatoria
+                          orden_estado.asc(),          # 2) estado, según el orden pedido
+                          last_hist_cond.desc(),       # 3) SOLO convocatoria: último historial más reciente primero
+                          Proyecto.proyecto_id.asc()   # 4) desempate estable
+                      )
+                      .all()
+                )
+                proyectos_ids = [row.proyecto_id for row in proyectos_rows]
+                
 
+            else:
+                # No adoptantes: lista vacía
+                proyectos_ids = []
 
-            proyectos_ids_subquery = (
-                db.query(Proyecto.proyecto_id)
-                .filter(or_(
-                    Proyecto.login_1 == user.login,
-                    Proyecto.login_2 == user.login
-                ))
-                .all()
-            )
-
-            # Obtener solo los valores de `proyecto_id` en una lista
-            proyectos_ids = [proyecto[0] for proyecto in proyectos_ids_subquery] if proyectos_ids_subquery else []
-
-            estado_general_row = db.query(
-                Proyecto.estado_general,
-                func.str_to_date(Proyecto.fecha_asignacion_nro_orden, "%d/%m/%Y").label("fecha_orden")
-            ).filter(
-                or_(Proyecto.login_1 == user.login, Proyecto.login_2 == user.login),
-                Proyecto.fecha_asignacion_nro_orden != None
-            ).order_by(desc("fecha_orden")).first()
-
-            estado_general = estado_general_row.estado_general if estado_general_row else ""
-
-
-
-            # Verificar si la lista está vacía y asignar un valor por defecto
+            # Garantía de lista vacía si no hay proyectos
             if not proyectos_ids:
                 proyectos_ids = []
+
 
             # Determinar fecha de nacimiento y edad según prioridad
             fecha_nacimiento = user.ddjj_fecha_nac or user.fecha_nacimiento
@@ -507,15 +521,6 @@ def get_users(
                 
             }
 
-            # Determinar el estado en bruto
-            # estado_raw = (
-            #     user.estado_general if user.estado_general else (
-            #         "sin_curso" if not user.doc_adoptante_curso_aprobado or user.doc_adoptante_curso_aprobado != "Y"
-            #         else "ddjj_pendiente" if not user.doc_adoptante_ddjj_firmada or user.doc_adoptante_ddjj_firmada != "Y"
-            #         else user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states
-            #         else ""
-            #     )
-            # )
 
             # Determinar el estado en bruto (prioriza INACTIVO)
             if user.active == "N":
@@ -529,6 +534,50 @@ def get_users(
                         else "inicial_cargando"
                     )
                 )
+
+
+            # Primer proyecto según el orden calculado
+            # Proyecto primario (el primero del orden calculado)
+            proyecto_id_primario = proyectos_ids[0] if proyectos_ids else None
+
+            # Defaults por si no hay proyecto
+            prim_tipo = ""
+            prim_nro_orden = ""
+            prim_ingreso_por = ""
+            prim_operativo = False
+            prim_login_1 = None
+            prim_login_2 = None
+            prim_fecha_asign_nro_orden = ""
+            prim_ultimo_cambio = ""
+            prim_estado_general = ""
+            prim_subregistro_string = ""
+
+            if proyecto_id_primario is not None:
+                # Traer el proyecto primario
+                proyecto_prim = (
+                    db.query(Proyecto)
+                      .filter(Proyecto.proyecto_id == proyecto_id_primario)
+                      .first()
+                )
+
+                if proyecto_prim:
+                    prim_tipo = proyecto_prim.proyecto_tipo if proyecto_prim.proyecto_tipo in valid_proyecto_tipos else ""
+                    prim_nro_orden = proyecto_prim.nro_orden_rua or ""
+                    prim_ingreso_por = proyecto_prim.ingreso_por or ""
+                    prim_operativo = (proyecto_prim.operativo == "Y")
+                    prim_login_1 = proyecto_prim.login_1
+                    prim_login_2 = proyecto_prim.login_2
+                    prim_fecha_asign_nro_orden = parse_date(proyecto_prim.fecha_asignacion_nro_orden)
+                    prim_ultimo_cambio = parse_date(proyecto_prim.ultimo_cambio_de_estado)
+                    prim_estado_general = MAPA_ESTADOS_PROYECTO.get(proyecto_prim.estado_general, proyecto_prim.estado_general)
+
+                    # Si tu helper acepta un objeto Proyecto, podés reutilizarlo:
+                    try:
+                        prim_subregistro_string = build_subregistro_string(proyecto_prim)
+                    except Exception:
+                        # (opcional) si tu helper esperaba el row "user" con columnas de Proyecto,
+                        # dejalo vacío o implementá un helper build_subregistro_string_from_proyecto(proyecto_prim)
+                        prim_subregistro_string = ""
 
 
 
@@ -579,24 +628,34 @@ def get_users(
                     else (user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "inicial_cargando")
                 ),
 
-                "proyecto_id": user.proyecto_id,
-                "proyecto_tipo": user.proyecto_tipo if user.proyecto_tipo in valid_proyecto_tipos else "",
-                "nro_orden_rua": user.nro_orden_rua if user.nro_orden_rua else "",
-                "ingreso_por": user.ingreso_por if user.ingreso_por else "",
-                "proyecto_operativo": user.proyecto_operativo == "Y",
-                "login_1_info": get_user_name_by_login(db, user.login_1),
-                "login_2_info": get_user_name_by_login(db, user.login_2),
-                "fecha_asignacion_nro_orden": parse_date(user.fecha_asignacion_nro_orden),
-                "ultimo_cambio_de_estado": parse_date(user.ultimo_cambio_de_estado),
+                "proyecto_id": proyecto_id_primario if proyecto_id_primario is not None else "",
+                "proyecto_tipo": prim_tipo,
+                "nro_orden_rua": prim_nro_orden,
+                "ingreso_por": prim_ingreso_por,
+                "proyecto_operativo": prim_operativo,
+                "login_1_info": get_user_name_by_login(db, prim_login_1) if prim_login_1 else "",
+                "login_2_info": get_user_name_by_login(db, prim_login_2) if prim_login_2 else "",
+                "fecha_asignacion_nro_orden": prim_fecha_asign_nro_orden,
+                "ultimo_cambio_de_estado": prim_ultimo_cambio,
+                "subregistro_string": prim_subregistro_string,
+                "proyecto_estado_general": prim_estado_general,
+                "proyectos_ids": proyectos_ids,
 
-                "subregistro_string": build_subregistro_string(user),  # Aquí se construye el string concatenado
+                # "proyecto_id": proyecto_id_primario if proyecto_id_primario is not None else "",
+                # "proyecto_tipo": user.proyecto_tipo if user.proyecto_tipo in valid_proyecto_tipos else "",
+                # "nro_orden_rua": user.nro_orden_rua if user.nro_orden_rua else "",
+                # "ingreso_por": user.ingreso_por if user.ingreso_por else "",
+                # "proyecto_operativo": user.proyecto_operativo == "Y",
+                # "login_1_info": get_user_name_by_login(db, user.login_1),
+                # "login_2_info": get_user_name_by_login(db, user.login_2),
+                # "fecha_asignacion_nro_orden": parse_date(user.fecha_asignacion_nro_orden),
+                # "ultimo_cambio_de_estado": parse_date(user.ultimo_cambio_de_estado),
 
-                "proyectos_no_definitivos": proyectos_no_definitivos,
+                # "subregistro_string": build_subregistro_string(user),  # Aquí se construye el string concatenado
 
-                # "proyecto_estado_general": user.estado_general if user.estado_general else "",
-                "proyecto_estado_general": MAPA_ESTADOS_PROYECTO.get(estado_raw, estado_raw),
+                # "proyecto_estado_general": MAPA_ESTADOS_PROYECTO.get(estado_raw, estado_raw),
 
-                "proyectos_ids": proyectos_ids  # Aquí agregamos la lista de proyecto_id
+                # "proyectos_ids": proyectos_ids  # Aquí agregamos la lista de proyecto_id
 
 
             }

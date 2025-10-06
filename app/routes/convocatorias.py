@@ -768,7 +768,7 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
     """
 
     try:
-        
+        # --- 1) reCAPTCHA ---
         recaptcha_token = datos.get("recaptcha_token")
         if not recaptcha_token or not await verificar_recaptcha(recaptcha_token):
             return {
@@ -781,7 +781,7 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
 
         datos.pop("recaptcha_token", None)
 
-
+        # --- 2) Convocatoria ---
         convocatoria_id = datos.get("convocatoria_id")
 
         if not convocatoria_id:
@@ -806,64 +806,39 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
             }
-        
 
-        # Diccionario de nombres amigables
-        nombres_amigables = {
-            "nombre": "Nombre",
-            "apellido": "Apellido",
-            "dni": "DNI",
-            "fecha_nacimiento": "Fecha de nacimiento",
-            "nacionalidad": "Nacionalidad",
-            "estado_civil": "Estado civil",
-            "calle_y_nro": "Calle y número",
-            "localidad": "Localidad",
-            "provincia": "Provincia",
-            "telefono_contacto": "Teléfono de contacto",
-            "mail": "Correo electrónico",
-            "ocupacion": "Ocupación / profesión",
-            "conyuge_nombre": "Nombre de la pareja",
-            "conyuge_apellido": "Apellido de la pareja",
-            "conyuge_dni": "DNI de la pareja",
-            "conyuge_fecha_nacimiento": "Fecha de nacimiento de la pareja",
-            "conyuge_telefono_contacto": "Teléfono de la pareja",
-        }
-
-        def _vacio(v):
+        # --- 3) Reglas de campos obligatorios (titular y cónyuge) ---
+        def _vacio(v) :  
             return (v is None) or (isinstance(v, str) and v.strip() == "")
 
-        # Obligatorios del titular (ajustá la lista si querés sumar/quitar)
-        req_titular = [
-            "nombre", "apellido", "dni", "fecha_nacimiento",
-            "mail", "telefono_contacto", "localidad", "provincia"
-        ]
-
-        # Si hay convivencia, obligatorios del/la cónyuge
+        req_titular = ["nombre","apellido","dni","fecha_nacimiento",
+                       "mail","telefono_contacto","localidad","provincia"]
         req_conyuge = []
+
         if datos.get("conyuge_convive") == "Y":
-            req_conyuge = [
-                "conyuge_nombre", "conyuge_apellido", "conyuge_dni",
-                "conyuge_fecha_nacimiento", "conyuge_telefono_contacto"
-                # si querés hacer obligatorio el mail del/la cónyuge, agregá: "conyuge_mail"
-            ]
+            req_conyuge = ["conyuge_nombre","conyuge_apellido","conyuge_dni",
+                           "conyuge_fecha_nacimiento","conyuge_telefono_contacto"]
 
-        campos_faltantes = [c for c in (req_titular + req_conyuge) if _vacio(datos.get(c))]
+        faltantes = [c for c in (req_titular + req_conyuge) if _vacio(datos.get(c))]
 
-        if campos_faltantes:
-            return {
-                "success": False,
-                "tipo_mensaje": "amarillo",
-                "mensaje": (
-                    "<p>Faltan completar los siguientes campos obligatorios:</p><ul>"
-                    + "".join(f"<li>{nombres_amigables.get(c, c.replace('_',' ').capitalize())}</li>" for c in campos_faltantes)
-                    + "</ul>"
-                ),
-                "tiempo_mensaje": 5,
-                "next_page": "actual",
+        if faltantes:          
+    
+            nombres_amigables = {
+                "nombre":"Nombre","apellido":"Apellido","dni":"DNI","fecha_nacimiento":"Fecha de nacimiento",
+                "nacionalidad":"Nacionalidad","estado_civil":"Estado civil","calle_y_nro":"Calle y número",
+                "localidad":"Localidad","provincia":"Provincia","telefono_contacto":"Teléfono de contacto",
+                "mail":"Correo electrónico","ocupacion":"Ocupación / profesión","conyuge_nombre":"Nombre de la pareja",
+                "conyuge_apellido":"Apellido de la pareja","conyuge_dni":"DNI de la pareja",
+                "conyuge_fecha_nacimiento":"Fecha de nacimiento de la pareja","conyuge_telefono_contacto":"Teléfono de la pareja",
             }
+            return {"success": False, "tipo_mensaje": "amarillo",
+                    "mensaje": "<p>Faltan completar los siguientes campos obligatorios:</p><ul>"
+                               + "".join(f"<li>{nombres_amigables.get(c, c.replace('_',' ').capitalize())}</li>" for c in faltantes)
+                               + "</ul>",
+                    "tiempo_mensaje": 5, "next_page": "actual"}
+       
 
-
-
+        # --- 4) DNI y mails ---
         dni = normalizar_y_validar_dni(datos.get("dni")) 
         if not dni: 
             return {
@@ -878,7 +853,7 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
       
     
         # Validar formato de correo
-        if not validar_correo(datos.get("mail", "").lower()):
+        if not validar_correo((datos.get("mail") or "").strip().lower()):
             return {
                 "success": False,
                 "tipo_mensaje": "naranja",
@@ -894,8 +869,7 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
         # ───── 1. Detectar y validar DNI del cónyuge lo más temprano posible ─────
         tiene_conyuge = datos.get("conyuge_convive") == "Y" and datos.get("conyuge_dni")
         conyuge_dni = None
-
-        
+       
 
 
         if tiene_conyuge:
@@ -908,17 +882,14 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
+            
+            if conyuge_dni == dni:
+                return {"success": False, "tipo_mensaje": "amarillo",
+                        "mensaje": "<p>El DNI del/la cónyuge no puede ser el mismo que el titular.</p>",
+                        "tiempo_mensaje": 6, "next_page": "actual"}
 
-        if tiene_conyuge and conyuge_dni == dni:
-            return {
-                "success": False,
-                "tipo_mensaje": "amarillo",
-                "mensaje": "<p>El DNI del/la cónyuge no puede ser el mismo que el titular.</p>",
-                "tiempo_mensaje": 6,
-                "next_page": "actual"
-            }
 
-        # ───── 2. Un solo query: proyectos “no viable” que involucren a alguno ─────
+        # --- 5) No-viables y duplicidades ---
         dni_busqueda = [dni] + ([conyuge_dni] if conyuge_dni else [])
 
         proyectos_no_viables = (
@@ -934,7 +905,7 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
         )
 
         # ───── 3. Construir mensaje según quién esté involucrado ─────
-        involucra_titular  = any(p.login_1 == dni or p.login_2 == dni          for p in proyectos_no_viables)
+        involucra_titular  = any(p.login_1 == dni or p.login_2 == dni for p in proyectos_no_viables)
         involucra_conyuge = any(
             conyuge_dni and (p.login_1 == conyuge_dni or p.login_2 == conyuge_dni)
             for p in proyectos_no_viables
@@ -961,117 +932,88 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
             }
 
 
-        # ─── Verificar si ya hay una postulación del mismo DNI a esta convocatoria ───
-        postulacion_existente = (
-            db.query(Postulacion)
-            .filter(
-                Postulacion.convocatoria_id == convocatoria_id,
-                Postulacion.dni == dni
-            )
-            .first()
-        )
-        if postulacion_existente:
-            return {
-                "success": False,
-                "tipo_mensaje": "amarillo",
-                "mensaje": (
-                    f"<p>Ya existe una postulación con tu DNI para esta "
-                    f"convocatoria. No es posible registrar otra.</p>"
-                ),
-                "tiempo_mensaje": 6,
-                "next_page": "actual"
-            }
+        # Duplicidad de postulación (titular y cónyuge)
+        if db.query(Postulacion).filter(Postulacion.convocatoria_id == convocatoria_id,
+                                        Postulacion.dni == dni).first():
+            return {"success": False, "tipo_mensaje": "amarillo",
+                    "mensaje": "<p>Ya existe una postulación con tu DNI para esta convocatoria. No es posible registrar otra.</p>",
+                    "tiempo_mensaje": 6, "next_page": "actual"}
 
-        # ─── Validar que el/la cónyuge no se haya postulado ya a esta convocatoria ───
         if tiene_conyuge:
-            postulacion_conyuge_existente = (
-                db.query(Postulacion)
-                .filter(
-                    Postulacion.convocatoria_id == convocatoria_id,
-                    Postulacion.dni == conyuge_dni
-                )
-                .first()
-            )
-            
-            if postulacion_conyuge_existente:
-                return {
-                    "success": False,
-                    "tipo_mensaje": "amarillo",
-                    "mensaje": (
-                        f"<p>La persona indicada como pareja "
-                        f"ya se ha postulado a esta convocatoria. No es posible "
-                        f"registrar la postulación.</p>"
-                    ),
-                    "tiempo_mensaje": 6,
-                    "next_page": "actual"
-                }
+            if db.query(Postulacion).filter(Postulacion.convocatoria_id == convocatoria_id,
+                                            Postulacion.dni == conyuge_dni).first():
+                return {"success": False, "tipo_mensaje": "amarillo",
+                        "mensaje": "<p>La persona indicada como pareja ya se ha postulado a esta convocatoria. "
+                                   "No es posible registrar la postulación.</p>",
+                        "tiempo_mensaje": 6, "next_page": "actual"}
 
-
-        #####################################
-
-
-        # Campos que acepta el modelo Postulacion (coinciden con tus columnas)
-        CAMPOS_POSTULACION = [
-            # básicos
-            "convocatoria_id",
-            "nombre", "apellido", "dni", "fecha_nacimiento", "nacionalidad",
-            "sexo", "estado_civil", "calle_y_nro", "depto", "barrio",
-            "localidad", "cp", "provincia",
-            "telefono_contacto", "telefono_fijo", "videollamada", "whatsapp",
-            "mail", "movilidad_propia", "obra_social", "ocupacion",
-            # cónyuge
-            "conyuge_convive", "conyuge_nombre", "conyuge_apellido",
-            "conyuge_dni", "conyuge_edad", "conyuge_fecha_nacimiento",
-            "conyuge_telefono_contacto", "conyuge_telefono_fijo",
-            "conyuge_mail", "conyuge_ocupacion", "conyuge_otros_datos",
-            # otros
-            "hijos", "acogimiento_es", "acogimiento_descripcion",
-            "en_rua", "subregistro_comentarios", "terminaste_inscripcion_rua",
-            "otra_convocatoria", "otra_convocatoria_comentarios",
-            "antecedentes", "antecedentes_comentarios",
-            "como_tomaron_conocimiento", "motivos", "comunicaron_decision",
-            "otros_comentarios", "inscripto_en_rua",
-            # subregistros
-            "subreg_3", "subreg_4",
-            "subreg_5A1ET", "subreg_5A2ET",
-            "subreg_5B1ET", "subreg_5B2ET", "subreg_5B3ET",
-            "subreg_61ET", "subreg_62ET", "subreg_63ET",
-        ]
-
-        # Asegurá normalizaciones previas (dni, conyuge_dni, capitalizaciones, lower de mail, etc.)
+        # --- 6) Normalizaciones “cosméticas” y payload de Postulación ---
         datos_limpios = {**datos}
         datos_limpios["convocatoria_id"] = convocatoria_id
         datos_limpios["dni"] = dni
         if tiene_conyuge and conyuge_dni:
             datos_limpios["conyuge_dni"] = conyuge_dni
-
-        # Normalizaciones “cosméticas” (opcional)
-        if datos_limpios.get("nombre"):
+        if datos_limpios.get("nombre"): 
             datos_limpios["nombre"] = capitalizar_nombre(datos_limpios["nombre"])
-        if datos_limpios.get("apellido"):
+        if datos_limpios.get("apellido"): 
             datos_limpios["apellido"] = capitalizar_nombre(datos_limpios["apellido"])
-        if datos_limpios.get("conyuge_nombre"):
+        if datos_limpios.get("conyuge_nombre"): 
             datos_limpios["conyuge_nombre"] = capitalizar_nombre(datos_limpios["conyuge_nombre"])
-        if datos_limpios.get("conyuge_apellido"):
+        if datos_limpios.get("conyuge_apellido"): 
             datos_limpios["conyuge_apellido"] = capitalizar_nombre(datos_limpios["conyuge_apellido"])
-        if datos_limpios.get("mail"):
-            datos_limpios["mail"] = datos_limpios["mail"].lower()
+        if datos_limpios.get("mail"): 
+            datos_limpios["mail"] = datos_limpios["mail"].strip().lower()
+        if datos_limpios.get("conyuge_mail"): 
+            datos_limpios["conyuge_mail"] = datos_limpios["conyuge_mail"].strip().lower()
 
-        # 👉 conyuge_mail (si viene)
-        if datos_limpios.get("conyuge_mail"):
-            datos_limpios["conyuge_mail"] = datos_limpios["conyuge_mail"].lower()
-            # Validar formato, pero sin bloquear: si es inválido, lo descartamos
-            if not validar_correo(datos_limpios["conyuge_mail"]):
-                datos_limpios["conyuge_mail"] = None
-
-        # Filtrar solo claves válidas para el modelo
+        # Campos que acepta el modelo Postulacion (coinciden con tus columnas)
+        CAMPOS_POSTULACION = [
+            "convocatoria_id","nombre","apellido","dni","fecha_nacimiento","nacionalidad","sexo","estado_civil",
+            "calle_y_nro","depto","barrio","localidad","cp","provincia","telefono_contacto","telefono_fijo",
+            "videollamada","whatsapp","mail","movilidad_propia","obra_social","ocupacion",
+            "conyuge_convive","conyuge_nombre","conyuge_apellido","conyuge_dni","conyuge_edad",
+            "conyuge_fecha_nacimiento","conyuge_telefono_contacto","conyuge_telefono_fijo","conyuge_mail",
+            "conyuge_ocupacion","conyuge_otros_datos","hijos","acogimiento_es","acogimiento_descripcion",
+            "en_rua","subregistro_comentarios","terminaste_inscripcion_rua","otra_convocatoria",
+            "otra_convocatoria_comentarios","antecedentes","antecedentes_comentarios","como_tomaron_conocimiento",
+            "motivos","comunicaron_decision","otros_comentarios","inscripto_en_rua",
+            "subreg_3","subreg_4","subreg_5A1ET","subreg_5A2ET","subreg_5B1ET","subreg_5B2ET","subreg_5B3ET",
+            "subreg_61ET","subreg_62ET","subreg_63ET",
+        ]
         payload_postulacion = {k: datos_limpios.get(k) for k in CAMPOS_POSTULACION}
-
         nueva_postulacion = Postulacion(**payload_postulacion)
 
         db.add(nueva_postulacion)
         db.flush()
         db.refresh(nueva_postulacion)
+
+        # ========== AQUÍ EMPIEZA TU SECCIÓN 6 AJUSTADA (Usuarios + DDJJ) ==========
+        # Validaciones de mail y unicidad (ANTES de crear usuarios)
+        mail_titular = (datos_limpios.get("mail") or "").strip().lower()
+        if not validar_correo(mail_titular):
+            return {"success": False, "tipo_mensaje": "naranja",
+                    "mensaje": "<p>El correo electrónico del titular no tiene un formato válido.</p>",
+                    "tiempo_mensaje": 5, "next_page": "actual"}
+        if db.query(User).filter(User.mail == mail_titular, User.login != dni).first():
+            return {"success": False, "tipo_mensaje": "amarillo",
+                    "mensaje": "<p>El correo ingresado ya está en uso por otro usuario. Por favor, indicá otro correo.</p>",
+                    "tiempo_mensaje": 6, "next_page": "actual"}       
+
+        tiene_conyuge_para_proyecto = bool(conyuge_dni and datos.get("conyuge_convive") == "Y")
+        conyuge_mail_limpio = None
+        if tiene_conyuge_para_proyecto and datos_limpios.get("conyuge_mail"):
+            conyuge_mail_limpio = datos_limpios["conyuge_mail"]
+            if not validar_correo(conyuge_mail_limpio):
+                return {"success": False, "tipo_mensaje": "naranja",
+                        "mensaje": "<p>El correo electrónico del/la cónyuge no tiene un formato válido.</p>",
+                        "tiempo_mensaje": 5, "next_page": "actual"}
+            if db.query(User).filter(User.mail == conyuge_mail_limpio, User.login != conyuge_dni).first():
+                return {"success": False, "tipo_mensaje": "amarillo",
+                        "mensaje": "<p>El correo ingresado para el/la cónyuge ya está en uso por otro usuario. "
+                                   "Por favor, indicá otro correo.</p>",
+                        "tiempo_mensaje": 6, "next_page": "actual"}
+
+
 
 
         grupo_adoptante = db.query(Group).filter(Group.description == "adoptante").first()
@@ -1080,43 +1022,32 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
         # Alta usuario login_1 (postulante)
         usuario_1 = db.query(User).filter(User.login == dni).first()
         if not usuario_1:
-            mail_1 = datos.get("mail")
-            if db.query(User).filter(User.mail == mail_1).first():
-                mail_1 = None
             nuevo_usuario_1 = User(
-                login = dni,
-                nombre = capitalizar_nombre(datos.get("nombre", "")),  # datos.get("nombre"),
-                apellido = capitalizar_nombre(datos.get("apellido", "")),  # datos.get("apellido"),
-                celular = datos.get("telefono_contacto"),
-                mail = mail_1,
-                profesion = datos.get("ocupacion", "")[:60],
-                calle_y_nro = datos.get("calle_y_nro"),
-                depto_etc = datos.get("depto"),
-                barrio = datos.get("barrio"),
-                localidad = datos.get("localidad"),
-                provincia = datos.get("provincia", "")[:50],
-                active = "Y",
-                operativo = "Y",
-                doc_adoptante_curso_aprobado = "Y",
-                doc_adoptante_ddjj_firmada = 'Y',
-                fecha_alta = date.today()
+                login=dni,
+                nombre=capitalizar_nombre(datos.get("nombre", "")),
+                apellido=capitalizar_nombre(datos.get("apellido", "")),
+                celular=datos.get("telefono_contacto"),
+                mail=mail_titular,
+                profesion=(datos.get("ocupacion") or "")[:60],
+                calle_y_nro=datos.get("calle_y_nro"),
+                depto_etc=datos.get("depto"),
+                barrio=datos.get("barrio"),
+                localidad=datos.get("localidad"),
+                provincia=(datos.get("provincia") or "")[:50],
+                active="Y", operativo="Y",
+                doc_adoptante_curso_aprobado="N",
+                doc_adoptante_ddjj_firmada="N",
+                fecha_alta=date.today()
             )
             db.add(nuevo_usuario_1)
             db.flush()   # <-- forzamos la inserción del usuario antes de crear eventos
 
-
             if grupo_adoptante:
                 db.add(UserGroup(login = dni, group_id = grupo_adoptante.group_id))
 
-            
-            # # crear DDJJ del titular
-            # if not db.query(DDJJ).filter(DDJJ.login == dni).first():
-            #     crear_ddjj_inicial(db, login=dni, datos=datos_limpios, es_conyuge=False)
-
-
             db.add(RuaEvento(
                 login = dni,
-                evento_detalle = f"Usuario y su DDJJ generado automáticamente desde postulación a convocatoria ID {convocatoria_id}.",
+                evento_detalle = f"Usuario generado automáticamente desde postulación a convocatoria ID {convocatoria_id}.",
                 evento_fecha = datetime.now()
             ))
 
@@ -1124,104 +1055,66 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
         if not db.query(DDJJ).filter(DDJJ.login == dni).first():
             crear_ddjj_inicial(db, login=dni, datos=datos_limpios, es_conyuge=False)
 
-        # Alta usuario login_2 (conyuge)
-        # tiene_conyuge = datos.get("conyuge_dni") and datos.get("conyuge_convive") == "Y"
-
-        tiene_conyuge_para_proyecto = bool(conyuge_dni and datos.get("conyuge_convive") == "Y")
-
+        # Usuario cónyuge (si corresponde)
         if tiene_conyuge_para_proyecto:
-
             usuario_2 = db.query(User).filter(User.login == conyuge_dni).first()
             if not usuario_2:
-                # Mail del cónyuge si vino y no está usado por otra persona
-                mail_2 = datos_limpios.get("conyuge_mail")
-                if mail_2 and db.query(User).filter(User.mail == mail_2).first():
-                    mail_2 = None
-
                 nuevo_usuario_2 = User(
-                    login = conyuge_dni,
-                    nombre = capitalizar_nombre(datos.get("conyuge_nombre", "")),
-                    apellido = capitalizar_nombre(datos.get("conyuge_apellido", "")),
-                    celular = datos.get("conyuge_telefono_contacto"),   # 👈 nuevo
-                    mail = mail_2,                                      # 👈 nuevo
-                    calle_y_nro = datos.get("calle_y_nro"),
-                    depto_etc = datos.get("depto"),
-                    barrio = datos.get("barrio"),
-                    localidad = datos.get("localidad"),
-                    provincia = datos.get("provincia", "")[:50],
-                    active = "Y",
-                    operativo = "Y",
-                    doc_adoptante_curso_aprobado = "Y",
-                    doc_adoptante_ddjj_firmada = 'Y',
-                    fecha_alta = date.today()
+                    login=conyuge_dni,
+                    nombre=capitalizar_nombre(datos.get("conyuge_nombre", "")),
+                    apellido=capitalizar_nombre(datos.get("conyuge_apellido", "")),
+                    celular=datos.get("conyuge_telefono_contacto"),
+                    mail=conyuge_mail_limpio,
+                    calle_y_nro=datos.get("calle_y_nro"),
+                    depto_etc=datos.get("depto"),
+                    barrio=datos.get("barrio"),
+                    localidad=datos.get("localidad"),
+                    provincia=(datos.get("provincia") or "")[:50],
+                    active="Y", operativo="Y",
+                    doc_adoptante_curso_aprobado="N",
+                    doc_adoptante_ddjj_firmada="N",
+                    fecha_alta=date.today()
                 )
                 db.add(nuevo_usuario_2)
                 db.flush()
 
-                if grupo_adoptante:
-                    db.add(UserGroup(login = conyuge_dni, group_id = grupo_adoptante.group_id))
+                if grupo_adoptante: 
+                    db.add(UserGroup(login=conyuge_dni, group_id=grupo_adoptante.group_id))
 
-                # if not db.query(DDJJ).filter(DDJJ.login == conyuge_dni).first():
-                #     crear_ddjj_inicial(db, login=conyuge_dni, datos=datos_limpios, es_conyuge=True)
+                db.add(RuaEvento(login=conyuge_dni,
+                                 evento_detalle=f"Usuario generado automáticamente (cónyuge) desde postulación a convocatoria ID {convocatoria_id}.",
+                                 evento_fecha=datetime.now()))
 
-                db.add(RuaEvento(
-                    login = conyuge_dni,
-                    evento_detalle = f"Usuario y su DDJJ generado automáticamente desde postulación (cónyuge) a convocatoria ID {convocatoria_id}.",
-                    evento_fecha = datetime.now()
-                ))
-
-            # asegurar DDJJ del/la cónyuge, exista o no el usuario
+            # DDJJ cónyuge si no existe
             if not db.query(DDJJ).filter(DDJJ.login == conyuge_dni).first():
                 crear_ddjj_inicial(db, login=conyuge_dni, datos=datos_limpios, es_conyuge=True)
+        # ========== FIN SECCIÓN 6 AJUSTADA ==========
 
 
-
-        # Preparar campos comunes
+        # --- 7) Proyecto y vínculos ---
         nuevo_proyecto = Proyecto(
-            proyecto_tipo = "Unión convivencial" if tiene_conyuge_para_proyecto else "Monoparental",
-            login_1 = dni,
-            login_2 = conyuge_dni if tiene_conyuge_para_proyecto else None,
-            proyecto_calle_y_nro = datos.get("calle_y_nro"),
-            proyecto_depto_etc = datos.get("depto"),
-            proyecto_barrio = datos.get("barrio"),
-            proyecto_localidad = datos.get("localidad"),
-            proyecto_provincia = datos.get("provincia", "")[:50],
-            subregistro_flexible = "Y",
-            operativo = "Y",
-            aceptado = "Y",
-            aceptado_code = None,
-            estado_general = "aprobado",
-            ingreso_por = "convocatoria"
+            proyecto_tipo="Unión convivencial" if tiene_conyuge_para_proyecto else "Monoparental",
+            login_1=dni, 
+            login_2=conyuge_dni if tiene_conyuge_para_proyecto else None,
+            proyecto_calle_y_nro=datos.get("calle_y_nro"), proyecto_depto_etc=datos.get("depto"),
+            proyecto_barrio=datos.get("barrio"), proyecto_localidad=datos.get("localidad"),
+            proyecto_provincia=(datos.get("provincia") or "")[:50],
+            subregistro_flexible="Y", operativo="Y", aceptado="Y", aceptado_code=None,
+            estado_general="aprobado", ingreso_por="convocatoria"
         )
 
         db.add(nuevo_proyecto)
-        db.flush()  # <-- Esto fuerza la inserción en la base de datos
+        db.flush() 
         db.refresh(nuevo_proyecto)
 
-        # Registrar la vinculación entre postulación y proyecto
-        detalle_vinculo = DetalleProyectoPostulacion(
-            proyecto_id = nuevo_proyecto.proyecto_id,
-            postulacion_id = nueva_postulacion.postulacion_id
-        )
+        db.add(DetalleProyectoPostulacion(proyecto_id=nuevo_proyecto.proyecto_id,
+                                          postulacion_id=nueva_postulacion.postulacion_id))
+        db.add(RuaEvento(evento_detalle=f"Se creó una nueva postulación a convocatoria ID {convocatoria_id} "
+                                        f"y el proyecto asociado (ID {nuevo_proyecto.proyecto_id}).",
+                         evento_fecha=datetime.now(), login=dni))
+        db.add(ProyectoHistorialEstado(proyecto_id=nuevo_proyecto.proyecto_id,
+                                       estado_nuevo="aprobado", fecha_hora=datetime.now()))
 
-        db.add(detalle_vinculo)
-
-
-        # Registrar evento en rua_evento
-        evento = RuaEvento(
-            evento_detalle = f"Se creó una nueva postulación a convocatoria ID {convocatoria_id} y el proyecto asociado (ID {nuevo_proyecto.proyecto_id}).",
-            evento_fecha = datetime.now(),
-            login = dni
-        )
-        db.add(evento)
-
-
-        # 🕓 Registrar en historial de estados
-        db.add(ProyectoHistorialEstado(
-            proyecto_id = nuevo_proyecto.proyecto_id,
-            estado_nuevo = "aprobado",
-            fecha_hora = datetime.now()
-        ))
 
         # Commit final de toda la operación
         db.commit()
@@ -1240,14 +1133,13 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
                 enviar_mail(mail_titular, asunto, cuerpo)
 
             # Mail al cónyuge (si corresponde)
-            conyuge_mail = datos_limpios.get("conyuge_mail")
-            if tiene_conyuge_para_proyecto and conyuge_mail:
+            if tiene_conyuge_para_proyecto and datos_limpios.get("conyuge_mail"):
                 asunto_c = f"Postulación recibida – Ref. {convocatoria.convocatoria_referencia or ''}".strip()
                 cuerpo_c = _plantilla_mail_postulacion(
                     nombre=capitalizar_nombre(datos_limpios.get("conyuge_nombre", "")) or "Postulante",
                     convocatoria=convocatoria
                 )
-                enviar_mail(conyuge_mail, asunto_c, cuerpo_c)
+                enviar_mail(datos_limpios["conyuge_mail"], asunto_c, cuerpo_c)
 
         except Exception as e:
             # No bloquear si falla el mail → registrar evento
@@ -1260,8 +1152,7 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
         # ----------------------------------------
 
 
-
-        # Enviar notificación a todas las supervisoras
+        # --- 10) Notificación a supervisoras ---
         crear_notificacion_masiva_por_rol(
             db = db,
             rol = "supervisora",
@@ -1282,7 +1173,6 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
             "proyecto_id": nuevo_proyecto.proyecto_id
         }
        
-
 
     except SQLAlchemyError as e:
         db.rollback()
