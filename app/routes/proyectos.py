@@ -6,6 +6,10 @@ from sqlalchemy import func, case, and_, or_, Integer, literal_column, desc, cas
 from urllib.parse import unquote
 
 
+from helpers.moodle import existe_mail_en_moodle, existe_dni_en_moodle, crear_usuario_en_moodle, get_idcurso, \
+    enrolar_usuario, get_idusuario_by_mail, eliminar_usuario_en_moodle, actualizar_usuario_en_moodle, \
+    actualizar_clave_en_moodle, is_curso_aprobado
+
 
 from datetime import datetime, timedelta, date, time
 
@@ -23,7 +27,7 @@ from bs4 import BeautifulSoup
 from models.users import User, Group, UserGroup 
 from database.config import get_db
 from helpers.utils import get_user_name_by_login, construir_subregistro_string, parse_date, generar_codigo_para_link, \
-    enviar_mail, enviar_mail_multiples, get_setting_value, edad_como_texto
+    enviar_mail, enviar_mail_multiples, get_setting_value, edad_como_texto, check_consecutive_numbers
 from models.eventos_y_configs import RuaEvento, UsuarioNotificadoRatificacion
 
 from security.security import get_current_user, verify_api_key, require_roles
@@ -999,6 +1003,8 @@ def get_proyecto_por_id(
             "convocatoria": "CONV.",
         }.get(proyecto.ingreso_por, "RUA")
 
+        
+
 
         # ===== Helpers para vacíos / igualdad de pareja =====
         def is_blank(v):
@@ -1072,8 +1078,9 @@ def get_proyecto_por_id(
 
             "texto_boton_estado_proyecto": texto_boton_estado_proyecto,
             "estado_general": proyecto.estado_general,
-            "ingreso_por": texto_ingreso_por,
-
+            "ingreso_por": proyecto.ingreso_por,          # <-- crudo: "rua" | "oficio" | "convocatoria"
+            "texto_ingreso_por": texto_ingreso_por,       # <-- nuevo: "RUA" | "OFICIO" | "CONV."
+            
             "subregistro_1": proyecto.subregistro_1,
             "subregistro_2": proyecto.subregistro_2,
             "subregistro_3": proyecto.subregistro_3,
@@ -2663,6 +2670,7 @@ def get_historial_estado_proyecto(
 
 
 
+
 @proyectos_router.post("/entrevista/agendar", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
 def agendar_entrevista(
@@ -2683,6 +2691,307 @@ def agendar_entrevista(
         "Entrevista domiciliaria",
         "Entrevista de devolución"
     ]
+
+
+    # # --- helper local: envia mail de "crear contraseña" (misma lógica que /{login}/reenviar-activacion) ---
+    # # Devuelve: (True/False, "ok"/motivo, "omitido" si ya tenía clave)
+    # def _enviar_mail_activacion(login_destino: str):
+    #     user: User = db.query(User).filter(User.login == login_destino).first()
+    #     if not user or not user.mail:
+    #         return False, "Usuario sin mail o inexistente.", None
+
+    #     # 👈 NUEVO: NO enviar si ya tiene contraseña seteada
+    #     # (considera vacío cuando es None o string en blanco)
+    #     tiene_clave = bool((user.clave or "").strip())
+    #     if tiene_clave:
+    #         return True, "omitido_por_tener_clave", "omitido"  # éxito lógico, pero omitido            
+
+    #     # 1) activar si estaba inactivo
+    #     recien_activado = False
+    #     if user.active != "Y":
+    #         user.active = "Y"
+    #         recien_activado = True
+
+    #     # 2) reusar o generar código
+    #     rec_code = (user.recuperacion_code or "").strip()
+    #     if not rec_code:
+    #         rec_code = generar_codigo_para_link(16)
+    #         user.recuperacion_code = rec_code
+
+    #     db.commit()
+    #     db.refresh(user)
+
+    #     # 3) link desde settings
+    #     protocolo = get_setting_value(db, "protocolo")
+    #     host = get_setting_value(db, "donde_esta_alojado")
+    #     puerto = get_setting_value(db, "puerto_tcp")
+    #     endpoint = get_setting_value(db, "endpoint_recuperar_clave")
+
+    #     if endpoint and not endpoint.startswith("/"):
+    #         endpoint = "/" + endpoint
+
+    #     puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
+    #     host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
+    #     link = f"{protocolo}://{host_con_puerto}{endpoint}?activacion={rec_code}"
+
+    #     # 4) email
+    #     asunto = "Establecimiento de contraseña"
+    #     cuerpo = f"""
+    #     <html>
+    #       <body style="margin:0;padding:0;background-color:#f8f9fa;">
+    #         <table cellpadding="0" cellspacing="0" width="100%" style="background-color:#f8f9fa;padding:20px;">
+    #           <tr><td align="center">
+    #             <table cellpadding="0" cellspacing="0" width="600" style="background:#ffffff;border-radius:10px;padding:30px;font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;color:#343a40;box-shadow:0 0 10px rgba(0,0,0,0.1);">
+    #               <tr><td style="font-size:24px;color:#007bff;"><strong>¡Hola {user.nombre or ""}!</strong></td></tr>
+    #               <tr><td style="padding-top:20px;font-size:17px;">
+    #                 <p>Desde el <strong>Registro Único de Adopciones de Córdoba</strong> te invitamos a crear tu contraseña para ingresar a la plataforma, completar el curso de sensibilización y presentar tu documentación personal.</p>
+    #               </td></tr>
+    #               <tr><td style="padding-top:18px;font-size:17px;line-height:1.5;">
+    #                 <p>Hacé clic en el botón para definirla. Luego podrás ingresar con tu DNI y la clave elegida.</p>
+    #               </td></tr>
+    #               <tr><td align="center" style="padding:26px 0;">
+    #                 <a href="{link}" target="_blank" style="display:inline-block;padding:12px 24px;font-size:16px;color:#ffffff;background:#0d6efd;text-decoration:none;border-radius:8px;font-weight:600;">🔐 Crear mi contraseña</a>
+    #               </td></tr>
+    #               <tr><td style="padding-top:10px;font-size:13px;color:#888;">Registro Único de Adopciones de Córdoba</td></tr>
+    #             </table>
+    #           </td></tr>
+    #         </table>
+    #       </body>
+    #     </html>
+    #     """
+    #     enviar_mail(destinatario=user.mail, asunto=asunto, cuerpo=cuerpo)
+
+    #     # 5) evento best-effort
+    #     try:
+    #         detalle = "Se envió enlace para elegir nueva contraseña."
+    #         if recien_activado:
+    #             detalle += " Estaba inactivo y fue activado."
+    #         db.add(RuaEvento(login=user.login, evento_detalle=detalle, evento_fecha=datetime.now()))
+    #         db.commit()
+    #     except Exception:
+    #         db.rollback()
+    #     return True, "ok", None
+    
+
+    # --- helper: genera una contraseña temporal para Moodle ---
+    def _generar_password_temporal_moodle() -> str:
+        """
+        Requisitos:
+          - >= 6 dígitos
+          - Dígitos no consecutivos (ni ascendentes ni descendentes de longitud >=3)
+          - >= 1 mayúscula
+          - >= 1 minúscula
+          - largo total >= 10 (cumple también la política típica de Moodle >=8)
+        """
+        import random, string
+
+        def _digitos_no_consecutivos(n=6):
+            res = []
+            while len(res) < n:
+                d = random.choice("0123456789")
+                if not res:
+                    res.append(d)
+                    continue
+                # evitar vecino inmediato asc/desc con el último
+                if abs(int(d) - int(res[-1])) != 1:
+                    res.append(d)
+            return res
+
+        while True:
+            # 6 dígitos “espaciados”
+            digs = _digitos_no_consecutivos(6)
+            # garantías de letras
+            must = [random.choice(string.ascii_uppercase), random.choice(string.ascii_lowercase)]
+            # relleno extra (letras aleatorias) para llegar a >=10
+            extra = [random.choice(string.ascii_letters) for _ in range(4)]
+            chars = digs + must + extra
+            random.shuffle(chars)
+            pwd = "".join(chars)
+
+            # doble verificación por las dudas
+            if any(c.islower() for c in pwd) and any(c.isupper() for c in pwd) \
+              and sum(c.isdigit() for c in pwd) >= 6 \
+              and not check_consecutive_numbers(pwd):
+                return pwd
+
+
+    # --- helper: asegura cuenta en Moodle y enrolamiento al curso correspondiente ---
+    def _asegurar_moodle_y_enrolamiento(user: User):
+        """
+        Intenta asegurar que el usuario exista en Moodle (username = DNI/login, mail = user.mail)
+        y que esté enrolado en el curso correspondiente.
+
+        - Si existe con mismo DNI y mismo mail: puede opcionalmente actualizar clave temporal (no necesario).
+        - Si existe sólo DNI o sólo mail (conflicto): registra evento y salta (no interrumpe).
+        - Si no existe: lo crea con clave temporal y lo enrola.
+        """
+        try:
+            dni = str(user.login)
+            mail = (user.mail or "").lower()
+            nombre = user.nombre or ""
+            apellido = user.apellido or ""
+
+            if not dni or not mail:
+                # nada que hacer si faltan datos
+                db.add(RuaEvento(
+                    login=user.login,
+                    evento_detalle="Moodle: omitido por datos insuficientes (dni/mail).",
+                    evento_fecha=datetime.now()
+                ))
+                db.commit()
+                return
+
+            dni_en_moodle = existe_dni_en_moodle(dni, db)
+            mail_en_moodle = existe_mail_en_moodle(mail, db)
+
+            if dni_en_moodle and mail_en_moodle:
+                # ✅ Ya existe con mismo DNI y mail: sólo asegurar enrolamiento
+                id_curso = get_idcurso(db)
+                id_usuario = get_idusuario_by_mail(mail, db)
+                enrolar_usuario(id_curso, id_usuario, db)
+                db.add(RuaEvento(
+                    login=user.login,
+                    evento_detalle="Moodle: usuario ya existía, enrolamiento asegurado.",
+                    evento_fecha=datetime.now()
+                ))
+                db.commit()
+                return
+
+            if dni_en_moodle and not mail_en_moodle:
+                # ⚠ conflicto: DNI en Moodle pero con otro mail
+                db.add(RuaEvento(
+                    login=user.login,
+                    evento_detalle="Moodle: conflicto (existe DNI con otro mail). Enrolamiento omitido.",
+                    evento_fecha=datetime.now()
+                ))
+                db.commit()
+                return
+
+            if not dni_en_moodle and mail_en_moodle:
+                # ⚠ conflicto: mail en Moodle ligado a otro username/DNI
+                db.add(RuaEvento(
+                    login=user.login,
+                    evento_detalle="Moodle: conflicto (existe mail con otro DNI). Enrolamiento omitido.",
+                    evento_fecha=datetime.now()
+                ))
+                db.commit()
+                return
+
+            # ✅ No existe: crearlo con contraseña temporal
+            clave_tmp = _generar_password_temporal_moodle()
+            crear_usuario_en_moodle(dni, clave_tmp, nombre, apellido, mail, db)
+
+            # Enrolar
+            id_curso = get_idcurso(db)
+            id_usuario = get_idusuario_by_mail(mail, db)
+            enrolar_usuario(id_curso, id_usuario, db)
+
+            db.add(RuaEvento(
+                login=user.login,
+                evento_detalle="Moodle: usuario creado y enrolado con clave temporal.",
+                evento_fecha=datetime.now()
+            ))
+            db.commit()
+
+        except HTTPException as e:
+            db.rollback()
+            # trazamos, pero no hacemos fallar el endpoint principal
+            db.add(RuaEvento(
+                login=user.login,
+                evento_detalle=f"Moodle: error HTTP al crear/enrolar ({e.detail}).",
+                evento_fecha=datetime.now()
+            ))
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            db.add(RuaEvento(
+                login=user.login,
+                evento_detalle=f"Moodle: error inesperado al crear/enrolar ({str(e)}).",
+                evento_fecha=datetime.now()
+            ))
+            db.commit()
+
+    # --- helper local: envia mail "crear contraseña" sólo si NO tiene clave + asegura Moodle ---
+    # Devuelve: (True/False, "ok"/motivo, "omitido" si ya tenía clave)
+    def _enviar_mail_activacion(login_destino: str):
+        user: User = db.query(User).filter(User.login == login_destino).first()
+        if not user or not user.mail:
+            return False, "Usuario sin mail o inexistente.", None
+
+        # 👈 NO enviar si ya tiene contraseña seteada
+        tiene_clave = bool((user.clave or "").strip())
+        if tiene_clave:
+            return True, "omitido_por_tener_clave", "omitido"
+
+        # 1) activar si estaba inactivo
+        recien_activado = False
+        if user.active != "Y":
+            user.active = "Y"
+            recien_activado = True
+
+        # 2) asegurar cuenta/enrolamiento en Moodle (sólo en este escenario de SIN CLAVE)
+        _asegurar_moodle_y_enrolamiento(user)
+
+        # 3) reusar o generar código
+        rec_code = (user.recuperacion_code or "").strip()
+        if not rec_code:
+            rec_code = generar_codigo_para_link(16)
+            user.recuperacion_code = rec_code
+
+        db.commit()
+        db.refresh(user)
+
+        # 4) link desde settings
+        protocolo = get_setting_value(db, "protocolo")
+        host = get_setting_value(db, "donde_esta_alojado")
+        puerto = get_setting_value(db, "puerto_tcp")
+        endpoint = get_setting_value(db, "endpoint_recuperar_clave")
+
+        if endpoint and not endpoint.startswith("/"):
+            endpoint = "/" + endpoint
+
+        puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
+        host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
+        link = f"{protocolo}://{host_con_puerto}{endpoint}?activacion={rec_code}"
+
+        # 5) email
+        asunto = "Establecimiento de contraseña"
+        cuerpo = f"""
+        <html>
+          <body style="margin:0;padding:0;background-color:#f8f9fa;">
+            <table cellpadding="0" cellspacing="0" width="100%" style="background-color:#f8f9fa;padding:20px;">
+              <tr><td align="center">
+                <table cellpadding="0" cellspacing="0" width="600" style="background:#ffffff;border-radius:10px;padding:30px;font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;color:#343a40;box-shadow:0 0 10px rgba(0,0,0,0.1);">
+                  <tr><td style="font-size:24px;color:#007bff;"><strong>¡Hola {user.nombre or ""}!</strong></td></tr>
+                  <tr><td style="padding-top:20px;font-size:17px;">
+                    <p>Desde el <strong>Registro Único de Adopciones de Córdoba</strong> te invitamos a crear tu contraseña para ingresar a la plataforma, completar el curso de sensibilización y presentar tu documentación personal.</p>
+                  </td></tr>
+                  <tr><td style="padding-top:18px;font-size:17px;line-height:1.5;">
+                    <p>Hacé clic en el botón para definirla. Luego podrás ingresar con tu DNI y la clave elegida.</p>
+                  </td></tr>
+                  <tr><td align="center" style="padding:26px 0;">
+                    <a href="{link}" target="_blank" style="display:inline-block;padding:12px 24px;font-size:16px;color:#ffffff;background:#0d6efd;text-decoration:none;border-radius:8px;font-weight:600;">🔐 Crear mi contraseña</a>
+                  </td></tr>
+                  <tr><td style="padding-top:10px;font-size:13px;color:#888;">Registro Único de Adopciones de Córdoba</td></tr>
+                </table>
+              </td></tr>
+            </table>
+          </body>
+        </html>
+        """
+        enviar_mail(destinatario=user.mail, asunto=asunto, cuerpo=cuerpo)
+
+        # 6) evento best-effort
+        try:
+            detalle = "Se envió enlace para elegir nueva contraseña."
+            if recien_activado:
+                detalle += " Estaba inactivo y fue activado."
+            db.add(RuaEvento(login=user.login, evento_detalle=detalle, evento_fecha=datetime.now()))
+            db.commit()
+        except Exception:
+            db.rollback()
+        return True, "ok", None
+
     
 
     try:
@@ -2692,8 +3001,6 @@ def agendar_entrevista(
         fecha_hora = data.get("fecha_hora")
         comentarios = data.get("comentarios")
         evaluaciones = data.get("evaluaciones", [])  # ✅ puede venir vacío
-
-        print( evaluaciones)
 
         if not proyecto_id :
             return {
@@ -2763,18 +3070,6 @@ def agendar_entrevista(
                     "next_page": "actual"
                 }
 
-        # Validación de evaluaciones
-        evaluaciones_previas = []
-        for ent in entrevistas_previas:
-            if ent.evaluaciones:
-                evaluaciones_previas.extend(json.loads(ent.evaluaciones))
-
-        # Convertir a índices
-        indices_previos = [EVALUACIONES_VALIDAS.index(e) for e in evaluaciones_previas if e in EVALUACIONES_VALIDAS]
-        max_evaluacion_completada = max(indices_previos) if indices_previos else -1
-
-        indices_actuales = [EVALUACIONES_VALIDAS.index(e) for e in evaluaciones if e in EVALUACIONES_VALIDAS]
-
         # Validar que no se salten evaluaciones
         if not all(e in EVALUACIONES_VALIDAS for e in evaluaciones):
             return {
@@ -2784,25 +3079,6 @@ def agendar_entrevista(
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
             }
-
-        # if not indices_actuales or min(indices_actuales) > max_evaluacion_completada + 1:
-        #     return {
-        #         "success": False,
-        #         "tipo_mensaje": "naranja",
-        #         "mensaje": "Las evaluaciones deben realizarse en orden. No se pueden saltear "
-        #                    "evaluaciones. Deben completarse en secuencia.",
-        #         "tiempo_mensaje": 7,
-        #         "next_page": "actual"
-        #     }
-
-        # if sorted(indices_actuales) != list(range(min(indices_actuales), max(indices_actuales)+1)):
-        #     return {
-        #         "success": False,
-        #         "tipo_mensaje": "naranja",
-        #         "mensaje": "Las evaluaciones seleccionadas deben ser consecutivas y estar en orden.",
-        #         "tiempo_mensaje": 7,
-        #         "next_page": "actual"
-        #     }
 
         # Registrar entrevista
         nueva_agenda = AgendaEntrevistas(
@@ -2820,12 +3096,49 @@ def agendar_entrevista(
             evento_fecha=datetime.now()
         ))
 
-        # Cambiar el estado del proyecto a "entrevistando" si aún no lo está
+        # --- cambio de estado y, si corresponde, envío de mails de activación ---
+        enviar_mails_activacion = False
         if proyecto.estado_general == "calendarizando":
             proyecto.estado_general = "entrevistando"
-            db.add(proyecto)  # No es obligatorio porque ya está en la sesión, pero por claridad está bien
+            # si es CONVOCATORIA, marcaremos para enviar mails tras commit
+            if (proyecto.ingreso_por or "").lower() == "convocatoria":
+                enviar_mails_activacion = True
 
         db.commit()
+
+
+        # si hay que enviar mails (solo si hubo transición y es convocatoria)
+        if enviar_mails_activacion:
+            # monoparental si login_2 es None o vacío
+            logins_destino = [proyecto.login_1] if not (proyecto.login_2 and str(proyecto.login_2).strip()) else [proyecto.login_1, proyecto.login_2]
+            for lg in logins_destino:
+                try:
+                    ok, detalle, omitido = _enviar_mail_activacion(lg)
+
+                    # Evento por cada intento (OK / omitido / fallo)
+                    if omitido == "omitido":
+                        evento_txt = (f"Invitación de activación NO enviada (usuario ya tenía contraseña) "
+                                      f"por cambio a 'entrevistando' (convocatoria) en proyecto #{proyecto_id}.")
+                    else:
+                        evento_txt = (f"Invitación de activación enviada por cambio a 'entrevistando' (convocatoria) "
+                                      f"en proyecto #{proyecto_id}. Resultado: {'OK' if ok else 'FALLÓ'}")
+
+
+                    db.add(RuaEvento(login=lg, evento_detalle=evento_txt, evento_fecha=datetime.now()))
+
+                    db.commit()
+                except Exception as _e:
+                    db.rollback()
+                    # registramos el fallo como evento, pero no rompemos el flujo principal
+                    try:
+                        db.add(RuaEvento(
+                            login=lg,
+                            evento_detalle=f"Fallo al enviar/registrar invitación de activación en proyecto #{proyecto_id}: {str(_e)}",
+                            evento_fecha=datetime.now()
+                        ))
+                        db.commit()
+                    except Exception:
+                        db.rollback()        
 
 
         return {

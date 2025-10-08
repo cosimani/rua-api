@@ -88,9 +88,9 @@ users_router = APIRouter()
 
 
 
-@users_router.get("/", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), 
-                                Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
+
+@users_router.get("/", response_model=dict, dependencies=[Depends( verify_api_key ), 
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
 def get_users(
     request: Request,
     db: Session = Depends(get_db),
@@ -397,6 +397,38 @@ def get_users(
         valid_proyecto_tipos = {"Monoparental", "Matrimonio", "Unión convivencial"}
         valid_doc_proyecto_states = {"inicial_cargando", "pedido_valoracion", "actualizando", "aprobado", "en_valoracion", "baja_definitiva"}
 
+        MAPA_ESTADOS_PROYECTO = {
+            "sin_curso": "Curso pendiente",
+            "ddjj_pendiente": "DDJJ pendiente",
+            "inicial_cargando": "Doc. inicial",
+            "pedido_revision": "Doc. en revisión",
+            "actualizando": "Actualizando doc.",
+            "aprobado": "Doc. aprobada",
+            "rechazado": "Doc. rechazada",
+            "inactivo": "Inactivo",
+
+            "invitacion_pendiente": "Invit. pendiente",
+            "confeccionando": "Confeccionando",
+            "en_revision": "Proy. en revisión",
+            "calendarizando": "Agendando entrev.",
+            "entrevistando": "Entrev. en curso",
+            "para_valorar": "En valoración.",
+            "viable": "Viable",
+            "viable_no_disponible": "Viable no disp.",
+            "en_suspenso": "En suspenso",
+            "no_viable": "No viable",
+            "en_carpeta": "En carpeta",
+            "vinculacion": "Vinculación",
+            "guarda_provisoria": "Guarda provisoria",
+            "guarda_confirmada": "Guarda confirmada",
+            "adopcion_definitiva": "Adopción def.",
+            "baja_anulacion": "Baja anulación",
+            "baja_caducidad": "Baja caducidad",
+            "baja_por_convocatoria": "Baja conv.",
+            "baja_rechazo_invitacion": "Baja por rechazo"
+            
+        }
+
 
         users_list = []
 
@@ -454,7 +486,7 @@ def get_users(
                 )
 
                 proyectos_rows = (
-                    db.query(Proyecto.proyecto_id)
+                    db.query(Proyecto.proyecto_id, Proyecto.ingreso_por)
                       .outerjoin(hist_max_sq, hist_max_sq.c.pid == Proyecto.proyecto_id)
                       .filter(or_(Proyecto.login_1 == user.login, Proyecto.login_2 == user.login))
                       .order_by(
@@ -470,11 +502,19 @@ def get_users(
 
             else:
                 # No adoptantes: lista vacía
+                proyectos_rows = []
                 proyectos_ids = []
 
             # Garantía de lista vacía si no hay proyectos
             if not proyectos_ids:
                 proyectos_ids = []
+
+            # === Proyecto PRIMARIO: debe ser el primer proyecto con ingreso_por == "rua". Si no hay "rua", queda None. ===
+            # proyecto_id_primario = next((r.proyecto_id for r in proyectos_rows if (r.ingreso_por or "") == "rua"), None)
+
+            # Proyecto PRIMARIO: el primero de la lista ordenada (rua > oficio > convocatoria). 
+            # Si no hay RUA pero hay convocatoria, será el primero de convocatoria.
+            proyecto_id_primario = proyectos_ids[0] if proyectos_ids else None
 
 
             # Determinar fecha de nacimiento y edad según prioridad
@@ -489,38 +529,7 @@ def get_users(
             else:
                 edad = ""
 
-            MAPA_ESTADOS_PROYECTO = {
-                "sin_curso": "Curso pendiente",
-                "ddjj_pendiente": "DDJJ pendiente",
-                "inicial_cargando": "Doc. inicial",
-                "pedido_revision": "Doc. en revisión",
-                "actualizando": "Actualizando doc.",
-                "aprobado": "Doc. aprobada",
-                "rechazado": "Doc. rechazada",
-                "inactivo": "Inactivo",
-
-                "invitacion_pendiente": "Invit. pendiente",
-                "confeccionando": "Confeccionando",
-                "en_revision": "Proy. en revisión",
-                "calendarizando": "Agendando entrev.",
-                "entrevistando": "Entrev. en curso",
-                "para_valorar": "En valoración.",
-                "viable": "Viable",
-                "viable_no_disponible": "Viable no disp.",
-                "en_suspenso": "En suspenso",
-                "no_viable": "No viable",
-                "en_carpeta": "En carpeta",
-                "vinculacion": "Vinculación",
-                "guarda_provisoria": "Guarda provisoria",
-                "guarda_confirmada": "Guarda confirmada",
-                "adopcion_definitiva": "Adopción def.",
-                "baja_anulacion": "Baja anulación",
-                "baja_caducidad": "Baja caducidad",
-                "baja_por_convocatoria": "Baja conv.",
-                "baja_rechazo_invitacion": "Baja por rechazo"
-                
-            }
-
+            
 
             # Determinar el estado en bruto (prioriza INACTIVO)
             if user.active == "N":
@@ -536,10 +545,6 @@ def get_users(
                 )
 
 
-            # Primer proyecto según el orden calculado
-            # Proyecto primario (el primero del orden calculado)
-            proyecto_id_primario = proyectos_ids[0] if proyectos_ids else None
-
             # Defaults por si no hay proyecto
             prim_tipo = ""
             prim_nro_orden = ""
@@ -551,6 +556,7 @@ def get_users(
             prim_ultimo_cambio = ""
             prim_estado_general = ""
             prim_subregistro_string = ""
+
 
             if proyecto_id_primario is not None:
                 # Traer el proyecto primario
@@ -641,23 +647,6 @@ def get_users(
                 "proyecto_estado_general": prim_estado_general,
                 "proyectos_ids": proyectos_ids,
 
-                # "proyecto_id": proyecto_id_primario if proyecto_id_primario is not None else "",
-                # "proyecto_tipo": user.proyecto_tipo if user.proyecto_tipo in valid_proyecto_tipos else "",
-                # "nro_orden_rua": user.nro_orden_rua if user.nro_orden_rua else "",
-                # "ingreso_por": user.ingreso_por if user.ingreso_por else "",
-                # "proyecto_operativo": user.proyecto_operativo == "Y",
-                # "login_1_info": get_user_name_by_login(db, user.login_1),
-                # "login_2_info": get_user_name_by_login(db, user.login_2),
-                # "fecha_asignacion_nro_orden": parse_date(user.fecha_asignacion_nro_orden),
-                # "ultimo_cambio_de_estado": parse_date(user.ultimo_cambio_de_estado),
-
-                # "subregistro_string": build_subregistro_string(user),  # Aquí se construye el string concatenado
-
-                # "proyecto_estado_general": MAPA_ESTADOS_PROYECTO.get(estado_raw, estado_raw),
-
-                # "proyectos_ids": proyectos_ids  # Aquí agregamos la lista de proyecto_id
-
-
             }
             users_list.append(user_dict)
 
@@ -701,19 +690,6 @@ def get_user_by_login(
     ROLES_FULL_ACCESS = {"administrador", "supervision", "supervisora", "profesional", "coordinadora"}
     VALID_STATES_USER = {"inicial_cargando", "pedido_revision", "actualizando", "aprobado", "rechazado"}
     VALID_TIPOS_PROY = {"Monoparental", "Matrimonio", "Unión convivencial"}
-    VALID_STATES_DOC_PROY = {"inicial_cargando", "pedido_valoracion", "actualizando",
-                             "aprobado", "en_valoracion", "baja_definitiva"}
-
-    # Listas solicitadas (1) y (2): desgloses por estado
-    ESTADOS_RUA_ACTIVOS = {
-        "invitacion_pendiente", "confeccionando", "en_revision", "actualizando", "aprobado",
-        "calendarizando", "entrevistando", "para_valorar", "viable", "viable_no_disponible",
-        "en_suspenso", "no_viable", "en_carpeta", "vinculacion", "guarda_provisoria", "guarda_confirmada"
-    }
-    ESTADOS_RUA_CERRADOS = {
-        "adopcion_definitiva", "baja_anulacion", "baja_caducidad",
-        "baja_por_convocatoria", "baja_rechazo_invitacion", "baja_interrupcion"
-    }
 
     SUBREG_CAMPOS = [
         "subreg_1", "subreg_2", "subreg_3", "subreg_4",
@@ -775,6 +751,9 @@ def get_user_by_login(
         else:
             raise HTTPException(status_code=403, detail="No tiene permisos para acceder a este recurso.")
 
+    # ya tenés `roles` y `usuario_actual_login`
+    es_autoconsulta_adoptante = ("adoptante" in roles) and (login == usuario_actual_login)
+
     # ============================================================
     # 4) CONSULTA PRINCIPAL (usuario + joins)
     # ============================================================
@@ -794,6 +773,7 @@ def get_user_by_login(
                 User.provincia.label("provincia"),
                 User.fecha_alta.label("fecha_alta"),
                 User.active.label("active"),
+                User.clave.label("clave"), 
                 User.doc_adoptante_curso_aprobado.label("doc_adoptante_curso_aprobado"),
                 User.doc_adoptante_estado.label("doc_adoptante_estado"),
                 User.doc_adoptante_ddjj_firmada.label("doc_adoptante_ddjj_firmada"),
@@ -869,13 +849,6 @@ def get_user_by_login(
         # Instancia DDJJ (para checks)
         ddjj = db.query(DDJJ).filter(DDJJ.login == user.login).first()
 
-        # IDs de proyectos del usuario
-        proyectos_ids = [
-            pid for (pid,) in db.query(Proyecto.proyecto_id)
-            .filter(or_(Proyecto.login_1 == user.login, Proyecto.login_2 == user.login))
-            .all()
-        ] or []
-
         # Métricas/pendientes para supervisión
         pendientes = {}
         if user.group in ['supervisora', 'supervision']:
@@ -886,7 +859,124 @@ def get_user_by_login(
                 "proyectos_en_valoracion": db.query(Proyecto).filter(Proyecto.estado_general == "en_valoracion").count(),
             }
 
-        # Estado botón
+        # Checks de secciones DDJJ
+        ddjj_checks = {
+            "ddjj_datos_personales": tiene_datos(ddjj, [
+                "ddjj_nombre", "ddjj_apellido", "ddjj_estado_civil", "ddjj_fecha_nac",
+                "ddjj_nacionalidad", "ddjj_sexo", "ddjj_correo_electronico", "ddjj_telefono"
+            ]),
+            "ddjj_grupo_familiar_hijos": tiene_datos(ddjj, [f"ddjj_hijo{i}_nombre_completo" for i in range(1, 6)]),
+            "ddjj_grupo_familiar_otros": tiene_datos(ddjj, [f"ddjj_otro{i}_nombre_completo" for i in range(1, 6)]),
+            "ddjj_red_de_apoyo": tiene_datos(ddjj, [f"ddjj_apoyo{i}_nombre_completo" for i in range(1, 3)]),
+            "ddjj_informacion_laboral": tiene_datos(ddjj, ["ddjj_ocupacion", "ddjj_horas_semanales", "ddjj_ingreso_mensual"]),
+            "ddjj_procesos_judiciales": tiene_datos(ddjj, ["ddjj_causa_penal", "ddjj_juicios_filiacion", "ddjj_denunciado_violencia_familiar"]),
+            "ddjj_disponibilidad_adoptiva": disponibilidad_adoptiva(ddjj),
+            "ddjj_tramo_final": tiene_datos(ddjj, ["ddjj_guardo_1", "ddjj_guardo_2"]),
+        }
+
+
+        # ==============================
+        # 5) PROYECTOS (mismo criterio que GET /users)
+        # ==============================
+        # Orden por origen
+        orden_origen = case(
+            (Proyecto.ingreso_por == "rua", 0),
+            (Proyecto.ingreso_por == "oficio", 1),
+            (Proyecto.ingreso_por == "convocatoria", 2),
+            else_=3,
+        )
+
+        # Orden por estado dentro del origen
+        estados_ordenados = [
+            'aprobado', 'calendarizando', 'entrevistando', 'para_valorar', 'viable',
+            'viable_no_disponible', 'en_suspenso', 'no_viable', 'en_carpeta',
+            'vinculacion', 'guarda_provisoria', 'guarda_confirmada', 'adopcion_definitiva',
+        ]
+        orden_estado = case(
+            *[(Proyecto.estado_general == e, i) for i, e in enumerate(estados_ordenados)],
+            else_=len(estados_ordenados)
+        )
+
+        # Último historial por proyecto (para desempatar SOLO convocatoria)
+        hist_max_sq = (
+            db.query(
+                ProyectoHistorialEstado.proyecto_id.label("pid"),
+                func.max(ProyectoHistorialEstado.fecha_hora).label("last_hist"),
+            )
+            .group_by(ProyectoHistorialEstado.proyecto_id)
+            .subquery()
+        )
+        last_hist_cond = case(
+            (Proyecto.ingreso_por == "convocatoria", hist_max_sq.c.last_hist),
+            else_=None,
+        )
+
+
+
+        proyectos_rows = (
+            db.query(Proyecto.proyecto_id, Proyecto.ingreso_por)
+              .outerjoin(hist_max_sq, hist_max_sq.c.pid == Proyecto.proyecto_id)
+              .filter(or_(Proyecto.login_1 == user.login, Proyecto.login_2 == user.login))
+              .order_by(
+                  orden_origen.asc(),
+                  orden_estado.asc(),
+                  last_hist_cond.desc(),
+                  Proyecto.proyecto_id.asc()
+              )
+              .all()
+        )
+
+        proyectos_ids = [r.proyecto_id for r in proyectos_rows] or []
+
+        if es_autoconsulta_adoptante:
+            # SOLO RUA. Si no hay RUA, None (no se cae a convocatoria/oficio).
+            proyecto_id_primario = next(
+                (r.proyecto_id for r in proyectos_rows if (r.ingreso_por or "") == "rua"),
+                None
+            )
+        else:
+            # tu comportamiento general actual (primer proyecto de la lista ordenada)
+            proyecto_id_primario = proyectos_ids[0] if proyectos_ids else None
+
+
+
+        # Defaults por si NO hay proyecto primario
+        prim_tipo = ""
+        prim_nro_orden = ""
+        prim_ingreso_por = ""
+        prim_operativo = False
+        prim_login_1 = None
+        prim_login_2 = None
+        prim_fecha_asign_nro_orden = ""
+        prim_ultimo_cambio = ""
+        prim_estado_general = ""
+        prim_subregistro_string = ""
+
+        if proyecto_id_primario is not None:
+            proyecto_prim = (
+                db.query(Proyecto)
+                  .filter(Proyecto.proyecto_id == proyecto_id_primario)
+                  .first()
+            )
+            if proyecto_prim:
+                prim_tipo = proyecto_prim.proyecto_tipo if proyecto_prim.proyecto_tipo in VALID_TIPOS_PROY else ""
+                prim_nro_orden = proyecto_prim.nro_orden_rua or ""
+                prim_ingreso_por = proyecto_prim.ingreso_por or ""
+                prim_operativo = (proyecto_prim.operativo == "Y")
+                prim_login_1 = proyecto_prim.login_1
+                prim_login_2 = proyecto_prim.login_2
+                prim_fecha_asign_nro_orden = parse_date(proyecto_prim.fecha_asignacion_nro_orden)
+                prim_ultimo_cambio = parse_date(proyecto_prim.ultimo_cambio_de_estado)
+                prim_estado_general = proyecto_prim.estado_general or ""
+                try:
+                    prim_subregistro_string = build_subregistro_string(proyecto_prim)
+                except Exception:
+                    prim_subregistro_string = ""
+
+
+        # ==============================
+        # 6) Estado botón (usar proyecto_id_primario/prim_estado_general)
+        # ==============================
         docs_de_pretenso_presentados = all([
             user.doc_adoptante_salud, user.doc_adoptante_domicilio,
             user.doc_adoptante_dni_frente, user.doc_adoptante_dni_dorso,
@@ -898,7 +988,10 @@ def get_user_by_login(
             not user.doc_adoptante_deudores_alimentarios, not user.doc_adoptante_antecedentes,
         ])
 
-        if user.active == "N":
+        # 👇 PRIORIDAD MÁXIMA: si no tiene clave → “SIN CLAVE”
+        if not ( (user.clave or "").strip() ):
+            texto_boton_estado_pretenso = "SIN CLAVE"
+        elif user.active == "N":
             texto_boton_estado_pretenso = "INACTIVO"
         elif user.doc_adoptante_curso_aprobado == "N":
             texto_boton_estado_pretenso = "CURSO PENDIENTE"
@@ -935,54 +1028,14 @@ def get_user_by_login(
                 "baja_rechazo_invitacion": "BAJA - RECHAZO INVITACIÓN",
                 "inactivo": "INACTIVO",
             }
-            if not user.proyecto_id:
+            if not proyecto_id_primario:
                 texto_boton_estado_pretenso = estado_a_texto.get(user.doc_adoptante_estado, user.doc_adoptante_estado or "DOC. PERSONAL")
             else:
-                texto_boton_estado_pretenso = estado_a_texto.get(user.estado_general, user.estado_general or "DOC. PROYECTO")
+                texto_boton_estado_pretenso = estado_a_texto.get(prim_estado_general, prim_estado_general or "DOC. PROYECTO")
 
-        # Checks de secciones DDJJ
-        ddjj_checks = {
-            "ddjj_datos_personales": tiene_datos(ddjj, [
-                "ddjj_nombre", "ddjj_apellido", "ddjj_estado_civil", "ddjj_fecha_nac",
-                "ddjj_nacionalidad", "ddjj_sexo", "ddjj_correo_electronico", "ddjj_telefono"
-            ]),
-            "ddjj_grupo_familiar_hijos": tiene_datos(ddjj, [f"ddjj_hijo{i}_nombre_completo" for i in range(1, 6)]),
-            "ddjj_grupo_familiar_otros": tiene_datos(ddjj, [f"ddjj_otro{i}_nombre_completo" for i in range(1, 6)]),
-            "ddjj_red_de_apoyo": tiene_datos(ddjj, [f"ddjj_apoyo{i}_nombre_completo" for i in range(1, 3)]),
-            "ddjj_informacion_laboral": tiene_datos(ddjj, ["ddjj_ocupacion", "ddjj_horas_semanales", "ddjj_ingreso_mensual"]),
-            "ddjj_procesos_judiciales": tiene_datos(ddjj, ["ddjj_causa_penal", "ddjj_juicios_filiacion", "ddjj_denunciado_violencia_familiar"]),
-            "ddjj_disponibilidad_adoptiva": disponibilidad_adoptiva(ddjj),
-            "ddjj_tramo_final": tiene_datos(ddjj, ["ddjj_guardo_1", "ddjj_guardo_2"]),
-        }
 
         # ============================================================
-        # 5) LISTAS DE PROYECTOS (NUEVO) — UNA SOLA LECTURA Y PARTICIÓN
-        # ============================================================
-        # Orden: más recientes a más antiguos usando COALESCE(ultimo_cambio, fecha_asignación)
-        proyectos_ordenados = (
-            db.query(Proyecto)
-            .filter(or_(Proyecto.login_1 == login, Proyecto.login_2 == login))
-            .order_by(desc(func.coalesce(Proyecto.ultimo_cambio_de_estado, Proyecto.fecha_asignacion_nro_orden)))
-            .all()
-        )
-
-        proyectos_rua_activos = [
-            serialize_proyecto(p) for p in proyectos_ordenados
-            if (p.ingreso_por == "rua" and p.estado_general in ESTADOS_RUA_ACTIVOS)
-        ]
-        proyectos_rua_cerrados = [
-            serialize_proyecto(p) for p in proyectos_ordenados
-            if (p.ingreso_por == "rua" and p.estado_general in ESTADOS_RUA_CERRADOS)
-        ]
-        proyectos_convocatoria = [
-            serialize_proyecto(p) for p in proyectos_ordenados if p.ingreso_por == "convocatoria"
-        ]
-        proyectos_oficio = [
-            serialize_proyecto(p) for p in proyectos_ordenados if p.ingreso_por == "oficio"
-        ]
-
-        # ============================================================
-        # 6) RESPUESTA (mantiene todas las claves previas + agrega 4 listas)
+        # 7) RESPUESTA (mantiene todas las claves previas + agrega 4 listas)
         # ============================================================
         user_dict = {
             "login": user.login,
@@ -1015,18 +1068,27 @@ def get_user_by_login(
             "doc_adoptante_antecedentes": user.doc_adoptante_antecedentes,
             "doc_adoptante_migraciones": user.doc_adoptante_migraciones,
 
-            "proyecto_id": user.proyecto_id,
-            "proyecto_tipo": user.proyecto_tipo if user.proyecto_tipo in VALID_TIPOS_PROY else "desconocido",
-            "nro_orden_rua": user.nro_orden_rua or "",
-            "ingreso_por": user.ingreso_por or "",
-            "proyecto_operativo": user.proyecto_operativo == "Y",
-            "subregistro_string": build_subregistro_string(user),
-            "login_1_info": get_user_name_by_login(db, user.login_1),
-            "login_2_info": get_user_name_by_login(db, user.login_2),
-            "fecha_asignacion_nro_orden": parse_date(user.fecha_asignacion_nro_orden),
-            "ultimo_cambio_de_estado": parse_date(user.ultimo_cambio_de_estado),
 
+            # Campos de proyecto: siempre referencian al PRIMARIO (RUA). Si no hay RUA, van vacíos.
+            "proyecto_id": proyecto_id_primario if proyecto_id_primario is not None else "",
+            "proyecto_tipo": prim_tipo,
+            "nro_orden_rua": prim_nro_orden,
+            "ingreso_por": prim_ingreso_por,
+            "proyecto_operativo": prim_operativo,
+            "login_1_info": get_user_name_by_login(db, prim_login_1) if prim_login_1 else "",
+            "login_2_info": get_user_name_by_login(db, prim_login_2) if prim_login_2 else "",
+            "fecha_asignacion_nro_orden": prim_fecha_asign_nro_orden,
+            "ultimo_cambio_de_estado": prim_ultimo_cambio,
+            "subregistro_string": prim_subregistro_string,
+            "proyecto_estado_general": prim_estado_general,
+
+            # Lista completa ordenada
             "proyectos_ids": proyectos_ids,
+
+            # Flags/botones que dependían de user.proyecto_id
+            "mostrar_boton_proyecto": bool(proyecto_id_primario),
+            "boton_ver_proyecto": bool(proyecto_id_primario),
+
             "pendientes": pendientes,
 
             "mostrar_datos_de_ddjj": bool(user.login_ddjj),
@@ -1040,17 +1102,12 @@ def get_user_by_login(
             "ddjj_tramo_final": ddjj_checks["ddjj_tramo_final"],
             "ddjj_firmada": user.doc_adoptante_ddjj_firmada == "Y",
 
-            "mostrar_boton_proyecto": bool(user.proyecto_id),
+            # "mostrar_boton_proyecto": bool(user.proyecto_id),
             "boton_aprobar_documentacion": docs_de_pretenso_presentados and user.doc_adoptante_estado == "pedido_revision",
             "boton_solicitar_actualizacion": docs_de_pretenso_presentados and (user.doc_adoptante_estado in {"pedido_revision", "aprobado"}),
-            "boton_ver_proyecto": bool(user.proyecto_id),
+            # "boton_ver_proyecto": bool(user.proyecto_id),
             "texto_boton_estado_pretenso": texto_boton_estado_pretenso,
 
-            # ---------- NUEVAS LISTAS (sin tocar lo anterior) ----------
-            "proyectos_rua_activos": proyectos_rua_activos,           # (1) RUA activos, recientes→antiguos
-            "proyectos_rua_cerrados": proyectos_rua_cerrados,         # (2) RUA cerrados, recientes→antiguos
-            "proyectos_convocatoria": proyectos_convocatoria,         # (3) por convocatoria, recientes→antiguos
-            "proyectos_oficio": proyectos_oficio,                     # (4) por oficio, recientes→antiguos
         }
 
         return user_dict
@@ -2923,6 +2980,294 @@ def cambiar_clave_usuario(
 
 
 
+# @users_router.post("/{login}/reenviar-activacion", response_model=dict,
+#     dependencies=[ Depends(verify_api_key),
+#                    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"])) ])
+# def reenviar_mail_activacion(login: str, db: Session = Depends(get_db)):
+#     """
+#     Envía un mail al usuario para que elija una nueva contraseña (flujo recuperar clave).
+#     Si el usuario NO tiene clave aún, primero se asegura:
+#       - creación del usuario en Moodle (si no existe)
+#       - enrolamiento al curso correspondiente
+#     """
+#     user: User = db.query(User).filter(User.login == login).first()
+#     if not user:
+#         return {
+#             "success": False,
+#             "tipo_mensaje": "naranja",
+#             "mensaje": "<p>No se encontró un usuario con ese login.</p>",
+#             "tiempo_mensaje": 6,
+#             "next_page": "actual",
+#         }
+
+#     if not user.mail:
+#         return {
+#             "success": False,
+#             "tipo_mensaje": "naranja",
+#             "mensaje": (
+#                 "<p>El usuario no tiene un correo electrónico asociado.</p>"
+#                 "<p>No es posible enviar el enlace para elegir contraseña.</p>"
+#             ),
+#             "tiempo_mensaje": 7,
+#             "next_page": "actual",
+#         }
+
+#     # ---------------------------
+#     # Helpers para Moodle
+#     # ---------------------------
+
+#     def _generar_password_temporal_moodle() -> str:
+#         """
+#         Requisitos:
+#           - >= 6 dígitos
+#           - dígitos no consecutivos (sin secuencias asc/desc de largo >=3)
+#           - >= 1 mayúscula
+#           - >= 1 minúscula
+#           - largo total >= 10
+#         """
+#         import random, string
+
+#         def _no_consecutivos(n=6):
+#             res = []
+#             while len(res) < n:
+#                 d = random.choice("0123456789")
+#                 if not res:
+#                     res.append(d)
+#                 else:
+#                     # evitar vecinos ascend/descend inmediatos (…-3-4… o …-4-3…)
+#                     if abs(int(d) - int(res[-1])) != 1:
+#                         res.append(d)
+#             return res
+
+#         def _check_consecutive_numbers(s: str) -> bool:
+#             # True si hay secuencias numéricas consecutivas asc/desc (largo >=3)
+#             nums = [c for c in s if c.isdigit()]
+#             if len(nums) < 3:
+#                 return False
+#             # revisar ventana de 3 en 3
+#             for i in range(len(nums) - 2):
+#                 a, b, c = int(nums[i]), int(nums[i+1]), int(nums[i+2])
+#                 if (b - a == 1 and c - b == 1) or (a - b == 1 and b - c == 1):
+#                     return True
+#             return False
+
+#         import random, string
+#         while True:
+#             digs = _no_consecutivos(6)
+#             must = [random.choice(string.ascii_uppercase), random.choice(string.ascii_lowercase)]
+#             extra = [random.choice(string.ascii_letters) for _ in range(4)]  # total ~10
+#             chars = digs + must + extra
+#             random.shuffle(chars)
+#             pwd = "".join(chars)
+#             if any(c.islower() for c in pwd) and any(c.isupper() for c in pwd) \
+#                and sum(c.isdigit() for c in pwd) >= 6 and not _check_consecutive_numbers(pwd):
+#                 return pwd
+
+#     def _asegurar_moodle_y_enrolamiento(u: User):
+#         """
+#         - Si existe (dni y mail) -> asegurar enrolamiento.
+#         - Si hay conflicto (dni con otro mail, o mail con otro dni) -> loguea evento y omite.
+#         - Si no existe -> crea con clave temporal que cumple política y enrola.
+#         """
+#         try:
+#             dni = str(u.login)
+#             mail = (u.mail or "").lower()
+#             nombre = u.nombre or ""
+#             apellido = u.apellido or ""
+
+#             if not dni or not mail:
+#                 db.add(RuaEvento(
+#                     login=u.login,
+#                     evento_detalle="Moodle: omitido por datos insuficientes (dni/mail).",
+#                     evento_fecha=datetime.now()
+#                 ))
+#                 db.commit()
+#                 return
+
+#             dni_en_moodle = existe_dni_en_moodle(dni, db)
+#             mail_en_moodle = existe_mail_en_moodle(mail, db)
+
+#             if dni_en_moodle and mail_en_moodle:
+#                 # sólo enrolar
+#                 id_curso = get_idcurso(db)
+#                 id_usuario = get_idusuario_by_mail(mail, db)
+#                 enrolar_usuario(id_curso, id_usuario, db)
+#                 db.add(RuaEvento(
+#                     login=u.login,
+#                     evento_detalle="Moodle: usuario ya existía; enrolamiento asegurado.",
+#                     evento_fecha=datetime.now()
+#                 ))
+#                 db.commit()
+#                 return
+
+#             if dni_en_moodle and not mail_en_moodle:
+#                 db.add(RuaEvento(
+#                     login=u.login,
+#                     evento_detalle="Moodle: conflicto (existe DNI con otro mail). Enrolamiento omitido.",
+#                     evento_fecha=datetime.now()
+#                 ))
+#                 db.commit()
+#                 return
+
+#             if not dni_en_moodle and mail_en_moodle:
+#                 db.add(RuaEvento(
+#                     login=u.login,
+#                     evento_detalle="Moodle: conflicto (existe mail con otro DNI). Enrolamiento omitido.",
+#                     evento_fecha=datetime.now()
+#                 ))
+#                 db.commit()
+#                 return
+
+#             # no existe -> crearlo y enrolar
+#             clave_tmp = _generar_password_temporal_moodle()
+#             crear_usuario_en_moodle(dni, clave_tmp, nombre, apellido, mail, db)
+
+#             id_curso = get_idcurso(db)
+#             id_usuario = get_idusuario_by_mail(mail, db)
+#             enrolar_usuario(id_curso, id_usuario, db)
+
+#             db.add(RuaEvento(
+#                 login=u.login,
+#                 evento_detalle="Moodle: usuario creado y enrolado con clave temporal.",
+#                 evento_fecha=datetime.now()
+#             ))
+#             db.commit()
+
+#         except HTTPException as e:
+#             db.rollback()
+#             db.add(RuaEvento(
+#                 login=u.login,
+#                 evento_detalle=f"Moodle: error HTTP al crear/enrolar ({e.detail}).",
+#                 evento_fecha=datetime.now()
+#             ))
+#             db.commit()
+#         except Exception as e:
+#             db.rollback()
+#             db.add(RuaEvento(
+#                 login=u.login,
+#                 evento_detalle=f"Moodle: error inesperado al crear/enrolar ({str(e)}).",
+#                 evento_fecha=datetime.now()
+#             ))
+#             db.commit()
+
+#     try:
+#         # 1) Habilitar flujo de nueva clave (activar si estaba inactivo)
+#         recien_activado = False
+#         if user.active != "Y":
+#             user.active = "Y"
+#             recien_activado = True
+
+#         # 1.b) Si NO tiene clave, asegurar Moodle + enrolamiento (como en agendar_entrevista)
+#         if not (user.clave or "").strip():
+#             _asegurar_moodle_y_enrolamiento(user)
+
+#         # 2) Usar código existente o generarlo si falta
+#         rec_code = (user.recuperacion_code or "").strip()
+#         if not rec_code:
+#             rec_code = generar_codigo_para_link(16)
+#             user.recuperacion_code = rec_code
+
+#         db.commit()
+#         db.refresh(user)
+
+#         # 3) Link de recuperar clave
+#         protocolo = get_setting_value(db, "protocolo")
+#         host = get_setting_value(db, "donde_esta_alojado")
+#         puerto = get_setting_value(db, "puerto_tcp")
+#         endpoint = get_setting_value(db, "endpoint_recuperar_clave")
+
+#         if endpoint and not endpoint.startswith("/"):
+#             endpoint = "/" + endpoint
+
+#         puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
+#         host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
+#         link = f"{protocolo}://{host_con_puerto}{endpoint}?activacion={rec_code}"
+
+#         # 4) Email
+#         asunto = "Establecimiento de tu contraseña"
+#         cuerpo = f"""
+#         <html>
+#           <body style="margin:0;padding:0;background-color:#f8f9fa;">
+#             <table cellpadding="0" cellspacing="0" width="100%" style="background-color:#f8f9fa;padding:20px;">
+#               <tr>
+#                 <td align="center">
+#                   <table cellpadding="0" cellspacing="0" width="600" style="background:#ffffff;border-radius:10px;padding:30px;font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;color:#343a40;box-shadow:0 0 10px rgba(0,0,0,0.1);">
+#                     <tr>
+#                       <td style="font-size:24px;color:#007bff;">
+#                         <strong>¡Hola {user.nombre or ""}!</strong>
+#                       </td>
+#                     </tr>
+#                     <tr>
+#                       <td style="padding-top: 20px; font-size: 17px;">
+#                         <p>Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong> para que puedas colocar tu contraseña para ingresar a la plataforma.</p>
+#                       </td>
+#                     </tr>
+#                     <tr>
+#                       <td style="padding-top:18px;font-size:17px;line-height:1.5;">
+#                         <p>Hacé clic en el botón para definirla. Una vez guardada, ya vas a poder ingresar con tu DNI y la clave elegida.</p>
+#                       </td>
+#                     </tr>
+#                     <tr>
+#                       <td align="center" style="padding:26px 0;">
+#                         <a href="{link}" target="_blank"
+#                            style="display:inline-block;padding:12px 24px;font-size:16px;color:#ffffff;background:#0d6efd;text-decoration:none;border-radius:8px;font-weight:600;">
+#                           🔐 Crear mi contraseña
+#                         </a>
+#                       </td>
+#                     </tr>
+#                     <tr>
+#                       <td style="font-size:14px;color:#666;line-height:1.5;">
+#                         <p>El enlace es temporal. Si no solicitaste este correo, podés ignorarlo.</p>
+#                       </td>
+#                     </tr>
+#                     <tr>
+#                       <td style="padding-top:10px;font-size:13px;color:#888;">
+#                         Registro Único de Adopciones de Córdoba
+#                       </td>
+#                     </tr>
+#                   </table>
+#                 </td>
+#               </tr>
+#             </table>
+#           </body>
+#         </html>
+#         """
+
+#         enviar_mail(destinatario=user.mail, asunto=asunto, cuerpo=cuerpo)
+
+#         # 5) Evento (best effort)
+#         try:
+#             detalle = "Se envió enlace para elegir nueva contraseña."
+#             if recien_activado:
+#                 detalle += " El usuario estaba inactivo y fue activado para habilitar el cambio de clave."
+#             db.add(RuaEvento(
+#                 login=user.login,
+#                 evento_detalle=detalle,
+#                 evento_fecha=datetime.now()
+#             ))
+#             db.commit()
+#         except Exception:
+#             db.rollback()
+
+#         return {
+#             "success": True,
+#             "tipo_mensaje": "verde",
+#             "mensaje": "<p>Se envió un correo al pretenso para que defina su nueva contraseña.</p>",
+#             "tiempo_mensaje": 7,
+#             "next_page": "actual",
+#         }
+
+#     except Exception as e:
+#         db.rollback()
+#         return {
+#             "success": False,
+#             "tipo_mensaje": "rojo",
+#             "mensaje": f"<p>No fue posible enviar el correo.</p><p>Detalle: {str(e)}</p>",
+#             "tiempo_mensaje": 8,
+#             "next_page": "actual",
+#         }
+
+
 
 
 @users_router.post("/{login}/reenviar-activacion", response_model=dict,
@@ -2934,6 +3279,10 @@ def reenviar_mail_activacion(login: str, db: Session = Depends(get_db)):
     - Si ya existe `recuperacion_code` → se reutiliza (no se regenera).
     - **No** se toca `clave`.
     - Si el usuario está inactivo, se lo activa (`active="Y"`) para que el flujo de nueva clave funcione.
+
+    Si el usuario NO tiene clave aún, primero se asegura:
+    - creación del usuario en Moodle (si no existe)
+    - enrolamiento al curso correspondiente
     """
     user: User = db.query(User).filter(User.login == login).first()
     if not user:
@@ -2955,6 +3304,145 @@ def reenviar_mail_activacion(login: str, db: Session = Depends(get_db)):
             "next_page": "actual",
         }
 
+    # ---------------------------
+    # Helpers para Moodle
+    # ---------------------------
+
+    def _generar_password_temporal_moodle() -> str:
+        """
+        Requisitos:
+          - >= 6 dígitos
+          - dígitos no consecutivos (sin secuencias asc/desc de largo >=3)
+          - >= 1 mayúscula
+          - >= 1 minúscula
+          - largo total >= 10
+        """
+        import random, string
+
+        def _no_consecutivos(n=6):
+            res = []
+            while len(res) < n:
+                d = random.choice("0123456789")
+                if not res:
+                    res.append(d)
+                else:
+                    # evitar vecinos ascend/descend inmediatos (…-3-4… o …-4-3…)
+                    if abs(int(d) - int(res[-1])) != 1:
+                        res.append(d)
+            return res
+
+        def _check_consecutive_numbers(s: str) -> bool:
+            # True si hay secuencias numéricas consecutivas asc/desc (largo >=3)
+            nums = [c for c in s if c.isdigit()]
+            if len(nums) < 3:
+                return False
+            # revisar ventana de 3 en 3
+            for i in range(len(nums) - 2):
+                a, b, c = int(nums[i]), int(nums[i+1]), int(nums[i+2])
+                if (b - a == 1 and c - b == 1) or (a - b == 1 and b - c == 1):
+                    return True
+            return False
+
+        import random, string
+        while True:
+            digs = _no_consecutivos(6)
+            must = [random.choice(string.ascii_uppercase), random.choice(string.ascii_lowercase)]
+            extra = [random.choice(string.ascii_letters) for _ in range(4)]  # total ~10
+            chars = digs + must + extra
+            random.shuffle(chars)
+            pwd = "".join(chars)
+            if any(c.islower() for c in pwd) and any(c.isupper() for c in pwd) \
+               and sum(c.isdigit() for c in pwd) >= 6 and not _check_consecutive_numbers(pwd):
+                return pwd
+
+    def _asegurar_moodle_y_enrolamiento(u: User):
+        """
+        - Si existe (dni y mail) -> asegurar enrolamiento.
+        - Si hay conflicto (dni con otro mail, o mail con otro dni) -> loguea evento y omite.
+        - Si no existe -> crea con clave temporal que cumple política y enrola.
+        """
+        try:
+            dni = str(u.login)
+            mail = (u.mail or "").lower()
+            nombre = u.nombre or ""
+            apellido = u.apellido or ""
+
+            if not dni or not mail:
+                db.add(RuaEvento(
+                    login=u.login,
+                    evento_detalle="Moodle: omitido por datos insuficientes (dni/mail).",
+                    evento_fecha=datetime.now()
+                ))
+                db.commit()
+                return
+
+            dni_en_moodle = existe_dni_en_moodle(dni, db)
+            mail_en_moodle = existe_mail_en_moodle(mail, db)
+
+            if dni_en_moodle and mail_en_moodle:
+                # sólo enrolar
+                id_curso = get_idcurso(db)
+                id_usuario = get_idusuario_by_mail(mail, db)
+                enrolar_usuario(id_curso, id_usuario, db)
+                db.add(RuaEvento(
+                    login=u.login,
+                    evento_detalle="Moodle: usuario ya existía; enrolamiento asegurado.",
+                    evento_fecha=datetime.now()
+                ))
+                db.commit()
+                return
+
+            if dni_en_moodle and not mail_en_moodle:
+                db.add(RuaEvento(
+                    login=u.login,
+                    evento_detalle="Moodle: conflicto (existe DNI con otro mail). Enrolamiento omitido.",
+                    evento_fecha=datetime.now()
+                ))
+                db.commit()
+                return
+
+            if not dni_en_moodle and mail_en_moodle:
+                db.add(RuaEvento(
+                    login=u.login,
+                    evento_detalle="Moodle: conflicto (existe mail con otro DNI). Enrolamiento omitido.",
+                    evento_fecha=datetime.now()
+                ))
+                db.commit()
+                return
+
+            # no existe -> crearlo y enrolar
+            clave_tmp = _generar_password_temporal_moodle()
+            crear_usuario_en_moodle(dni, clave_tmp, nombre, apellido, mail, db)
+
+            id_curso = get_idcurso(db)
+            id_usuario = get_idusuario_by_mail(mail, db)
+            enrolar_usuario(id_curso, id_usuario, db)
+
+            db.add(RuaEvento(
+                login=u.login,
+                evento_detalle="Moodle: usuario creado y enrolado con clave temporal.",
+                evento_fecha=datetime.now()
+            ))
+            db.commit()
+
+        except HTTPException as e:
+            db.rollback()
+            db.add(RuaEvento(
+                login=u.login,
+                evento_detalle=f"Moodle: error HTTP al crear/enrolar ({e.detail}).",
+                evento_fecha=datetime.now()
+            ))
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            db.add(RuaEvento(
+                login=u.login,
+                evento_detalle=f"Moodle: error inesperado al crear/enrolar ({str(e)}).",
+                evento_fecha=datetime.now()
+            ))
+            db.commit()
+
+
     try:
         # 1) Asegurar que pueda usar el flujo de nueva clave:
         #    Si está inactivo, lo activamos (tu endpoint /nueva-clave requiere active == "Y").
@@ -2962,6 +3450,11 @@ def reenviar_mail_activacion(login: str, db: Session = Depends(get_db)):
         if user.active != "Y":
             user.active = "Y"
             recien_activado = True
+
+        # 1.b) Si NO tiene clave, asegurar Moodle + enrolamiento (como en agendar_entrevista)
+        if not (user.clave or "").strip():
+            _asegurar_moodle_y_enrolamiento(user)
+
 
         # 2) Usar código de recuperación existente o generarlo si falta (no invalidamos correos previos).
         rec_code = (user.recuperacion_code or "").strip()
@@ -3243,9 +3736,38 @@ def get_estado_usuario(
     group_name = group[0] if group else "Sin grupo asignado"
 
     ddjj = db.query(DDJJ).filter(DDJJ.login == login).first()
-    proyecto = db.query(Proyecto).filter(
-        or_(Proyecto.login_1 == login, Proyecto.login_2 == login)
-    ).first()
+
+
+    # proyecto = db.query(Proyecto).filter(
+    #     or_(Proyecto.login_1 == login, Proyecto.login_2 == login)
+    # ).first()
+
+    # --- Proyecto primario SOLO si es RUA ---
+    # Orden por estado (mismo criterio que usás en otros endpoints para estabilidad)
+    estados_ordenados = [
+        'aprobado', 'calendarizando', 'entrevistando', 'para_valorar', 'viable',
+        'viable_no_disponible', 'en_suspenso', 'no_viable', 'en_carpeta',
+        'vinculacion', 'guarda_provisoria', 'guarda_confirmada', 'adopcion_definitiva',
+    ]
+    orden_estado = case(
+        *[(Proyecto.estado_general == e, i) for i, e in enumerate(estados_ordenados)],
+        else_=len(estados_ordenados)
+    )
+
+    proyecto = (
+        db.query(Proyecto)
+          .filter(
+              or_(Proyecto.login_1 == login, Proyecto.login_2 == login),
+              Proyecto.ingreso_por == "rua"
+          )
+          .order_by(
+              orden_estado.asc(),          # 1) ranking de estado
+              Proyecto.proyecto_id.asc()   # 2) desempate estable
+          )
+          .first()
+    )
+    # Si no hay RUA, 'proyecto' queda en None → el código entra a las ramas de mensajes "a nivel usuario".
+
 
     mensaje_para_portada = ""
     tipo_mensaje = "info"
@@ -3270,7 +3792,6 @@ def get_estado_usuario(
                 <a href="https://campusvirtual2.justiciacordoba.gob.ar/login/index.php"
                 target="_blank" style="color: #007bff; text-decoration: underline;">
                 Campus Virtual</a> para comenzar la capacitación.</p>
-                <h6>¡Muchas gracias!</h6>
             """
         elif curso_aprobado == "Y" and not ddjj :
             mensaje_para_portada = """
@@ -3278,14 +3799,12 @@ def get_estado_usuario(
                 <h5>Usted tiene el curso aprobado y puede continuar con el proceso.</h5>
                 <p>Acceda <a href="/menu_adoptantes/alta_ddjj"
                     style="color: #007bff; text-decoration: underline;">aquí para completar su DDJJ</a>.</p>
-                <h6>¡Muchas gracias!</h6>
             """ 
         elif curso_aprobado == "Y" and ddjj and user.doc_adoptante_ddjj_firmada == "N":
             mensaje_para_portada = """
                 <h4>Actualización de DDJJ</h4>
                 <p>Acceda <a href="/menu_adoptantes/alta_ddjj"
                     style="color: #007bff; text-decoration: underline;">aquí para actualizar su DDJJ</a>.</p>
-                <h6>¡Muchas gracias!</h6>
             """ 
         elif ddjj and user.doc_adoptante_ddjj_firmada == "Y" and \
                 user.doc_adoptante_estado in ( 'inicial_cargando', 'actualizando' ) :
@@ -3293,7 +3812,6 @@ def get_estado_usuario(
                 <h4>DDJJ firmada</h4>
                 <h5>Documentación personal pendiente.</h5>
                 <p>Complete la documentación personal <a href='/menu_adoptantes/personales'>desde aquí</a>.</p>
-                <h6>¡Muchas gracias!</h6>
             """ 
 
         elif ddjj and user.doc_adoptante_ddjj_firmada == "Y" and \
@@ -3301,16 +3819,13 @@ def get_estado_usuario(
             mensaje_para_portada = """
                 <h4>Documentación en revisión</h4>
                 <h5>Aguarde la revisión de su documentación personal.</h5>
-                <h6>¡Muchas gracias!</h6>
             """ 
         elif ddjj and user.doc_adoptante_ddjj_firmada == "Y" and \
                 user.doc_adoptante_estado in ( 'aprobado' ) and not proyecto :
             mensaje_para_portada = """
                 <h4>Documentación aprobada</h4>
                 <h5>Puede presentar su proyecto adoptivo.</h5>
-                <h6>¡Muchas gracias!</h6>
             """ 
-
         elif proyecto:
             estado = proyecto.estado_general
             estados_mensajes = {
@@ -3476,6 +3991,63 @@ def get_estado_usuario(
                         """
 
                 en_fecha_de_ratificar = hoy.date() >= fecha_ratificacion.date()
+
+        # --- Párrafo adicional por postulaciones a CONVOCATORIAS ---
+        estados_conv_validos = [
+            'aprobado', 'calendarizando', 'entrevistando', 'para_valorar', 'viable',
+            'viable_no_disponible', 'en_suspenso', 'no_viable', 'en_carpeta',
+            'vinculacion', 'guarda_provisoria', 'guarda_confirmada', 'adopcion_definitiva',
+        ]
+
+        # Cantidad de proyectos por CONVOCATORIA en estados válidos
+        num_conv = (
+            db.query(func.count(Proyecto.proyecto_id))
+              .filter(
+                  or_(Proyecto.login_1 == login, Proyecto.login_2 == login),
+                  Proyecto.ingreso_por == "convocatoria",
+                  Proyecto.estado_general.in_(estados_conv_validos)
+              )
+              .scalar()
+        ) or 0
+
+        # ¿Tiene RUA u OFICIO?
+        tiene_rua = db.query(
+            db.query(Proyecto.proyecto_id)
+              .filter(
+                  or_(Proyecto.login_1 == login, Proyecto.login_2 == login),
+                  Proyecto.ingreso_por == "rua"
+              )
+              .exists()
+        ).scalar()
+
+        tiene_oficio = db.query(
+            db.query(Proyecto.proyecto_id)
+              .filter(
+                  or_(Proyecto.login_1 == login, Proyecto.login_2 == login),
+                  Proyecto.ingreso_por == "oficio"
+              )
+              .exists()
+        ).scalar()
+
+        if num_conv > 0:
+            # Solo convocatoria (sin rua ni oficio): redacción especial
+            if not tiene_rua and not tiene_oficio:
+                if num_conv == 1:
+                    parrafo_conv = "Además, tiene postulación a una convocatoria."
+                else:
+                    parrafo_conv = f"Además, tiene {num_conv} postulaciones a convocatorias."
+            else:
+                # Tiene RUA u/oficio además de convocatoria
+                if num_conv == 1:
+                    parrafo_conv = "Además, tiene postulación a una convocatoria."
+                else:
+                    parrafo_conv = f"Además, tiene postulaciones a {num_conv} convocatorias."
+
+            mensaje_para_portada += f"""
+                ----------------------------<br>
+
+                <h5>{parrafo_conv}</h5>
+            """
 
 
     return {
