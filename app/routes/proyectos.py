@@ -4190,7 +4190,14 @@ def valorar_proyecto_final(
             return True, "ok", None
 
         
-
+        if estado_final == "viable" and not subregistros_raw:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Debe seleccionar al menos un subregistro para valorar como viable.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
         
 
         if estado_final == "viable":
