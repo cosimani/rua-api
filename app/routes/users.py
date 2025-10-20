@@ -2672,6 +2672,7 @@ def actualizar_usuario_total(
     si no existe en Moodle, o si el nuevo DNI ya está en uso en Moodle.
     """
     try:
+
         required_keys = ["mail_old", "dni", "mail", "nombre", "apellido"]
         for key in required_keys:
             if key not in datos:
@@ -2682,6 +2683,19 @@ def actualizar_usuario_total(
                     "tiempo_mensaje": 5,
                     "next_page": "actual"
                 }
+
+        # 🚨 Verificar que el mail_old esté presente y sea válido
+        if not datos["mail_old"] or not validar_correo(datos["mail_old"]):
+            return {
+                "success": False,
+                "tipo_mensaje": "amarillo",
+                "mensaje": (
+                    "El usuario que intenta modificar no tiene un correo electrónico válido registrado "
+                    "en el sistema. Comuníquese con el soporte técnico para solucionarlo."
+                ),
+                "tiempo_mensaje": 7,
+                "next_page": "actual"
+            }
 
         dni_supervisora = current_user["user"]["login"]
 
@@ -2695,6 +2709,49 @@ def actualizar_usuario_total(
                 "tiempo_mensaje": 5,
                 "next_page": "actual"
             }
+
+        # 🚨 Verificar que el usuario tenga un mail válido en base local
+        if not user.mail or not validar_correo(user.mail):
+            return {
+                "success": False,
+                "tipo_mensaje": "amarillo",
+                "mensaje": (
+                    "El usuario que intenta modificar no tiene un correo electrónico válido registrado "
+                    "en la base local. Comuníquese con el soporte técnico para solucionarlo."
+                ),
+                "tiempo_mensaje": 7,
+                "next_page": "actual"
+            }
+
+
+
+
+
+
+        # required_keys = ["mail_old", "dni", "mail", "nombre", "apellido"]
+        # for key in required_keys:
+        #     if key not in datos:
+        #         return {
+        #             "success": False,
+        #             "tipo_mensaje": "amarillo",
+        #             "mensaje": f"Falta el campo requerido: {key}",
+        #             "tiempo_mensaje": 5,
+        #             "next_page": "actual"
+        #         }
+
+        # dni_supervisora = current_user["user"]["login"]
+
+        # user = db.query(User).filter(User.mail == datos["mail_old"]).first()
+
+        # if not user:
+        #     return {
+        #         "success": False,
+        #         "tipo_mensaje": "amarillo",
+        #         "mensaje": "Usuario no encontrado en la base local.",
+        #         "tiempo_mensaje": 5,
+        #         "next_page": "actual"
+        #     }
+
 
         if not existe_mail_en_moodle(datos["mail_old"], db):
             return {
