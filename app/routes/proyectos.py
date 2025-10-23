@@ -1861,7 +1861,9 @@ def crear_proyecto(
 
             aceptado = data.get("aceptado"),
             aceptado_code = data.get("aceptado_code"),
+
             ultimo_cambio_de_estado = data.get("ultimo_cambio_de_estado"),
+
             nro_orden_rua = data.get("nro_orden_rua"),
             fecha_asignacion_nro_orden = data.get("fecha_asignacion_nro_orden"),
             ratificacion_code = data.get("ratificacion_code"),
@@ -2474,7 +2476,9 @@ def solicitar_valoracion(
         # Cambiar estado
         estado_anterior = proyecto.estado_general
         proyecto.estado_general = "calendarizando"
-        proyecto.ultimo_cambio_de_estado = date.today()
+
+        # Ya no lo uso porque ya se actualiza en ProyectoHistorialEstado y dificulta la ratificación
+        # proyecto.ultimo_cambio_de_estado = date.today()
 
         historial = ProyectoHistorialEstado(
             proyecto_id = proyecto.proyecto_id,
@@ -6327,6 +6331,81 @@ def registrar_observacion_proyecto(
 
 
 
+# @proyectos_router.get("/observacion/{proyecto_id}/listado", response_model=dict,
+#                       dependencies=[Depends(verify_api_key),
+#                                     Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+# def listar_observaciones_de_proyecto(
+#     proyecto_id: int,
+#     db: Session = Depends(get_db),
+#     page: int = Query(1, ge=1),
+#     limit: int = Query(10, ge=1, le=100),
+#     current_user: dict = Depends(get_current_user)
+# ):
+#     """
+#     Devuelve un listado paginado de observaciones asociadas a un proyecto identificado por su `proyecto_id`.
+
+#     - Solo roles 'administrador', 'supervisora' o 'profesional' pueden acceder a esta información.
+#     """
+#     try:
+#         # Verificar existencia del proyecto
+#         existe_proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+#         if not existe_proyecto:
+#             raise HTTPException(status_code=404, detail="El proyecto indicado no existe.")
+
+#         # Contar total de observaciones
+#         total_observaciones = (
+#             db.query(func.count(ObservacionesProyectos.observacion_id))
+#             .filter(ObservacionesProyectos.observacion_a_cual_proyecto == proyecto_id)
+#             .scalar()
+#         )
+
+#         # Paginación
+#         offset = (page - 1) * limit
+#         observaciones = (
+#             db.query(ObservacionesProyectos)
+#             .filter(ObservacionesProyectos.observacion_a_cual_proyecto == proyecto_id)
+#             .order_by(ObservacionesProyectos.observacion_fecha.desc())
+#             .offset(offset)
+#             .limit(limit)
+#             .all()
+#         )
+
+#         # Obtener todos los logins de quienes observaron
+#         logins_observadores = [o.login_que_observo for o in observaciones]
+
+#         # Obtener nombres y apellidos de esos logins
+#         usuarios_observadores = (
+#             db.query(User.login, User.nombre, User.apellido)
+#             .filter(User.login.in_(logins_observadores))
+#             .all()
+#         )
+#         mapa_observadores = {u.login: {"nombre": u.nombre, "apellido": u.apellido} for u in usuarios_observadores}
+
+#         # Armar respuesta
+#         resultado = []
+#         for o in observaciones:
+#             datos_observador = mapa_observadores.get(o.login_que_observo, {"nombre": "", "apellido": ""})
+#             nombre_completo = f"{datos_observador['nombre']} {datos_observador['apellido']}".strip()
+#             resultado.append({
+#                 "observacion": o.observacion,
+#                 "fecha": o.observacion_fecha.strftime("%Y-%m-%d %H:%M") if o.observacion_fecha else None,
+#                 "login_que_observo": o.login_que_observo,
+#                 "nombre_completo_que_observo": nombre_completo
+#             })
+
+#         return {
+#             "page": page,
+#             "limit": limit,
+#             "total": total_observaciones,
+#             "observaciones": resultado
+#         }
+
+#     except SQLAlchemyError as e:
+#         raise HTTPException(status_code=500, detail=f"Error al obtener las observaciones del proyecto: {str(e)}")
+
+
+
+
 @proyectos_router.get("/observacion/{proyecto_id}/listado", response_model=dict,
                       dependencies=[Depends(verify_api_key),
                                     Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
@@ -6339,8 +6418,7 @@ def listar_observaciones_de_proyecto(
 ):
     """
     Devuelve un listado paginado de observaciones asociadas a un proyecto identificado por su `proyecto_id`.
-
-    - Solo roles 'administrador', 'supervisora' o 'profesional' pueden acceder a esta información.
+    Incluye también los registros del historial dentro del mismo listado `observaciones`, con paginación correcta.
     """
     try:
         # Verificar existencia del proyecto
@@ -6348,56 +6426,70 @@ def listar_observaciones_de_proyecto(
         if not existe_proyecto:
             raise HTTPException(status_code=404, detail="El proyecto indicado no existe.")
 
-        # Contar total de observaciones
-        total_observaciones = (
-            db.query(func.count(ObservacionesProyectos.observacion_id))
-            .filter(ObservacionesProyectos.observacion_a_cual_proyecto == proyecto_id)
-            .scalar()
-        )
-
-        # Paginación
-        offset = (page - 1) * limit
+        # 🔹 1. Obtener observaciones
         observaciones = (
             db.query(ObservacionesProyectos)
             .filter(ObservacionesProyectos.observacion_a_cual_proyecto == proyecto_id)
-            .order_by(ObservacionesProyectos.observacion_fecha.desc())
-            .offset(offset)
-            .limit(limit)
             .all()
         )
 
-        # Obtener todos los logins de quienes observaron
-        logins_observadores = [o.login_que_observo for o in observaciones]
-
-        # Obtener nombres y apellidos de esos logins
+        # 🔹 2. Obtener nombres de observadores
+        logins_observadores = [o.login_que_observo for o in observaciones if o.login_que_observo]
         usuarios_observadores = (
             db.query(User.login, User.nombre, User.apellido)
             .filter(User.login.in_(logins_observadores))
             .all()
         )
-        mapa_observadores = {u.login: {"nombre": u.nombre, "apellido": u.apellido} for u in usuarios_observadores}
+        mapa_observadores = {u.login: f"{u.nombre} {u.apellido}".strip() for u in usuarios_observadores}
 
-        # Armar respuesta
+        # 🔹 3. Armar observaciones
         resultado = []
         for o in observaciones:
-            datos_observador = mapa_observadores.get(o.login_que_observo, {"nombre": "", "apellido": ""})
-            nombre_completo = f"{datos_observador['nombre']} {datos_observador['apellido']}".strip()
             resultado.append({
+                "tipo": "observacion",
                 "observacion": o.observacion,
                 "fecha": o.observacion_fecha.strftime("%Y-%m-%d %H:%M") if o.observacion_fecha else None,
                 "login_que_observo": o.login_que_observo,
-                "nombre_completo_que_observo": nombre_completo
+                "nombre_completo_que_observo": mapa_observadores.get(o.login_que_observo, "")
             })
 
+        # 🔹 4. Agregar historial
+        historial = (
+            db.query(ProyectoHistorialEstado)
+            .filter(ProyectoHistorialEstado.proyecto_id == proyecto_id)
+            .all()
+        )
+
+        for h in historial:
+            resultado.append({
+                "tipo": "evento",
+                "observacion": f"Cambio de estado: {h.estado_anterior or '—'} → {h.estado_nuevo or '—'}",
+                "fecha": h.fecha_hora.strftime("%Y-%m-%d %H:%M") if h.fecha_hora else None,
+                "login_que_observo": None,
+                "nombre_completo_que_observo": None
+            })
+
+        # 🔹 5. Ordenar por fecha descendente
+        resultado = sorted(resultado, key=lambda x: x["fecha"] or "0000-00-00 00:00", reverse=True)
+
+        # 🔹 6. Aplicar paginación manual
+        total = len(resultado)
+        start = (page - 1) * limit
+        end = start + limit
+        resultado_paginado = resultado[start:end]
+
+        # 🔹 7. Devolver respuesta final (misma estructura)
         return {
             "page": page,
             "limit": limit,
-            "total": total_observaciones,
-            "observaciones": resultado
+            "total": total,
+            "observaciones": resultado_paginado
         }
 
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener las observaciones del proyecto: {str(e)}")
+
+
 
 
 
@@ -6578,7 +6670,9 @@ def solicitar_actualizacion_proyecto(
 
         # Cambiar estado a "actualizando"
         proyecto.estado_general = "actualizando"
-        proyecto.ultimo_cambio_de_estado = datetime.now().date()
+
+        # Ya no lo uso porque ya se actualiza en ProyectoHistorialEstado y dificulta la ratificación
+        # proyecto.ultimo_cambio_de_estado = datetime.now().date()
 
         # Registrar historial
         historial = ProyectoHistorialEstado(
@@ -6784,7 +6878,9 @@ def aprobar_proyecto(
 
         # Cambiar estado a aprobado
         proyecto.estado_general = "aprobado"
-        proyecto.ultimo_cambio_de_estado = date.today()
+
+        # Ya no lo uso porque ya se actualiza en ProyectoHistorialEstado y dificulta la ratificación
+        # proyecto.ultimo_cambio_de_estado = date.today()
 
         # Registrar en historial
         historial = ProyectoHistorialEstado(
@@ -7635,7 +7731,10 @@ def actualizar_estado_proyecto(
     # (otros estados no necesitan datos extra)
 
     proyecto.estado_general         = nuevo_estado
-    proyecto.ultimo_cambio_de_estado = datetime.now().date()
+
+    # Este cambio de estado ya no lo registraré porque ya lo hace en ProyectoHistorialEstado
+    # y dificulta el seguimiento de la ratificación. Más que nada se usa para para los proyectos de RUA v1
+    # proyecto.ultimo_cambio_de_estado = datetime.now().date()
 
     # ───────── historial de estados ─────────
     db.add(ProyectoHistorialEstado(
@@ -7746,6 +7845,77 @@ def update_domicilio_de_proyecto(
 
 
 
+# @proyectos_router.get("/ratificar/proyectos_que_deben_ratificar_al_dia_del_parametro", response_model=list,
+#     dependencies=[Depends(verify_api_key),
+#                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
+# def get_proyectos_para_ratificar_al_dia_del_parametro(
+#     request: Request,
+#     fecha_parametro: Optional[str] = Query(None, description="Fecha en formato YYYY-MM-DD para calcular ratificación"),
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     Devuelve los proyectos que deben ratificar a la fecha indicada o al día de hoy si no se pasa parámetro.
+#     """
+#     try:
+#         # Si no se pasa la fecha, usar la fecha actual
+#         if fecha_parametro:
+#             try:
+#                 fecha_limite = datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
+#             except ValueError:
+#                 raise HTTPException(status_code=400, detail="Formato de fecha inválido. Use YYYY-MM-DD.")
+#         else:
+#             fecha_limite = date.today()
+
+#         proyectos = db.query(Proyecto).filter(
+#             Proyecto.estado_general == "viable",
+#             Proyecto.ingreso_por == "rua"
+#         ).all()
+
+#         resultado = []
+
+#         for proyecto in proyectos:
+#             # Fechas de historial
+#             fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+#                 ProyectoHistorialEstado.estado_anterior == "viable",
+#                 ProyectoHistorialEstado.estado_nuevo == "viable"
+#             ).scalar()
+
+#             fecha_para_valorar_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+#                 ProyectoHistorialEstado.estado_anterior == "para_valorar",
+#                 ProyectoHistorialEstado.estado_nuevo == "viable"
+#             ).scalar()
+
+#             # Normalizar fechas
+#             fechas_posibles = []
+#             if proyecto.ultimo_cambio_de_estado:
+#                 fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
+#             if fecha_viable_a_viable:
+#                 fechas_posibles.append(fecha_viable_a_viable)
+#             if fecha_para_valorar_a_viable:
+#                 fechas_posibles.append(fecha_para_valorar_a_viable)
+
+#             fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
+#             fecha_ratificacion = (fecha_cambio_final + timedelta(days=356)) if fecha_cambio_final else None
+
+#             # Comparar con la fecha límite
+#             if fecha_ratificacion and fecha_ratificacion.date() <= fecha_limite:
+#                 resultado.append({
+#                     "proyecto_id": proyecto.proyecto_id,
+#                     "login_1": proyecto.login_1,
+#                     "login_2": proyecto.login_2,
+#                     "fecha_cambio_final": fecha_cambio_final.strftime("%Y-%m-%d %H:%M:%S") if fecha_cambio_final else None,
+#                     "fecha_ratificacion": fecha_ratificacion.strftime("%Y-%m-%d") if fecha_ratificacion else None
+#                 })
+
+#         return resultado
+
+#     except SQLAlchemyError as e:
+#         raise HTTPException(status_code=500, detail=f"Error al recuperar proyectos para ratificar: {str(e)}")
+
+
+
 @proyectos_router.get("/ratificar/proyectos_que_deben_ratificar_al_dia_del_parametro", response_model=list,
     dependencies=[Depends(verify_api_key),
                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
@@ -7756,9 +7926,13 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
 ):
     """
     Devuelve los proyectos que deben ratificar a la fecha indicada o al día de hoy si no se pasa parámetro.
+    Considera proyectos en estado 'viable' o 'en_carpeta'.
+    Ignora transiciones hacia/desde 'en_carpeta'.
+    Excluye proyectos que tuvieron 'vinculacion' o ya fueron ratificados.
+    No considera 'ultimo_cambio_de_estado' si es posterior a 2025-06-01.
     """
     try:
-        # Si no se pasa la fecha, usar la fecha actual
+        # 1️⃣ Determinar la fecha límite
         if fecha_parametro:
             try:
                 fecha_limite = datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
@@ -7767,31 +7941,60 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
         else:
             fecha_limite = date.today()
 
+        FECHA_CORTE_ULTIMO_CAMBIO = date(2025, 6, 1)
+        print(f"\n🗓️ Fecha límite de cálculo: {fecha_limite}")
+
+        # 2️⃣ Seleccionar proyectos válidos (no ratificados aún)
         proyectos = db.query(Proyecto).filter(
-            Proyecto.estado_general == "viable",
-            Proyecto.ingreso_por == "rua"
+            Proyecto.estado_general.in_(["viable", "en_carpeta"]),
+            Proyecto.ingreso_por == "rua",
+            Proyecto.ratificacion_code == None  # 👈 aún no ratificado
         ).all()
 
         resultado = []
 
         for proyecto in proyectos:
-            # Fechas de historial
+            print(f"\n🔍 Proyecto ID {proyecto.proyecto_id} | Estado actual: {proyecto.estado_general}")
+            print(f"   • Pretensos: {proyecto.login_1 or '-'}" + (f" y {proyecto.login_2}" if proyecto.login_2 else ""))
+
+            # 3️⃣ Verificar si tuvo vinculación
+            tuvo_vinculacion = db.query(ProyectoHistorialEstado).filter(
+                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                ProyectoHistorialEstado.estado_nuevo == "vinculacion"
+            ).first()
+            if tuvo_vinculacion:
+                print("⛔ Proyecto excluido: tuvo vinculación.")
+                continue
+
+            # 4️⃣ Fechas relevantes (sin transiciones hacia/desde 'en_carpeta')
             fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
                 ProyectoHistorialEstado.estado_anterior == "viable",
-                ProyectoHistorialEstado.estado_nuevo == "viable"
+                ProyectoHistorialEstado.estado_nuevo == "viable",
+                ProyectoHistorialEstado.estado_anterior != "en_carpeta",
+                ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
             ).scalar()
 
             fecha_para_valorar_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
                 ProyectoHistorialEstado.estado_anterior == "para_valorar",
-                ProyectoHistorialEstado.estado_nuevo == "viable"
+                ProyectoHistorialEstado.estado_nuevo == "viable",
+                ProyectoHistorialEstado.estado_anterior != "en_carpeta",
+                ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
             ).scalar()
 
-            # Normalizar fechas
+            print(f"   • fecha_viable_a_viable: {fecha_viable_a_viable}")
+            print(f"   • fecha_para_valorar_a_viable: {fecha_para_valorar_a_viable}")
+            print(f"   • ultimo_cambio_de_estado: {proyecto.ultimo_cambio_de_estado}")
+
+            # 5️⃣ Determinar fechas base (respetando el corte de junio 2025)
             fechas_posibles = []
             if proyecto.ultimo_cambio_de_estado:
-                fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
+                if proyecto.ultimo_cambio_de_estado <= FECHA_CORTE_ULTIMO_CAMBIO:
+                    fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
+                    print(f"   ✔️ Se considera ultimo_cambio_de_estado ({proyecto.ultimo_cambio_de_estado})")
+                else:
+                    print(f"   ⚠️ No se considera ultimo_cambio_de_estado ({proyecto.ultimo_cambio_de_estado}) porque es posterior a {FECHA_CORTE_ULTIMO_CAMBIO}")
             if fecha_viable_a_viable:
                 fechas_posibles.append(fecha_viable_a_viable)
             if fecha_para_valorar_a_viable:
@@ -7800,20 +8003,30 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
             fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
             fecha_ratificacion = (fecha_cambio_final + timedelta(days=356)) if fecha_cambio_final else None
 
-            # Comparar con la fecha límite
+            print(f"   ➤ fecha_cambio_final elegida: {fecha_cambio_final}")
+            print(f"   ➤ fecha_ratificacion calculada: {fecha_ratificacion}")
+
+            # 6️⃣ Comparar con la fecha límite
             if fecha_ratificacion and fecha_ratificacion.date() <= fecha_limite:
+                print(f"✅ Debe ratificar (fecha límite: {fecha_limite}, ratificación: {fecha_ratificacion.date()})")
                 resultado.append({
                     "proyecto_id": proyecto.proyecto_id,
                     "login_1": proyecto.login_1,
                     "login_2": proyecto.login_2,
+                    "estado_general": proyecto.estado_general,
                     "fecha_cambio_final": fecha_cambio_final.strftime("%Y-%m-%d %H:%M:%S") if fecha_cambio_final else None,
                     "fecha_ratificacion": fecha_ratificacion.strftime("%Y-%m-%d") if fecha_ratificacion else None
                 })
+            else:
+                print("❎ No debe ratificar aún.")
 
+        print(f"\n📊 Total de proyectos que deben ratificar: {len(resultado)}")
         return resultado
 
     except SQLAlchemyError as e:
+        print(f"💥 Error al recuperar proyectos para ratificar: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error al recuperar proyectos para ratificar: {str(e)}")
+
 
 
 
