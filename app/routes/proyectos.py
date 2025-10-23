@@ -917,40 +917,80 @@ def get_proyecto_por_id(
         if not proyecto:
             raise HTTPException(status_code=404, detail=f"Proyecto con ID {proyecto_id} no encontrado.")
 
-        # --------- Lógica de fechas para ratificación (igual que tenías) ---------
-        fecha_viable_a_viable = (
-            db.query(func.max(ProyectoHistorialEstado.fecha_hora))
-            .filter(
-                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                ProyectoHistorialEstado.estado_anterior == "viable",
-                ProyectoHistorialEstado.estado_nuevo == "viable"
-            )
-            .scalar()
-        )
-        fecha_para_valorar_a_viable = (
-            db.query(func.max(ProyectoHistorialEstado.fecha_hora))
-            .filter(
-                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                ProyectoHistorialEstado.estado_anterior == "para_valorar",
-                ProyectoHistorialEstado.estado_nuevo == "viable"
-            )
+
+        # ============================================================
+        # 🔄 Lógica unificada de fechas de ratificación (como en endpoints de ratificación)
+        # ============================================================
+        FECHA_CORTE_ULTIMO_CAMBIO = date(2025, 6, 1)
+
+        ESTADOS_PREVIOS_A_VIABLE = [
+            "en_revision", "actualizando", "aprobado",
+            "calendarizando", "entrevistando", "para_valorar",
+            "en_suspenso", "no_viable", "vinculacion",
+            "guarda_provisoria", "guarda_confirmada",
+            "adopcion_definitiva", "baja_anulacion", "baja_caducidad",
+            "baja_por_convocatoria", "baja_rechazo_invitacion",
+            "baja_interrupcion", "baja_desistimiento"
+        ]
+
+        # Consultas de fechas relevantes
+        fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+            ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+            ProyectoHistorialEstado.estado_anterior == "viable",
+            ProyectoHistorialEstado.estado_nuevo == "viable",
+            ProyectoHistorialEstado.estado_anterior != "en_carpeta",
+            ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
+        ).scalar()
+
+        fecha_desde_estados_previos_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+            ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+            ProyectoHistorialEstado.estado_nuevo == "viable",
+            ProyectoHistorialEstado.estado_anterior.in_(ESTADOS_PREVIOS_A_VIABLE),
+            ProyectoHistorialEstado.estado_anterior != "en_carpeta",
+            ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
+        ).scalar()
+
+        fecha_null_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+            ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+            ProyectoHistorialEstado.estado_nuevo == "viable",
+            ProyectoHistorialEstado.estado_anterior.is_(None),
+            ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
+        ).scalar()
+
+        fecha_vinculacion = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+            ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+            ProyectoHistorialEstado.estado_nuevo.in_(["vinculacion", "guarda_provisoria", "guarda_confirmada"])
+        ).scalar()
+
+        fecha_ultima_ratificacion = (
+            db.query(func.max(UsuarioNotificadoRatificacion.ratificado))
+            .filter(UsuarioNotificadoRatificacion.proyecto_id == proyecto.proyecto_id)
             .scalar()
         )
 
+        # Agrupar fechas y determinar la más reciente
         fechas_posibles = []
-        if proyecto.ultimo_cambio_de_estado:
+
+        if proyecto.ultimo_cambio_de_estado and proyecto.ultimo_cambio_de_estado <= FECHA_CORTE_ULTIMO_CAMBIO:
             fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
-        if fecha_viable_a_viable:
-            fechas_posibles.append(fecha_viable_a_viable)
-        if fecha_para_valorar_a_viable:
-            fechas_posibles.append(fecha_para_valorar_a_viable)
+
+        for f in (
+            fecha_viable_a_viable,
+            fecha_desde_estados_previos_a_viable,
+            fecha_null_a_viable,
+            fecha_vinculacion,
+            fecha_ultima_ratificacion
+        ):
+            if f:
+                fechas_posibles.append(f)
 
         fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
-        fecha_desde_que_necesita_ratificar = (
-            (fecha_cambio_final + timedelta(days=365))
-            if (fecha_cambio_final and proyecto.estado_general == "viable" and proyecto.ingreso_por == "rua")
-            else None
-        )
+
+        # Cálculo de fechas exactas
+        fecha_ratificacion_exacta = (fecha_cambio_final + timedelta(days=365)) if fecha_cambio_final else None
+        fecha_ratificacion_aviso = (fecha_cambio_final + timedelta(days=356)) if fecha_cambio_final else None
+
+
 
         # --------- Datos de contacto de login_1 / login_2 ---------
         login_1_user = db.query(User).filter(User.login == proyecto.login_1).first()
@@ -1045,7 +1085,6 @@ def get_proyecto_por_id(
 
             "fecha_asignacion_nro_orden": parse_date(proyecto.fecha_asignacion_nro_orden),
             "ultimo_cambio_de_estado": parse_date(proyecto.ultimo_cambio_de_estado),
-            "fecha_desde_que_necesita_ratificar": fecha_desde_que_necesita_ratificar.strftime("%Y-%m-%d") if fecha_desde_que_necesita_ratificar else None,
 
             "doc_proyecto_convivencia_o_estado_civil": proyecto.doc_proyecto_convivencia_o_estado_civil,
             "informe_profesionales": proyecto.informe_profesionales,
@@ -1280,6 +1319,16 @@ def get_proyecto_por_id(
             "otros_proyectos_login_1": otros_proyectos_login_1,
             "otros_proyectos_login_2": otros_proyectos_login_2,
         })
+
+
+        proyecto_dict.update({
+            "fecha_cambio_final": fecha_cambio_final.strftime("%Y-%m-%d") if fecha_cambio_final else None,
+            "fecha_ratificacion": fecha_ratificacion_aviso.strftime("%Y-%m-%d") if fecha_ratificacion_aviso else None,
+            "fecha_ratificacion_exacta": fecha_ratificacion_exacta.strftime("%Y-%m-%d") if fecha_ratificacion_exacta else None,
+            "fecha_ultima_ratificacion": fecha_ultima_ratificacion.strftime("%Y-%m-%d") if fecha_ultima_ratificacion else None,
+        })
+        
+
 
         return proyecto_dict
 
@@ -7928,28 +7977,34 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
     Devuelve los proyectos que deben ratificar a la fecha indicada o al día de hoy si no se pasa parámetro.
     Considera proyectos en estado 'viable' o 'en_carpeta'.
     Ignora transiciones hacia/desde 'en_carpeta'.
-    Excluye proyectos que tuvieron 'vinculacion' o ya fueron ratificados.
+    Incluye fechas NULL→viable, viables repetidos, vinculación/guardas y ratificaciones de pretensos.
     No considera 'ultimo_cambio_de_estado' si es posterior a 2025-06-01.
+    Devuelve fecha de aviso (ratificación) y fecha exacta al año.
     """
     try:
-        # 1️⃣ Determinar la fecha límite
-        if fecha_parametro:
-            try:
-                fecha_limite = datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Formato de fecha inválido. Use YYYY-MM-DD.")
-        else:
-            fecha_limite = date.today()
-
+        # 1️⃣ Fecha límite
+        fecha_limite = (
+            datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
+            if fecha_parametro else date.today()
+        )
         FECHA_CORTE_ULTIMO_CAMBIO = date(2025, 6, 1)
         print(f"\n🗓️ Fecha límite de cálculo: {fecha_limite}")
 
-        # 2️⃣ Seleccionar proyectos válidos (no ratificados aún)
+        # 2️⃣ Proyectos candidatos
         proyectos = db.query(Proyecto).filter(
             Proyecto.estado_general.in_(["viable", "en_carpeta"]),
-            Proyecto.ingreso_por == "rua",
-            Proyecto.ratificacion_code == None  # 👈 aún no ratificado
+            Proyecto.ingreso_por == "rua"
         ).all()
+
+        ESTADOS_PREVIOS_A_VIABLE = [
+            "en_revision", "actualizando", "aprobado",
+            "calendarizando", "entrevistando", "para_valorar",
+            "en_suspenso", "no_viable", "vinculacion",
+            "guarda_provisoria", "guarda_confirmada",
+            "adopcion_definitiva", "baja_anulacion", "baja_caducidad",
+            "baja_por_convocatoria", "baja_rechazo_invitacion",
+            "baja_interrupcion", "baja_desistimiento"
+        ]
 
         resultado = []
 
@@ -7957,16 +8012,7 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
             print(f"\n🔍 Proyecto ID {proyecto.proyecto_id} | Estado actual: {proyecto.estado_general}")
             print(f"   • Pretensos: {proyecto.login_1 or '-'}" + (f" y {proyecto.login_2}" if proyecto.login_2 else ""))
 
-            # 3️⃣ Verificar si tuvo vinculación
-            tuvo_vinculacion = db.query(ProyectoHistorialEstado).filter(
-                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                ProyectoHistorialEstado.estado_nuevo == "vinculacion"
-            ).first()
-            if tuvo_vinculacion:
-                print("⛔ Proyecto excluido: tuvo vinculación.")
-                continue
-
-            # 4️⃣ Fechas relevantes (sin transiciones hacia/desde 'en_carpeta')
+            # 3️⃣ Fechas candidatas (cada una con su lógica)
             fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
                 ProyectoHistorialEstado.estado_anterior == "viable",
@@ -7975,47 +8021,79 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
                 ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
             ).scalar()
 
-            fecha_para_valorar_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+            fecha_desde_estados_previos_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                ProyectoHistorialEstado.estado_anterior == "para_valorar",
                 ProyectoHistorialEstado.estado_nuevo == "viable",
+                ProyectoHistorialEstado.estado_anterior.in_(ESTADOS_PREVIOS_A_VIABLE),
                 ProyectoHistorialEstado.estado_anterior != "en_carpeta",
                 ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
             ).scalar()
 
+            fecha_null_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                ProyectoHistorialEstado.estado_nuevo == "viable",
+                ProyectoHistorialEstado.estado_anterior.is_(None),
+                ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
+            ).scalar()
+
+            fecha_vinculacion = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                ProyectoHistorialEstado.estado_nuevo.in_(["vinculacion", "guarda_provisoria", "guarda_confirmada"])
+            ).scalar()
+
+            # 🟢 Nueva: última ratificación hecha por pretensos
+            fecha_ultima_ratificacion = (
+                db.query(func.max(UsuarioNotificadoRatificacion.ratificado))
+                .filter(UsuarioNotificadoRatificacion.proyecto_id == proyecto.proyecto_id)
+                .scalar()
+            )
+
             print(f"   • fecha_viable_a_viable: {fecha_viable_a_viable}")
-            print(f"   • fecha_para_valorar_a_viable: {fecha_para_valorar_a_viable}")
+            print(f"   • fecha_desde_estados_previos_a_viable: {fecha_desde_estados_previos_a_viable}")
+            print(f"   • fecha_null_a_viable: {fecha_null_a_viable}")
+            print(f"   • fecha_vinculacion/guarda: {fecha_vinculacion}")
+            print(f"   • fecha_ultima_ratificacion: {fecha_ultima_ratificacion}")
             print(f"   • ultimo_cambio_de_estado: {proyecto.ultimo_cambio_de_estado}")
 
-            # 5️⃣ Determinar fechas base (respetando el corte de junio 2025)
+            # 4️⃣ Determinar la fecha base (más reciente)
             fechas_posibles = []
-            if proyecto.ultimo_cambio_de_estado:
-                if proyecto.ultimo_cambio_de_estado <= FECHA_CORTE_ULTIMO_CAMBIO:
-                    fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
-                    print(f"   ✔️ Se considera ultimo_cambio_de_estado ({proyecto.ultimo_cambio_de_estado})")
-                else:
-                    print(f"   ⚠️ No se considera ultimo_cambio_de_estado ({proyecto.ultimo_cambio_de_estado}) porque es posterior a {FECHA_CORTE_ULTIMO_CAMBIO}")
-            if fecha_viable_a_viable:
-                fechas_posibles.append(fecha_viable_a_viable)
-            if fecha_para_valorar_a_viable:
-                fechas_posibles.append(fecha_para_valorar_a_viable)
+
+            if proyecto.ultimo_cambio_de_estado and proyecto.ultimo_cambio_de_estado <= FECHA_CORTE_ULTIMO_CAMBIO:
+                fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
+                print(f"   ✔️ Se considera ultimo_cambio_de_estado ({proyecto.ultimo_cambio_de_estado})")
+
+            for f in (
+                fecha_viable_a_viable,
+                fecha_desde_estados_previos_a_viable,
+                fecha_null_a_viable,
+                fecha_vinculacion,
+                fecha_ultima_ratificacion
+            ):
+                if f:
+                    fechas_posibles.append(f)
 
             fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
+
+            # 5️⃣ Fechas de ratificación
+            fecha_ratificacion_exacta = (fecha_cambio_final + timedelta(days=365)) if fecha_cambio_final else None
             fecha_ratificacion = (fecha_cambio_final + timedelta(days=356)) if fecha_cambio_final else None
 
             print(f"   ➤ fecha_cambio_final elegida: {fecha_cambio_final}")
-            print(f"   ➤ fecha_ratificacion calculada: {fecha_ratificacion}")
+            print(f"   ➤ fecha_ratificacion (aviso): {fecha_ratificacion}")
+            print(f"   ➤ fecha_ratificacion_exacta (1 año): {fecha_ratificacion_exacta}")
 
             # 6️⃣ Comparar con la fecha límite
             if fecha_ratificacion and fecha_ratificacion.date() <= fecha_limite:
-                print(f"✅ Debe ratificar (fecha límite: {fecha_limite}, ratificación: {fecha_ratificacion.date()})")
+                print(f"✅ Debe ratificar (límite {fecha_limite}, aviso {fecha_ratificacion.date()})")
                 resultado.append({
                     "proyecto_id": proyecto.proyecto_id,
                     "login_1": proyecto.login_1,
                     "login_2": proyecto.login_2,
                     "estado_general": proyecto.estado_general,
-                    "fecha_cambio_final": fecha_cambio_final.strftime("%Y-%m-%d %H:%M:%S") if fecha_cambio_final else None,
-                    "fecha_ratificacion": fecha_ratificacion.strftime("%Y-%m-%d") if fecha_ratificacion else None
+                    "fecha_cambio_final": fecha_cambio_final.strftime("%Y-%m-%d") if fecha_cambio_final else None,
+                    "fecha_ratificacion": fecha_ratificacion.strftime("%Y-%m-%d") if fecha_ratificacion else None,
+                    "fecha_ratificacion_exacta": fecha_ratificacion_exacta.strftime("%Y-%m-%d") if fecha_ratificacion_exacta else None,
+                    "fecha_ultima_ratificacion": fecha_ultima_ratificacion.strftime("%Y-%m-%d") if fecha_ultima_ratificacion else None
                 })
             else:
                 print("❎ No debe ratificar aún.")
@@ -8030,28 +8108,306 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
 
 
 
+# @proyectos_router.post("/ratificar/notificar-siguiente-proyecto", dependencies=[Depends(verify_api_key),
+#                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
+# def notificar_siguiente_proyecto_para_ratificar(
+#     request: Request,
+#     fecha_parametro: Optional[str] = Query(None, description="Fecha en formato YYYY-MM-DD para calcular ratificación"),
+#     db: Session = Depends(get_db)
+# ):
+#     try:
 
-@proyectos_router.post("/ratificar/notificar-siguiente-proyecto", dependencies=[Depends(verify_api_key),
+#         hoy = datetime.now()
+#         hace_7 = hoy - timedelta(days=7)
+
+#         # Fecha límite (hoy o parámetro)
+#         fecha_limite = date.today()
+#         if fecha_parametro:
+#             try:
+#                 fecha_limite = datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
+#             except ValueError:
+#                 raise HTTPException(status_code=400, detail="Formato de fecha inválido. Use YYYY-MM-DD.")
+
+#         # Buscar proyecto pendiente de ratificar que no haya recibido aviso en los últimos 7 días
+#         subq_notificados = (
+#             db.query(UsuarioNotificadoRatificacion.proyecto_id)
+#             .filter(
+#                 func.greatest(
+#                     func.coalesce(UsuarioNotificadoRatificacion.mail_enviado_1, datetime.min),
+#                     func.coalesce(UsuarioNotificadoRatificacion.mail_enviado_2, datetime.min),
+#                     func.coalesce(UsuarioNotificadoRatificacion.mail_enviado_3, datetime.min),
+#                     func.coalesce(UsuarioNotificadoRatificacion.mail_enviado_4, datetime.min),
+#                 ) > hace_7
+#             )
+#         )
+
+
+#         proyectos = db.query(Proyecto).filter(
+#             Proyecto.estado_general == "viable",
+#             Proyecto.ingreso_por == "rua",
+#             ~Proyecto.proyecto_id.in_(subq_notificados)
+#         ).all()
+
+#         candidatos = []
+#         for proyecto in proyectos:
+#             fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+#                 ProyectoHistorialEstado.estado_anterior == "viable",
+#                 ProyectoHistorialEstado.estado_nuevo == "viable"
+#             ).scalar()
+
+#             fecha_para_valorar_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+#                 ProyectoHistorialEstado.estado_anterior == "para_valorar",
+#                 ProyectoHistorialEstado.estado_nuevo == "viable"
+#             ).scalar()
+
+#             fechas_posibles = []
+#             if proyecto.ultimo_cambio_de_estado:
+#                 fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
+#             if fecha_viable_a_viable:
+#                 fechas_posibles.append(fecha_viable_a_viable)
+#             if fecha_para_valorar_a_viable:
+#                 fechas_posibles.append(fecha_para_valorar_a_viable)
+
+#             fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
+#             if fecha_cambio_final:
+#                 fecha_ratificacion = fecha_cambio_final + timedelta(days=356)
+#                 if fecha_ratificacion.date() <= fecha_limite:
+#                     candidatos.append((proyecto, fecha_ratificacion))
+
+#         if not candidatos:
+#             raise HTTPException(status_code=404, detail="No hay proyectos pendientes para notificar.")
+
+#         candidatos.sort(key=lambda x: x[1])
+#         proyecto_obj, fecha_ratif = candidatos[0]
+
+#         logins = [proyecto_obj.login_1, proyecto_obj.login_2] if proyecto_obj.login_2 else [proyecto_obj.login_1]
+#         enviados = []
+
+#         # -------------------- NUEVO: control para enviar 1 solo mail interno si se da de baja --------------------
+#         baja_caducidad_triggered = False
+#         baja_contexto = {
+#             "proyecto_id": proyecto_obj.proyecto_id,
+#             "logins": [l for l in logins if l],
+#             "cuando": None,
+#         }
+#         # ---------------------------------------------------------------------------------------------------------
+
+#         for login in logins:
+#             if not login:
+#                 continue
+
+#             usuario = db.query(User).filter(User.login == login).first()
+#             if not usuario or not usuario.mail:
+#                 continue
+
+#             notificacion = db.query(UsuarioNotificadoRatificacion).filter_by(
+#                 proyecto_id=proyecto_obj.proyecto_id,
+#                 login=login
+#             ).first()
+
+#             hoy = datetime.now()
+#             nro_envio = 1
+#             if not notificacion:
+#                 notificacion = UsuarioNotificadoRatificacion(
+#                     proyecto_id=proyecto_obj.proyecto_id,
+#                     login=login,
+#                     mail_enviado_1=hoy
+#                 )
+#                 db.add(notificacion)
+
+#             elif notificacion.mail_enviado_2 is None:
+#                 notificacion.mail_enviado_2 = hoy
+#                 nro_envio = 2
+#             elif notificacion.mail_enviado_3 is None:
+#                 notificacion.mail_enviado_3 = hoy
+#                 nro_envio = 3
+#             elif notificacion.mail_enviado_4 is None:
+#                 notificacion.mail_enviado_4 = hoy
+#                 nro_envio = 4
+#             else:
+#                 # ✅ Si pasaron más de 7 días del cuarto aviso → cambiar a baja_caducidad
+#                 if notificacion.mail_enviado_4 and (hoy - notificacion.mail_enviado_4) > timedelta(days=7):
+#                     proyecto_obj.estado_general = "baja_caducidad"
+#                     # Marcamos que debemos enviar el mail interno (una vez)
+#                     if not baja_caducidad_triggered:
+#                         baja_caducidad_triggered = True
+#                         baja_contexto["cuando"] = hoy
+#                     db.commit()
+#                     enviados.append({"login": login, "mensaje": "Proyecto pasado a baja_caducidad"})
+#                 continue
+
+#             primer_nombre = (
+#                 usuario.nombre.split()[0].lower().capitalize()
+#                 if usuario.nombre else ""
+#             )
+
+#             cuerpo_html = f"""
+#             <html>
+#               <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+#                 <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+#                   <tr>
+#                     <td align="center">
+#                       <table cellpadding="0" cellspacing="0" width="600"
+#                         style="background-color: #ffffff; border-radius: 10px; padding: 30px;
+#                               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40;
+#                               box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+#                         <tr>
+#                           <td style="padding-top: 20px; font-size: 17px;">
+#                             <p>¡Hola, <strong>{primer_nombre}</strong>! Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+#                             <p>Te informamos que se cumple un año de tu inscripción en el Registro Único de Adopciones 
+#                               de Córdoba. Por indicaciones del artículo 14 de la ley 25.854 necesitamos que
+#                               confirmes tu voluntad de continuar inscripta/o ingresando al Sistema RUA y haciendo clic 
+#                               en el botón de Ratificación que estará disponible durante los próximos 30 días dentro del Sistema RUA.
+#                             </p>
+
+#                             <p><em>
+#                               Transcurrido ese plazo sin que nos confirmes tu continuidad, el sistema te excluye
+#                               automáticamente del Registro y, para volver a formar parte, tendrás que iniciar el trámite
+#                               nuevamente.
+#                             </em></p>
+#                           </td>
+#                         </tr>
+
+#                         <tr>
+#                           <td align="center" style="padding: 30px 0;">
+#                             <a href="https://rua.justiciacordoba.gob.ar/login/" target="_blank"
+#                               style="display: inline-block; padding: 12px 24px; background-color: #007bff;
+#                                       color: #ffffff; border-radius: 8px; text-decoration: none;
+#                                       font-weight: bold; font-size: 16px;">
+#                               Ir al sistema RUA
+#                             </a>
+#                           </td>
+#                         </tr>
+              
+#                         <tr>
+#                           <td style="font-size: 17px; padding-top: 20px;">
+#                             ¡Muchas gracias por seguir en el Registro Único de Adopciones de Córdoba!
+#                           </td>
+#                         </tr>
+#                       </table>
+#                     </td>
+#                   </tr>
+#                 </table>
+#               </body>
+#             </html>
+#             """         
+
+#             enviar_mail(
+#                 destinatario=usuario.mail,
+#                 asunto="Ratificación de inscripción",
+#                 cuerpo=cuerpo_html
+#             )
+
+#             # Registrar evento en RuaEvento
+#             evento = RuaEvento(
+#                 login=login,
+#                 evento_fecha=hoy,
+#                 evento_detalle=f"Notificación de ratificación enviada (intento {nro_envio}) al mail {usuario.mail}"
+#             )
+#             db.add(evento)
+
+#             enviados.append({"login": login, "mail": usuario.mail, "proyecto_id": proyecto_obj.proyecto_id, "envio": nro_envio})
+
+#         db.commit()
+
+#         # -------------------- NUEVO: si se gatilló la baja, mail interno (una sola vez) --------------------
+#         if baja_caducidad_triggered:
+#             try:
+#                 cuando = baja_contexto["cuando"] or datetime.now()
+#                 asunto_int = "Proyecto dado de baja por caducidad — RUA"
+#                 lista_logins = ", ".join(baja_contexto["logins"]) if baja_contexto["logins"] else "(s/d)"
+#                 cuerpo_int = f"""
+#                 <html>
+#                   <body style="margin:0; padding:0; background-color:#f8f9fa;">
+#                     <table cellpadding="0" cellspacing="0" width="100%" style="background-color:#f8f9fa; padding:20px;">
+#                       <tr>
+#                         <td align="center">
+#                           <table cellpadding="0" cellspacing="0" width="600"
+#                                  style="background-color:#ffffff; border-radius:10px; padding:30px;
+#                                         font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+#                                         color:#343a40; box-shadow:0 0 10px rgba(0,0,0,0.1);">
+#                             <tr>
+#                               <td style="font-size:22px; color:#dc2626;">
+#                                 <strong>Proyecto dado de baja por caducidad</strong>
+#                               </td>
+#                             </tr>
+#                             <tr>
+#                               <td style="padding-top:16px; font-size:16px;">
+#                                 <p>Se alcanzó la cantidad máxima de notificaciones y venció el plazo tras el último aviso.</p>
+#                               </td>
+#                             </tr>
+#                             <tr>
+#                               <td style="padding-top:12px; font-size:16px;">
+#                                 <div style="background-color:#fef2f2; padding:15px 20px; border-left:4px solid #dc2626; border-radius:6px;">
+#                                   <p><strong>Proyecto:</strong> #{baja_contexto['proyecto_id']}</p>
+#                                   <p><strong>Logins involucrados:</strong> {lista_logins}</p>
+#                                   <p><strong>Fecha/hora:</strong> {cuando.strftime('%d/%m/%Y %H:%M:%S')}</p>
+#                                   <p><strong>Nuevo estado:</strong> baja_caducidad</p>
+#                                 </div>
+#                               </td>
+#                             </tr>
+#                             <tr>
+#                               <td style="padding-top:20px; font-size:16px;">
+#                                 <p>Este correo es informativo y no requiere respuesta.</p>
+#                               </td>
+#                             </tr>
+#                           </table>
+#                         </td>
+#                       </tr>
+#                     </table>
+#                   </body>
+#                 </html>
+#                 """
+#                 enviar_mail_multiples(
+#                     destinatarios=DESTINATARIOS_RUA,
+#                     asunto=asunto_int,
+#                     cuerpo=cuerpo_int,
+#                 )
+#             except Exception as e:
+#                 # No romper el flujo si el correo interno falla
+#                 print(f"⚠️ Error enviando correo interno por baja_caducidad: {e}")
+#         # -----------------------------------------------------------------------------------------------------
+
+#         return {
+#             "message": f"Se enviaron {len(enviados)} notificaciones para el proyecto {proyecto_obj.proyecto_id}.",
+#             "fecha_ratificacion": fecha_ratif.strftime("%Y-%m-%d"),
+#             "detalles": enviados,
+#             "baja_caducidad_notificada": bool(baja_caducidad_triggered),
+#         }
+
+#     except SQLAlchemyError as e:
+#         db.rollback()
+#         raise HTTPException(status_code=500, detail=f"Error al enviar notificaciones: {str(e)}")
+
+
+
+@proyectos_router.post("/ratificar/notificar-siguiente-proyecto", 
+    dependencies=[Depends(verify_api_key),
                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
 def notificar_siguiente_proyecto_para_ratificar(
     request: Request,
     fecha_parametro: Optional[str] = Query(None, description="Fecha en formato YYYY-MM-DD para calcular ratificación"),
     db: Session = Depends(get_db)
 ):
+    """
+    Selecciona el siguiente proyecto pendiente de ratificación según la misma lógica
+    que get_proyectos_para_ratificar_al_dia_del_parametro, evitando enviar mails duplicados
+    (últimos 7 días) y aplicando el flujo de notificación y caducidad.
+    """
     try:
-
         hoy = datetime.now()
         hace_7 = hoy - timedelta(days=7)
 
-        # Fecha límite (hoy o parámetro)
-        fecha_limite = date.today()
-        if fecha_parametro:
-            try:
-                fecha_limite = datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Formato de fecha inválido. Use YYYY-MM-DD.")
+        # 1️⃣ Fecha límite
+        fecha_limite = (
+            datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
+            if fecha_parametro else date.today()
+        )
+        FECHA_CORTE_ULTIMO_CAMBIO = date(2025, 6, 1)
 
-        # Buscar proyecto pendiente de ratificar que no haya recibido aviso en los últimos 7 días
+        # 2️⃣ Subconsulta: proyectos con notificación en los últimos 7 días
         subq_notificados = (
             db.query(UsuarioNotificadoRatificacion.proyecto_id)
             .filter(
@@ -8064,58 +8420,98 @@ def notificar_siguiente_proyecto_para_ratificar(
             )
         )
 
-
+        # 3️⃣ Proyectos candidatos (mismos criterios del GET)
         proyectos = db.query(Proyecto).filter(
-            Proyecto.estado_general == "viable",
+            Proyecto.estado_general.in_(["viable", "en_carpeta"]),
             Proyecto.ingreso_por == "rua",
             ~Proyecto.proyecto_id.in_(subq_notificados)
         ).all()
 
+        ESTADOS_PREVIOS_A_VIABLE = [
+            "en_revision", "actualizando", "aprobado", "calendarizando", "entrevistando",
+            "para_valorar", "en_suspenso", "no_viable", "vinculacion",
+            "guarda_provisoria", "guarda_confirmada", "adopcion_definitiva",
+            "baja_anulacion", "baja_caducidad", "baja_por_convocatoria",
+            "baja_rechazo_invitacion", "baja_interrupcion", "baja_desistimiento"
+        ]
+
         candidatos = []
+
         for proyecto in proyectos:
+            # === mismas fechas que el endpoint GET ===
             fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
                 ProyectoHistorialEstado.estado_anterior == "viable",
-                ProyectoHistorialEstado.estado_nuevo == "viable"
+                ProyectoHistorialEstado.estado_nuevo == "viable",
+                ProyectoHistorialEstado.estado_anterior != "en_carpeta",
+                ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
             ).scalar()
 
-            fecha_para_valorar_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+            fecha_desde_estados_previos_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                ProyectoHistorialEstado.estado_anterior == "para_valorar",
-                ProyectoHistorialEstado.estado_nuevo == "viable"
+                ProyectoHistorialEstado.estado_nuevo == "viable",
+                ProyectoHistorialEstado.estado_anterior.in_(ESTADOS_PREVIOS_A_VIABLE),
+                ProyectoHistorialEstado.estado_anterior != "en_carpeta",
+                ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
             ).scalar()
 
+            fecha_null_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                ProyectoHistorialEstado.estado_nuevo == "viable",
+                ProyectoHistorialEstado.estado_anterior.is_(None),
+                ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
+            ).scalar()
+
+            fecha_vinculacion = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                ProyectoHistorialEstado.estado_nuevo.in_(["vinculacion", "guarda_provisoria", "guarda_confirmada"])
+            ).scalar()
+
+            fecha_ultima_ratificacion = (
+                db.query(func.max(UsuarioNotificadoRatificacion.ratificado))
+                .filter(UsuarioNotificadoRatificacion.proyecto_id == proyecto.proyecto_id)
+                .scalar()
+            )
+
+            # === determinación de la fecha base ===
             fechas_posibles = []
-            if proyecto.ultimo_cambio_de_estado:
+
+            if proyecto.ultimo_cambio_de_estado and proyecto.ultimo_cambio_de_estado <= FECHA_CORTE_ULTIMO_CAMBIO:
                 fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
-            if fecha_viable_a_viable:
-                fechas_posibles.append(fecha_viable_a_viable)
-            if fecha_para_valorar_a_viable:
-                fechas_posibles.append(fecha_para_valorar_a_viable)
+
+            for f in (
+                fecha_viable_a_viable,
+                fecha_desde_estados_previos_a_viable,
+                fecha_null_a_viable,
+                fecha_vinculacion,
+                fecha_ultima_ratificacion
+            ):
+                if f:
+                    fechas_posibles.append(f)
 
             fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
-            if fecha_cambio_final:
-                fecha_ratificacion = fecha_cambio_final + timedelta(days=356)
-                if fecha_ratificacion.date() <= fecha_limite:
-                    candidatos.append((proyecto, fecha_ratificacion))
 
+            # === cálculo de fechas de ratificación ===
+            fecha_ratificacion = (
+                fecha_cambio_final + timedelta(days=356)
+                if fecha_cambio_final else None
+            )
+
+            if fecha_ratificacion and fecha_ratificacion.date() <= fecha_limite:
+                candidatos.append((proyecto, fecha_ratificacion))
+
+        # 4️⃣ Seleccionar el más antiguo
         if not candidatos:
             raise HTTPException(status_code=404, detail="No hay proyectos pendientes para notificar.")
 
         candidatos.sort(key=lambda x: x[1])
         proyecto_obj, fecha_ratif = candidatos[0]
 
+        # 5️⃣ Enviar notificación (idéntico a tu flujo actual)
         logins = [proyecto_obj.login_1, proyecto_obj.login_2] if proyecto_obj.login_2 else [proyecto_obj.login_1]
         enviados = []
-
-        # -------------------- NUEVO: control para enviar 1 solo mail interno si se da de baja --------------------
         baja_caducidad_triggered = False
-        baja_contexto = {
-            "proyecto_id": proyecto_obj.proyecto_id,
-            "logins": [l for l in logins if l],
-            "cuando": None,
-        }
-        # ---------------------------------------------------------------------------------------------------------
+        baja_contexto = {"proyecto_id": proyecto_obj.proyecto_id, "logins": [l for l in logins if l], "cuando": None}
 
         for login in logins:
             if not login:
@@ -8132,6 +8528,7 @@ def notificar_siguiente_proyecto_para_ratificar(
 
             hoy = datetime.now()
             nro_envio = 1
+
             if not notificacion:
                 notificacion = UsuarioNotificadoRatificacion(
                     proyecto_id=proyecto_obj.proyecto_id,
@@ -8150,7 +8547,7 @@ def notificar_siguiente_proyecto_para_ratificar(
                 notificacion.mail_enviado_4 = hoy
                 nro_envio = 4
             else:
-                # ✅ Si pasaron más de 7 días del cuarto aviso → cambiar a baja_caducidad
+                # Si pasaron más de 7 días del cuarto aviso → baja_caducidad
                 if notificacion.mail_enviado_4 and (hoy - notificacion.mail_enviado_4) > timedelta(days=7):
                     proyecto_obj.estado_general = "baja_caducidad"
                     # Marcamos que debemos enviar el mail interno (una vez)
@@ -8161,11 +8558,8 @@ def notificar_siguiente_proyecto_para_ratificar(
                     enviados.append({"login": login, "mensaje": "Proyecto pasado a baja_caducidad"})
                 continue
 
-            primer_nombre = (
-                usuario.nombre.split()[0].lower().capitalize()
-                if usuario.nombre else ""
-            )
-
+            # === envío del correo ===
+            primer_nombre = usuario.nombre.split()[0].capitalize() if usuario.nombre else ""
             cuerpo_html = f"""
             <html>
               <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
@@ -8215,32 +8609,24 @@ def notificar_siguiente_proyecto_para_ratificar(
                 </table>
               </body>
             </html>
-            """         
+            """     
 
-            enviar_mail(
-                destinatario=usuario.mail,
-                asunto="Ratificación de inscripción",
-                cuerpo=cuerpo_html
-            )
-
-            # Registrar evento en RuaEvento
+            enviar_mail(destinatario=usuario.mail, asunto="Ratificación de inscripción", cuerpo=cuerpo_html)
             evento = RuaEvento(
                 login=login,
                 evento_fecha=hoy,
                 evento_detalle=f"Notificación de ratificación enviada (intento {nro_envio}) al mail {usuario.mail}"
             )
             db.add(evento)
-
-            enviados.append({"login": login, "mail": usuario.mail, "proyecto_id": proyecto_obj.proyecto_id, "envio": nro_envio})
+            enviados.append({"login": login, "mail": usuario.mail, "envio": nro_envio})
 
         db.commit()
 
-        # -------------------- NUEVO: si se gatilló la baja, mail interno (una sola vez) --------------------
+        # 6️⃣ Mail interno si hubo baja
         if baja_caducidad_triggered:
             try:
                 cuando = baja_contexto["cuando"] or datetime.now()
-                asunto_int = "Proyecto dado de baja por caducidad — RUA"
-                lista_logins = ", ".join(baja_contexto["logins"]) if baja_contexto["logins"] else "(s/d)"
+                lista_logins = ", ".join(baja_contexto["logins"]) or "(s/d)"
                 cuerpo_int = f"""
                 <html>
                   <body style="margin:0; padding:0; background-color:#f8f9fa;">
@@ -8283,15 +8669,14 @@ def notificar_siguiente_proyecto_para_ratificar(
                   </body>
                 </html>
                 """
+
                 enviar_mail_multiples(
                     destinatarios=DESTINATARIOS_RUA,
-                    asunto=asunto_int,
-                    cuerpo=cuerpo_int,
+                    asunto="Proyecto dado de baja por caducidad — RUA",
+                    cuerpo=cuerpo_int
                 )
             except Exception as e:
-                # No romper el flujo si el correo interno falla
                 print(f"⚠️ Error enviando correo interno por baja_caducidad: {e}")
-        # -----------------------------------------------------------------------------------------------------
 
         return {
             "message": f"Se enviaron {len(enviados)} notificaciones para el proyecto {proyecto_obj.proyecto_id}.",
@@ -8303,6 +8688,7 @@ def notificar_siguiente_proyecto_para_ratificar(
     except SQLAlchemyError as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al enviar notificaciones: {str(e)}")
+
 
 
 
