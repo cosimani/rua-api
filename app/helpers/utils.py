@@ -828,6 +828,7 @@ def enviar_mail(destinatario: str, asunto: str, cuerpo: str):
     password = os.getenv("MAIL_PASSWORD")
     smtp_server = os.getenv("MAIL_SERVER", "smtp.office365.com")
     smtp_port = int(os.getenv("MAIL_PORT", 587))
+    reply_to = os.getenv("MAIL_REPLY_TO", "registroadopcion@justiciacordoba.gob.ar")  # Dirección para responder
 
     # ─────────── Lógica de destino ───────────
     # Si la variable no existe, tomamos "Y" como valor por defecto
@@ -839,6 +840,7 @@ def enviar_mail(destinatario: str, asunto: str, cuerpo: str):
     # ─────────── Construcción del mensaje ───────────
     msg = MIMEMultipart()
     msg["From"]    = formataddr((nombre_remitente, remitente))  # Ej: "RUA <sistemarua@...>"
+    msg["Reply-To"] = reply_to
     msg["To"]      = destino_final
     msg["Subject"] = asunto
     msg.attach(MIMEText(cuerpo, "html"))
@@ -867,6 +869,7 @@ def enviar_mail_multiples(
     password = os.getenv("MAIL_PASSWORD")
     smtp_server = os.getenv("MAIL_SERVER", "smtp.office365.com")
     smtp_port = int(os.getenv("MAIL_PORT", 587))
+    reply_to = os.getenv("MAIL_REPLY_TO", "registroadopcion@justiciacordoba.gob.ar")  # Dirección para responder
 
     # Respeta el “modo solo a César” (por defecto Y)
     mail_solo_a_cesar = os.getenv("MAIL_SOLO_A_CESAR", "Y").strip().upper() != "N"
@@ -881,6 +884,7 @@ def enviar_mail_multiples(
     # Encabezados visibles (To y Cc). Bcc NO se pone en headers.
     msg = MIMEMultipart()
     msg["From"] = formataddr((nombre_remitente, remitente))
+    msg["Reply-To"] = reply_to
     msg["To"] = ", ".join(destinatarios)
     if cc:
         msg["Cc"] = ", ".join(cc)
