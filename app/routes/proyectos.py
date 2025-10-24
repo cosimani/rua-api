@@ -926,7 +926,7 @@ def get_proyecto_por_id(
         ESTADOS_PREVIOS_A_VIABLE = [
             "en_revision", "actualizando", "aprobado",
             "calendarizando", "entrevistando", "para_valorar",
-            "en_suspenso", "no_viable", "vinculacion",
+            "en_suspenso", "viable", "no_viable", "vinculacion",
             "guarda_provisoria", "guarda_confirmada",
             "adopcion_definitiva", "baja_anulacion", "baja_caducidad",
             "baja_por_convocatoria", "baja_rechazo_invitacion",
@@ -7999,7 +7999,7 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
         ESTADOS_PREVIOS_A_VIABLE = [
             "en_revision", "actualizando", "aprobado",
             "calendarizando", "entrevistando", "para_valorar",
-            "en_suspenso", "no_viable", "vinculacion",
+            "en_suspenso", "viable", "no_viable", "vinculacion",
             "guarda_provisoria", "guarda_confirmada",
             "adopcion_definitiva", "baja_anulacion", "baja_caducidad",
             "baja_por_convocatoria", "baja_rechazo_invitacion",
@@ -8429,7 +8429,7 @@ def notificar_siguiente_proyecto_para_ratificar(
 
         ESTADOS_PREVIOS_A_VIABLE = [
             "en_revision", "actualizando", "aprobado", "calendarizando", "entrevistando",
-            "para_valorar", "en_suspenso", "no_viable", "vinculacion",
+            "para_valorar", "en_suspenso", "viable", "no_viable", "vinculacion",
             "guarda_provisoria", "guarda_confirmada", "adopcion_definitiva",
             "baja_anulacion", "baja_caducidad", "baja_por_convocatoria",
             "baja_rechazo_invitacion", "baja_interrupcion", "baja_desistimiento"
@@ -8712,6 +8712,10 @@ def ratificar_proyecto(
         (Proyecto.login_1 == login) | (Proyecto.login_2 == login),
         Proyecto.estado_general == "viable"
     ).first()
+    proyecto = db.query(Proyecto).filter(
+        (Proyecto.login_1 == login) | (Proyecto.login_2 == login),
+        Proyecto.estado_general.in_(["viable", "en_carpeta"])
+    ).first()
 
     if not proyecto:
         return {
@@ -8727,12 +8731,19 @@ def ratificar_proyecto(
         ahora = datetime.now()
 
         # Registrar historial simbólico
+        # historial = ProyectoHistorialEstado(
+        #     proyecto_id=proyecto.proyecto_id,
+        #     fecha_hora=ahora,
+        #     estado_anterior="viable",
+        #     estado_nuevo="viable",
+        #     comentarios="Ratificación de continuidad en el registro"
+        # )
         historial = ProyectoHistorialEstado(
-            proyecto_id=proyecto.proyecto_id,
-            fecha_hora=ahora,
-            estado_anterior="viable",
-            estado_nuevo="viable",
-            comentarios="Ratificación de continuidad en el registro"
+            proyecto_id = proyecto.proyecto_id,
+            fecha_hora = ahora,
+            estado_anterior = proyecto.estado_general,
+            estado_nuevo = proyecto.estado_general,
+            comentarios = "Ratificación de continuidad en el registro"
         )
         db.add(historial)
 

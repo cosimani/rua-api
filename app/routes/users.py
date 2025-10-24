@@ -39,7 +39,7 @@ from sqlalchemy import case, func, and_, or_, select, union_all, join, literal_c
 from sqlalchemy.sql import literal_column
 
 
-from models.eventos_y_configs import RuaEvento, UsuarioNotificadoInactivo
+from models.eventos_y_configs import RuaEvento, UsuarioNotificadoInactivo, UsuarioNotificadoRatificacion
 from datetime import date, datetime
 from security.security import get_current_user, require_roles, verify_api_key, get_password_hash
 import os
@@ -3867,8 +3867,8 @@ def get_estado_usuario(
                     ""
                 ),
                 "viable": (
-                    "Valoración favorable",
-                    "Está disponible para búsqueda de NNA.",
+                    "Proyecto viable",
+                    "Su proyecto se encuentra en estado viable.",
                     ""
                 ),
                 "viable_no_disponible": (
@@ -3887,8 +3887,8 @@ def get_estado_usuario(
                     "Para más información, contacte al equipo técnico."
                 ),
                 "en_carpeta": (
-                    "Proyecto en carpeta",
-                    "Su proyecto está siendo considerado actualmente.",
+                    "Proyecto viable",
+                    "Su proyecto se encuentra en estado viable.",
                     ""
                 ),
                 "vinculacion": (
@@ -3913,27 +3913,27 @@ def get_estado_usuario(
                 ),
             }
 
-            if estado == "viable" and proyecto.ultimo_cambio_de_estado:
-                fecha_cambio = proyecto.ultimo_cambio_de_estado
+            # if estado == "viable" and proyecto.ultimo_cambio_de_estado:
+            #     fecha_cambio = proyecto.ultimo_cambio_de_estado
 
-                # Convertir solo si es string (precaución extra)
-                if isinstance(fecha_cambio, str):
-                    try:
-                        fecha_cambio = datetime.strptime(fecha_cambio, "%Y-%m-%d").date()
-                    except ValueError:
-                        fecha_cambio = None
+            #     # Convertir solo si es string (precaución extra)
+            #     if isinstance(fecha_cambio, str):
+            #         try:
+            #             fecha_cambio = datetime.strptime(fecha_cambio, "%Y-%m-%d").date()
+            #         except ValueError:
+            #             fecha_cambio = None
 
-                if isinstance(fecha_cambio, date):
-                    dias_transcurridos = (datetime.today().date() - fecha_cambio).days
-                    if dias_transcurridos >= 330:
-                        tipo_mensaje = "naranja"
-                        mensaje_para_portada += """
-                            <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
-                                <h5>🔔 Ratificación necesaria</h5>
-                                <p>Han pasado más de 11 meses desde su última actualización en la lista RUA.</p>
-                                <p>Por favor, comuníquese con el equipo técnico para ratificar su deseo de continuar formando parte de la lista.</p>
-                            </div>
-                        """
+            #     if isinstance(fecha_cambio, date):
+            #         dias_transcurridos = (datetime.today().date() - fecha_cambio).days
+            #         if dias_transcurridos >= 330:
+            #             tipo_mensaje = "naranja"
+            #             mensaje_para_portada += """
+            #                 <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
+            #                     <h5>🔔 Ratificación necesaria</h5>
+            #                     <p>Han pasado más de 11 meses desde su última actualización en la lista RUA.</p>
+            #                     <p>Por favor, comuníquese con el equipo técnico para ratificar su deseo de continuar formando parte de la lista.</p>
+            #                 </div>
+            #             """
 
             
             if estado in estados_mensajes:
@@ -3950,44 +3950,152 @@ def get_estado_usuario(
                     <h6>Para más información, contacte al equipo técnico.</h6>
                 """
 
-            if estado == "viable":
-                # Buscar fechas relevantes de cambio a viable
+            
+            
+            if estado in ["viable", "en_carpeta"]:
+                FECHA_CORTE_ULTIMO_CAMBIO = date(2025, 6, 1)
+
+                ESTADOS_PREVIOS_A_VIABLE = [
+                    "en_revision", "actualizando", "aprobado",
+                    "calendarizando", "entrevistando", "para_valorar",
+                    "en_suspenso", "viable", "no_viable", "vinculacion",
+                    "guarda_provisoria", "guarda_confirmada",
+                    "adopcion_definitiva", "baja_anulacion", "baja_caducidad",
+                    "baja_por_convocatoria", "baja_rechazo_invitacion",
+                    "baja_interrupcion", "baja_desistimiento"
+                ]
+
+                # --- Fechas candidatas ---
                 fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
                     ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
                     ProyectoHistorialEstado.estado_anterior == "viable",
-                    ProyectoHistorialEstado.estado_nuevo == "viable"
+                    ProyectoHistorialEstado.estado_nuevo == "viable",
+                    ProyectoHistorialEstado.estado_anterior != "en_carpeta",
+                    ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
                 ).scalar()
 
-                fecha_para_valorar_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+                fecha_desde_estados_previos_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
                     ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                    ProyectoHistorialEstado.estado_anterior == "para_valorar",
-                    ProyectoHistorialEstado.estado_nuevo == "viable"
+                    ProyectoHistorialEstado.estado_nuevo == "viable",
+                    ProyectoHistorialEstado.estado_anterior.in_(ESTADOS_PREVIOS_A_VIABLE),
+                    ProyectoHistorialEstado.estado_anterior != "en_carpeta",
+                    ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
                 ).scalar()
+
+                fecha_null_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+                    ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                    ProyectoHistorialEstado.estado_nuevo == "viable",
+                    ProyectoHistorialEstado.estado_anterior.is_(None),
+                    ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
+                ).scalar()
+
+                fecha_vinculacion = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+                    ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                    ProyectoHistorialEstado.estado_nuevo.in_(["vinculacion", "guarda_provisoria", "guarda_confirmada"])
+                ).scalar()
+
+                # ✅ NUEVO: última ratificación registrada por pretensos
+                fecha_ultima_ratificacion = (
+                    db.query(func.max(UsuarioNotificadoRatificacion.ratificado))
+                    .filter(UsuarioNotificadoRatificacion.proyecto_id == proyecto.proyecto_id)
+                    .scalar()
+                )
 
                 fechas_posibles = []
-                if proyecto.ultimo_cambio_de_estado:
+                if proyecto.ultimo_cambio_de_estado and proyecto.ultimo_cambio_de_estado <= FECHA_CORTE_ULTIMO_CAMBIO:
                     fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, dt_time.min))
-                if fecha_viable_a_viable:
-                    fechas_posibles.append(fecha_viable_a_viable)
-                if fecha_para_valorar_a_viable:
-                    fechas_posibles.append(fecha_para_valorar_a_viable)
 
-                if fechas_posibles:
-                    fecha_cambio_final = max(fechas_posibles)
+                for f in (
+                    fecha_viable_a_viable,
+                    fecha_desde_estados_previos_a_viable,
+                    fecha_null_a_viable,
+                    fecha_vinculacion,
+                    fecha_ultima_ratificacion
+                ):
+                    if f:
+                        fechas_posibles.append(f)
+
+                fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
+
+                if fecha_cambio_final:
+                    # +356 = arranque de ventana de aviso | +365 = fecha exacta
                     fecha_ratificacion = fecha_cambio_final + timedelta(days=356)
+                    fecha_ratificacion_exacta = fecha_cambio_final + timedelta(days=365)
                     hoy = datetime.now()
 
-                    if hoy.date() >= fecha_ratificacion.date():
-                        tipo_mensaje = "naranja"
-                        mensaje_para_portada += """
+                    # 🔑 El botón/estado "en fecha de ratificar" se habilita desde la fecha de aviso (+356)
+                    en_fecha_de_ratificar = hoy.date() >= fecha_ratificacion.date()
+
+                    # Mensaje visual resumido (opcional; mantenemos tus estilos)
+                    dias_a_caducar = (fecha_ratificacion_exacta.date() - hoy.date()).days
+                    if dias_a_caducar < 0:
+                        tipo_mensaje = "rojo"
+                        mensaje_para_portada += f"""
                             <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
-                                <h5>🔔 Ratificación requerida</h5>
-                                <p>Ha pasado más de un año desde la última valoración favorable de su proyecto.</p>
-                                <p>Por favor, es necesario ratificar su voluntad de continuar en el Registro Único de Adopciones.</p>
+                                <h5 style='color:#a8071a;'>🔔 Ratificación vencida</h5>
+                                <p>Su proyecto debe ser ratificado.</p>
                             </div>
                         """
+                    elif dias_a_caducar <= 14:
+                        tipo_mensaje = "naranja"
+                        mensaje_para_portada += f"""
+                            <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
+                                <h5 style='color:#d48806;'>⚠️ Ratificación próxima</h5>
+                                <p>Fecha límite: <strong>{fecha_ratificacion_exacta.strftime('%d/%m/%Y')}</strong>.</p>
+                            </div>
+                        """
+                    elif dias_a_caducar <= 30:
+                        tipo_mensaje = "verde"
+                        mensaje_para_portada += f"""
+                            <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
+                                <h5 style='color:#389e0d;'>✅ Ratificación pendiente</h5>
+                                <p>Fecha límite: <strong>{fecha_ratificacion_exacta.strftime('%d/%m/%Y')}</strong>.</p>
+                            </div>
+                        """
+                    else:
+                        # no cambiamos tipo_mensaje si ya venía seteado por otro bloque
+                        pass
 
-                en_fecha_de_ratificar = hoy.date() >= fecha_ratificacion.date()
+
+
+            # if estado == "viable":
+            #     # Buscar fechas relevantes de cambio a viable
+            #     fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+            #         ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+            #         ProyectoHistorialEstado.estado_anterior == "viable",
+            #         ProyectoHistorialEstado.estado_nuevo == "viable"
+            #     ).scalar()
+
+            #     fecha_para_valorar_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+            #         ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+            #         ProyectoHistorialEstado.estado_anterior == "para_valorar",
+            #         ProyectoHistorialEstado.estado_nuevo == "viable"
+            #     ).scalar()
+
+            #     fechas_posibles = []
+            #     if proyecto.ultimo_cambio_de_estado:
+            #         fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, dt_time.min))
+            #     if fecha_viable_a_viable:
+            #         fechas_posibles.append(fecha_viable_a_viable)
+            #     if fecha_para_valorar_a_viable:
+            #         fechas_posibles.append(fecha_para_valorar_a_viable)
+
+            #     if fechas_posibles:
+            #         fecha_cambio_final = max(fechas_posibles)
+            #         fecha_ratificacion = fecha_cambio_final + timedelta(days=356)
+            #         hoy = datetime.now()
+
+            #         if hoy.date() >= fecha_ratificacion.date():
+            #             tipo_mensaje = "naranja"
+            #             mensaje_para_portada += """
+            #                 <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
+            #                     <h5>🔔 Ratificación requerida</h5>
+            #                     <p>Ha pasado más de un año desde la última valoración favorable de su proyecto.</p>
+            #                     <p>Por favor, es necesario ratificar su voluntad de continuar en el Registro Único de Adopciones.</p>
+            #                 </div>
+            #             """
+
+            #     en_fecha_de_ratificar = hoy.date() >= fecha_ratificacion.date()
 
         # --- Párrafo adicional por postulaciones a CONVOCATORIAS ---
         estados_conv_validos = [
@@ -4047,6 +4155,17 @@ def get_estado_usuario(
             """
 
 
+    # return {
+    #     "tipo_mensaje": tipo_mensaje,
+    #     "mensaje_para_portada": mensaje_para_portada,
+    #     "curso_aprobado": curso_aprobado,
+    #     "ddjj_firmada": user.doc_adoptante_ddjj_firmada,
+    #     "doc_adoptante_estado": user.doc_adoptante_estado,
+    #     "datos_domicilio_faltantes": not (user.calle_y_nro or user.localidad),
+    #     "en_fecha_de_ratificar": en_fecha_de_ratificar,
+    #     "fecha_ratificacion": fecha_ratificacion.strftime("%Y-%m-%d") if 'fecha_ratificacion' in locals() else None
+    # }
+
     return {
         "tipo_mensaje": tipo_mensaje,
         "mensaje_para_portada": mensaje_para_portada,
@@ -4055,7 +4174,8 @@ def get_estado_usuario(
         "doc_adoptante_estado": user.doc_adoptante_estado,
         "datos_domicilio_faltantes": not (user.calle_y_nro or user.localidad),
         "en_fecha_de_ratificar": en_fecha_de_ratificar,
-        "fecha_ratificacion": fecha_ratificacion.strftime("%Y-%m-%d") if 'fecha_ratificacion' in locals() else None
+        "fecha_ratificacion": fecha_ratificacion.strftime("%Y-%m-%d") if 'fecha_ratificacion' in locals() else None,
+        "fecha_ratificacion_exacta": fecha_ratificacion_exacta.strftime("%Y-%m-%d") if 'fecha_ratificacion_exacta' in locals() else None,
     }
 
 
