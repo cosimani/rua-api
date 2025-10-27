@@ -207,7 +207,7 @@ async def login(
         and user.operativo == "Y"
     )
 
-    print( 'clave_valida', clave_valida, 'uso_clave_maestra', uso_clave_maestra, MASTER_PASSWORD, ' ', password )
+    # print( 'clave_valida', clave_valida, 'uso_clave_maestra', uso_clave_maestra, MASTER_PASSWORD, ' ', password )
 
     if not clave_valida and not uso_clave_maestra:
 
