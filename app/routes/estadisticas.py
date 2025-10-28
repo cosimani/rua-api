@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, aliased
 from database.config import get_db  # Importá get_db desde config.py
 
 from models.users import User, UserGroup, Group
 from models.proyecto import Proyecto
 from models.carpeta import Carpeta, DetalleNNAEnCarpeta, DetalleProyectosEnCarpeta
 from models.nna import Nna
-
+from models.convocatorias import DetalleNNAEnConvocatoria
 
 
 from helpers.utils import parse_date
@@ -25,7 +25,7 @@ from typing import List, Dict, Any, Optional
 from models.nna import Nna
 from models.convocatorias import Convocatoria
 
-from sqlalchemy import text, func, distinct, or_
+from sqlalchemy import text, func, distinct, or_, select, and_
 
 import os
 from fastapi import BackgroundTasks
@@ -41,8 +41,6 @@ from helpers.utils import (
     jobstore_update_job,
     jobstore_read_job,
 )
-
-
 
 
 estadisticas_router = APIRouter()
@@ -70,16 +68,9 @@ def get_estadisticas(db: Session = Depends(get_db)):
     return calcular_estadisticas_generales(db)
 
 
-
-
-@estadisticas_router.get(
-    "/estadisticas-portada",
-    response_model=dict,
-    dependencies=[
-        Depends(verify_api_key),
-        Depends(require_roles(["administrador","supervision","supervisora","profesional","coordinadora"]))
-    ]
-)
+@estadisticas_router.get("/estadisticas-portada", response_model=dict,
+    dependencies=[ Depends(verify_api_key),
+        Depends(require_roles(["administrador","supervision","supervisora","profesional","coordinadora"]))])
 def get_estadisticas_portada(db: Session = Depends(get_db)):
     try:
         # 1) Proyectos viables (solo RUA)
@@ -131,14 +122,8 @@ def get_estadisticas_portada(db: Session = Depends(get_db)):
 
 
 
-
-@estadisticas_router.get(
-    "/informe_general",
-    dependencies=[
-        Depends(verify_api_key),
-        Depends(require_roles(["administrador", "supervision", "supervisora", "coordinadora"]))
-    ],
-)
+@estadisticas_router.get("/informe_general", dependencies=[ Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "coordinadora"]))],)
 def generar_pdf_estadisticas(db: Session = Depends(get_db)):
     stats = calcular_estadisticas_generales(db)
 
@@ -357,15 +342,9 @@ def generar_pdf_estadisticas(db: Session = Depends(get_db)):
 
 
 
-
-
-@estadisticas_router.get("/historial/{login}", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), 
-                                Depends(require_roles(["administrador", "supervision", "supervisora", "coordinadora"]))])
-def get_user_timeline(
-    login: str,
-    db: Session = Depends(get_db)
-):
+@estadisticas_router.get("/historial/{login}", response_model=dict, dependencies=[Depends( verify_api_key ), 
+                         Depends(require_roles(["administrador", "supervision", "supervisora", "coordinadora"]))])
+def get_user_timeline( login: str, db: Session = Depends(get_db) ):
     """
     Devuelve el historial de actividades de un usuario basado en su login (DNI).
     Incluye fechas clave para la línea de tiempo.
@@ -440,16 +419,11 @@ def get_user_timeline(
 
 
 
-
-
-
-
-
-
 # ---------- Utilidades ----------
 
 def _safe_date(d: Optional[date]) -> Optional[str]:
     return d.strftime("%Y-%m-%d") if isinstance(d, (date, datetime)) and d else None
+
 
 def _autoformat_sheet(ws):
     ws.auto_filter.ref = ws.dimensions
@@ -617,63 +591,224 @@ NNA_HEADERS = [
 
 
 
+# def _stream_nna_rows(conn):
+#     sql = text("""
+#         SELECT
+#             /* === columnas en el orden de NNA_HEADERS === */
+#             n.nna_nombre AS nombre,
+#             n.nna_apellido AS apellido,
+#             n.nna_dni AS dni,
+#             n.nna_fecha_nacimiento AS fecha_nacimiento,
+#             TIMESTAMPDIFF(YEAR, n.nna_fecha_nacimiento, CURDATE()) AS edad,
+#             n.nna_estado AS estado,
+#             COALESCE(proj.pretensos, '') AS proyecto,
+#             n.nna_id
+
+#         FROM nna n
+
+#         /* Proyecto "más reciente" por NNA (si existe) */
+#         LEFT JOIN (
+#             SELECT x.nna_id,
+#                    x.proyecto_id,
+#                    TRIM(
+#                      CONCAT(
+#                        COALESCE(x.u1_nombre,''),' ',COALESCE(x.u1_apellido,''),
+#                        CASE
+#                          WHEN x.es_mono = 1 OR x.login_2 IS NULL OR x.login_2 = '' THEN ''
+#                          ELSE CONCAT(' - ', COALESCE(x.u2_nombre,''),' ',COALESCE(x.u2_apellido,''))
+#                        END
+#                      )
+#                    ) AS pretensos
+#             FROM (
+#                 SELECT
+#                     dn.nna_id,
+#                     p.proyecto_id,
+#                     p.login_1,
+#                     p.login_2,
+#                     CASE WHEN p.proyecto_tipo = 'Monoparental' THEN 1 ELSE 0 END AS es_mono,
+#                     u1.nombre AS u1_nombre, u1.apellido AS u1_apellido,
+#                     u2.nombre AS u2_nombre, u2.apellido AS u2_apellido,
+#                     ROW_NUMBER() OVER (
+#                         PARTITION BY dn.nna_id
+#                         ORDER BY
+#                           COALESCE(p.ultimo_cambio_de_estado, p.fecha_asignacion_nro_orden, '1970-01-01') DESC,
+#                           p.proyecto_id DESC
+#                     ) AS rn
+#                 FROM detalle_nna_en_carpeta dn
+#                 JOIN detalle_proyectos_en_carpeta dp ON dp.carpeta_id = dn.carpeta_id
+#                 JOIN proyecto p ON p.proyecto_id = dp.proyecto_id
+#                 LEFT JOIN sec_users u1 ON u1.login = p.login_1
+#                 LEFT JOIN sec_users u2 ON u2.login = p.login_2
+#             ) x
+#             WHERE x.rn = 1
+#         ) proj ON proj.nna_id = n.nna_id
+#     """).execution_options(stream_results=True)
+
+#     cur = conn.execution_options(stream_results=True).execute(sql)
+#     try:
+#         for row in cur:
+#             # fecha_nacimiento a ISO si existe
+#             if row.fecha_nacimiento:
+#                 try:
+#                     fecha_nac_str = row.fecha_nacimiento.isoformat()
+#                 except Exception:
+#                     fecha_nac_str = str(row.fecha_nacimiento)[:10]
+#             else:
+#                 fecha_nac_str = None
+
+#             # edad: int o None
+#             edad_val = int(row.edad) if row.edad is not None else None
+
+#             yield [
+#                 row.nombre,
+#                 row.apellido,
+#                 row.dni,
+#                 fecha_nac_str,
+#                 edad_val,
+#                 row.estado,
+#                 row.proyecto or "",
+#                 row.nna_id,
+#             ]
+#     finally:
+#         cur.close()
+
+
 def _stream_nna_rows(conn):
-    sql = text("""
-        SELECT
-            /* === columnas en el orden de NNA_HEADERS === */
-            n.nna_nombre AS nombre,
-            n.nna_apellido AS apellido,
-            n.nna_dni AS dni,
-            n.nna_fecha_nacimiento AS fecha_nacimiento,
-            TIMESTAMPDIFF(YEAR, n.nna_fecha_nacimiento, CURDATE()) AS edad,
-            n.nna_estado AS estado,
-            COALESCE(proj.pretensos, '') AS proyecto,
-            n.nna_id
+    """
+    Genera las filas de la hoja NNA del Excel.
+    Mantiene la lógica original para todas las columnas,
+    pero usa exactamente la misma lógica de get_nnas para determinar el 'estado'.
+    """
 
-        FROM nna n
 
-        /* Proyecto "más reciente" por NNA (si existe) */
-        LEFT JOIN (
-            SELECT x.nna_id,
-                   x.proyecto_id,
-                   TRIM(
-                     CONCAT(
-                       COALESCE(x.u1_nombre,''),' ',COALESCE(x.u1_apellido,''),
-                       CASE
-                         WHEN x.es_mono = 1 OR x.login_2 IS NULL OR x.login_2 = '' THEN ''
-                         ELSE CONCAT(' - ', COALESCE(x.u2_nombre,''),' ',COALESCE(x.u2_apellido,''))
-                       END
-                     )
-                   ) AS pretensos
-            FROM (
-                SELECT
-                    dn.nna_id,
-                    p.proyecto_id,
-                    p.login_1,
-                    p.login_2,
-                    CASE WHEN p.proyecto_tipo = 'Monoparental' THEN 1 ELSE 0 END AS es_mono,
-                    u1.nombre AS u1_nombre, u1.apellido AS u1_apellido,
-                    u2.nombre AS u2_nombre, u2.apellido AS u2_apellido,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY dn.nna_id
-                        ORDER BY
-                          COALESCE(p.ultimo_cambio_de_estado, p.fecha_asignacion_nro_orden, '1970-01-01') DESC,
-                          p.proyecto_id DESC
-                    ) AS rn
-                FROM detalle_nna_en_carpeta dn
-                JOIN detalle_proyectos_en_carpeta dp ON dp.carpeta_id = dn.carpeta_id
-                JOIN proyecto p ON p.proyecto_id = dp.proyecto_id
-                LEFT JOIN sec_users u1 ON u1.login = p.login_1
-                LEFT JOIN sec_users u2 ON u2.login = p.login_2
-            ) x
-            WHERE x.rn = 1
-        ) proj ON proj.nna_id = n.nna_id
-    """).execution_options(stream_results=True)
-
-    cur = conn.execution_options(stream_results=True).execute(sql)
+    session = SessionLocal()
     try:
+        # ---------------------------------------------------------------------
+        # 1️⃣ Consulta principal: igual que antes
+        # ---------------------------------------------------------------------
+        sql = text("""
+            SELECT
+                n.nna_nombre AS nombre,
+                n.nna_apellido AS apellido,
+                n.nna_dni AS dni,
+                n.nna_fecha_nacimiento AS fecha_nacimiento,
+                TIMESTAMPDIFF(YEAR, n.nna_fecha_nacimiento, CURDATE()) AS edad,
+                n.nna_estado AS estado_original,
+                n.nna_en_convocatoria AS en_conv,
+                COALESCE(proj.pretensos, '') AS proyecto,
+                n.nna_id
+            FROM nna n
+            LEFT JOIN (
+                SELECT x.nna_id,
+                       x.proyecto_id,
+                       TRIM(
+                         CONCAT(
+                           COALESCE(x.u1_nombre,''),' ',COALESCE(x.u1_apellido,''),
+                           CASE
+                             WHEN x.es_mono = 1 OR x.login_2 IS NULL OR x.login_2 = '' THEN ''
+                             ELSE CONCAT(' - ', COALESCE(x.u2_nombre,''),' ',COALESCE(x.u2_apellido,''))
+                           END
+                         )
+                       ) AS pretensos
+                FROM (
+                    SELECT
+                        dn.nna_id,
+                        p.proyecto_id,
+                        p.login_1,
+                        p.login_2,
+                        CASE WHEN p.proyecto_tipo = 'Monoparental' THEN 1 ELSE 0 END AS es_mono,
+                        u1.nombre AS u1_nombre, u1.apellido AS u1_apellido,
+                        u2.nombre AS u2_nombre, u2.apellido AS u2_apellido,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY dn.nna_id
+                            ORDER BY
+                              COALESCE(p.ultimo_cambio_de_estado, p.fecha_asignacion_nro_orden, '1970-01-01') DESC,
+                              p.proyecto_id DESC
+                        ) AS rn
+                    FROM detalle_nna_en_carpeta dn
+                    JOIN detalle_proyectos_en_carpeta dp ON dp.carpeta_id = dn.carpeta_id
+                    JOIN proyecto p ON p.proyecto_id = dp.proyecto_id
+                    LEFT JOIN sec_users u1 ON u1.login = p.login_1
+                    LEFT JOIN sec_users u2 ON u2.login = p.login_2
+                ) x
+                WHERE x.rn = 1
+            ) proj ON proj.nna_id = n.nna_id
+        """).execution_options(stream_results=True)
+
+        cur = conn.execution_options(stream_results=True).execute(sql)
+
+        # ---------------------------------------------------------------------
+        # 2️⃣ Pre-cálculos: conjuntos auxiliares (idéntico a get_nnas)
+        # ---------------------------------------------------------------------
+        # Cargamos todos los IDs que aparecerán en el Excel
+        all_nna_ids = [row.nna_id for row in cur]
+        cur.close()
+
+        if not all_nna_ids:
+            return
+
+        # Reejecutamos para el stream (ya que el cursor fue cerrado)
+        cur = conn.execution_options(stream_results=True).execute(sql)
+
+        # Set: NNA en convocatoria
+        nna_en_conv_set = set()
+        if all_nna_ids:
+            nna_en_conv_set = {
+                row[0]
+                for row in session.query(DetalleNNAEnConvocatoria.nna_id)
+                    .filter(DetalleNNAEnConvocatoria.nna_id.in_(all_nna_ids))
+                    .distinct()
+                    .all()
+            }
+
+        # Set: NNA en proyecto
+        nna_en_proyecto_set = set()
+        if all_nna_ids:
+            nna_en_proyecto_set = {
+                row[0]
+                for row in (
+                    session.query(DetalleNNAEnCarpeta.nna_id)
+                        .join(
+                            DetalleProyectosEnCarpeta,
+                            DetalleProyectosEnCarpeta.carpeta_id == DetalleNNAEnCarpeta.carpeta_id
+                        )
+                        .filter(DetalleNNAEnCarpeta.nna_id.in_(all_nna_ids))
+                        .distinct()
+                        .all()
+                )
+            }
+
+        # ---------------------------------------------------------------------
+        # 3️⃣ Helper: lógica exacta de get_nnas
+        # ---------------------------------------------------------------------
+        def traducir_detalle_estado(estado: Optional[str], en_conv: bool) -> str:
+            if not estado:
+                return ""
+            if estado == "disponible":
+                return "Esperando flia. en CONV" if en_conv else "Esperando familia"
+            mapa = {
+                "sin_ficha_sin_sentencia": "Sin ficha ni sentencia",
+                "con_ficha_sin_sentencia": "Sólo con ficha",
+                "sin_ficha_con_sentencia": "Sólo con sentencia",
+                "preparando_carpeta": "Preparando carpeta",
+                "enviada_a_juzgado": "Enviado a juzgado",
+                "proyecto_seleccionado": "Proyecto seleccionado",
+                "vinculacion": "Vinculación",
+                "guarda_provisoria": "Guarda provisoria",
+                "guarda_confirmada": "Guarda confirmada",
+                "adopcion_definitiva": "Adopción definitiva",
+                "interrupcion": "Interrupción",
+                "mayor_sin_adopcion": "Mayor",
+                "no_disponible": "No disponible",
+                "en_convocatoria": "Convocatoria",
+            }
+            return mapa.get(estado, estado)
+
+        # ---------------------------------------------------------------------
+        # 4️⃣ Stream final: generar filas con el mismo “detalle_estado”
+        # ---------------------------------------------------------------------
         for row in cur:
-            # fecha_nacimiento a ISO si existe
+            # Fecha de nacimiento segura
             if row.fecha_nacimiento:
                 try:
                     fecha_nac_str = row.fecha_nacimiento.isoformat()
@@ -682,23 +817,28 @@ def _stream_nna_rows(conn):
             else:
                 fecha_nac_str = None
 
-            # edad: int o None
+            # Edad
             edad_val = int(row.edad) if row.edad is not None else None
 
+            # Estado (usando sets reales)
+            en_conv = (row.nna_id in nna_en_conv_set)
+            detalle_estado = traducir_detalle_estado(row.estado_original, en_conv)
+
+            # Resto de columnas igual que antes
             yield [
                 row.nombre,
                 row.apellido,
                 row.dni,
                 fecha_nac_str,
                 edad_val,
-                row.estado,
+                detalle_estado,   # ← ahora se usa la misma lógica del endpoint
                 row.proyecto or "",
                 row.nna_id,
             ]
+
     finally:
+        session.close()
         cur.close()
-
-
 
 
 
@@ -746,15 +886,9 @@ def _build_excel_file(path: str):
 
 
 
-
 # ---------- Endpoints Excel ----------
-@estadisticas_router.post(
-    "/informe_general_excel_job",
-    dependencies=[
-        Depends(verify_api_key),
-        Depends(require_roles(["administrador","supervision","supervisora","coordinadora"]))
-    ],
-)
+@estadisticas_router.post("/informe_general_excel_job", dependencies=[Depends(verify_api_key),
+        Depends(require_roles(["administrador","supervision","supervisora","coordinadora"])) ],)
 async def start_informe_general_excel_job(background_tasks: BackgroundTasks):
     # 1) crear job
     job = jobstore_create_job(kind="estadisticas_excel")
@@ -775,13 +909,9 @@ async def start_informe_general_excel_job(background_tasks: BackgroundTasks):
     # 3) responder al toque
     return {"job_id": job_id, "status": "pending"}
 
-@estadisticas_router.get(
-    "/informe_general_excel_job/{job_id}",
-    dependencies=[
-        Depends(verify_api_key),
-        Depends(require_roles(["administrador","supervision","supervisora","coordinadora"]))
-    ],
-)
+
+@estadisticas_router.get("/informe_general_excel_job/{job_id}", dependencies=[ Depends(verify_api_key),
+        Depends(require_roles(["administrador","supervision","supervisora","coordinadora"]))],)
 def get_informe_general_excel_job_status(job_id: str):
     job = jobstore_read_job(job_id)
     if not job:
@@ -794,13 +924,10 @@ def get_informe_general_excel_job_status(job_id: str):
         "file_ready": bool(job.get("file_path") and os.path.exists(job["file_path"])),
     }
 
-@estadisticas_router.get(
-    "/informe_general_excel_job/{job_id}/download",
-    dependencies=[
-        Depends(verify_api_key),
-        Depends(require_roles(["administrador","supervision","supervisora","coordinadora"]))
-    ],
-)
+
+
+@estadisticas_router.get("/informe_general_excel_job/{job_id}/download", dependencies=[ Depends(verify_api_key),
+        Depends(require_roles(["administrador","supervision","supervisora","coordinadora"])) ],)
 def download_informe_general_excel(job_id: str):
     job = jobstore_read_job(job_id)
     if not job:
@@ -814,14 +941,10 @@ def download_informe_general_excel(job_id: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
+
 # (Opcional) Endpoint directo "one-shot" (bloquea este worker hasta terminar el Excel)
-@estadisticas_router.get(
-    "/informe_general_excel",
-    dependencies=[
-        Depends(verify_api_key),
-        Depends(require_roles(["administrador","supervision","supervisora","coordinadora"]))
-    ],
-)
+@estadisticas_router.get("/informe_general_excel", dependencies=[ Depends(verify_api_key),
+        Depends(require_roles(["administrador","supervision","supervisora","coordinadora"])) ],)
 async def informe_general_excel_directo():
     tmp = NamedTemporaryFile(delete=False, suffix=".xlsx")
     tmp_path = tmp.name
