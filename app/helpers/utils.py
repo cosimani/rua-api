@@ -294,6 +294,53 @@ def _estadisticas_usuarios(db: Session) -> dict:
         .count()
     )
 
+    # ───────────────────────────────────────────────
+    # NUEVO: pretensos_con_interaccion
+    # ───────────────────────────────────────────────
+    sql_pretensos_con_interaccion = text("""
+        SELECT COUNT(DISTINCT identificador) AS cantidad
+        FROM (
+            SELECT u.login AS identificador
+            FROM sec_users AS u
+            JOIN sec_users_groups AS ug ON ug.login = u.login
+            JOIN sec_groups AS g ON g.group_id = ug.group_id
+            WHERE g.description = 'Adoptante'
+              AND u.clave IS NOT NULL
+              AND TRIM(u.clave) <> ''
+
+            UNION ALL
+
+            SELECT u.login AS identificador
+            FROM sec_users AS u
+            JOIN sec_users_groups AS ug ON ug.login = u.login
+            JOIN sec_groups AS g ON g.group_id = ug.group_id
+            WHERE g.description = 'Adoptante'
+              AND (u.clave IS NULL OR TRIM(u.clave) = '')
+
+            UNION ALL
+
+            SELECT u.login AS identificador
+            FROM sec_users AS u
+            WHERE u.login IN (
+                SELECT DISTINCT p.conyuge_dni
+                FROM postulaciones AS p
+                WHERE p.conyuge_dni IS NOT NULL AND TRIM(p.conyuge_dni) <> ''
+            )
+
+            UNION ALL
+
+            SELECT p.dni AS identificador
+            FROM postulaciones AS p
+            JOIN sec_users AS u ON u.login = p.dni
+            WHERE p.dni IS NOT NULL
+              AND TRIM(p.dni) <> ''
+        ) AS combinados
+    """)
+
+
+    result = db.execute(sql_pretensos_con_interaccion).fetchone()
+    pretensos_con_interaccion = result[0] if result else 0
+
     return {
         "usuarios_totales": usuarios_totales,
         "usuarios_postulados_y_rua": usuarios_postulados_y_rua,
@@ -309,7 +356,8 @@ def _estadisticas_usuarios(db: Session) -> dict:
         "pretensos_rechazados": pretensos_rechazados,
         "pretensos_aprobados_con_estado_valido": aprobados_estado_valido,
         "usuarios_sin_proyecto": usuarios_sin_proyecto,
-        "tasa_aprobacion": (pretensos_aprobados / max(1, (pretensos_aprobados + pretensos_rechazados)))
+        "tasa_aprobacion": (pretensos_aprobados / max(1, (pretensos_aprobados + pretensos_rechazados))),
+        "pretensos_con_interaccion": pretensos_con_interaccion
     }
 
 # ---------------------------
@@ -770,9 +818,8 @@ def _tiempos_ratificacion(db: Session) -> dict:
         "ratificaciones_pendientes": pendientes
     }
 
-# ---------------------------
-# FUNCIÓN PRINCIPAL
-# ---------------------------
+
+
 def calcular_estadisticas_generales(db: Session) -> dict:
     """
     Versión modular y ampliada:

@@ -264,6 +264,10 @@ def generar_pdf_estadisticas(db: Session = Depends(get_db)):
 
     pretensos_data = [
         ["Indicador", "Cantidad"],
+        # Usuarios que interactuaron con el sistema: son los que tienen cuenta creada (que activaron con mail o que no activaron),
+        # que activaron y no hicieron nada más, que avanzaron en algo (ya se curso, ddjj, doc, etc.), que se postularon al menos
+        # a una convocatoria como postulante principal. Los que fueron agregados como cónyuge no cuentan.
+        ["Pretensos que interactuaron con el sistema", g(stats, "usuarios.pretensos_con_interaccion")],
         ["Activos (Pretensos con clave y activación con mail)", g(stats, "usuarios.usuarios_totales")],  # usuarios_totales redefinido
         ["Usuarios inactivos (aún no activaron con mail)", g(stats, "usuarios.sin_activar")],
         ["Con Curso y DDJJ firmada", g(stats, "usuarios.con_curso_con_ddjj")],
