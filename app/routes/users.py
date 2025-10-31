@@ -166,6 +166,17 @@ def get_users(
 
         t0 = time.perf_counter()
 
+        # Subquery: obtiene el último proyecto operativo por usuario (login_1 o login_2)
+        proyecto_subq = (
+            db.query(
+                func.max(Proyecto.proyecto_id).label("proyecto_id"),
+                func.coalesce(Proyecto.login_1, Proyecto.login_2).label("login_unico")
+            )
+            .filter(Proyecto.operativo == "Y")
+            .group_by(func.coalesce(Proyecto.login_1, Proyecto.login_2))
+            .subquery()
+        )
+
         query = (
             db.query(
                 User.login.label("login"),
@@ -239,7 +250,16 @@ def get_users(
             # El .outerjoin se usa para traer los usuarios existan o no en la segunda tabla, si no existe, trae los campos en null
             # Esto es porque puede que existan usuarios que aún no tengan DDJJ, o Proyecto, etc.
             .outerjoin(DDJJ, User.login == DDJJ.login)
-            .outerjoin(Proyecto, (User.login == Proyecto.login_1) | (User.login == Proyecto.login_2))
+            # .outerjoin(Proyecto, (User.login == Proyecto.login_1) | (User.login == Proyecto.login_2))
+            
+            .outerjoin(
+                proyecto_subq,
+                proyecto_subq.c.login_unico == User.login
+            )
+            .outerjoin(
+                Proyecto,
+                Proyecto.proyecto_id == proyecto_subq.c.proyecto_id
+            )
         )
 
         t1 = time.perf_counter()
@@ -619,6 +639,29 @@ def get_users(
                         prim_subregistro_string = ""
 
 
+            # ----------------------------------------------------------
+            # NUEVO CAMPO: fecha_doc_adoptante_estado
+            # ----------------------------------------------------------
+            fecha_doc_adoptante_estado = None
+
+            if user.doc_adoptante_estado == "pedido_revision":
+                evento_match = (
+                    db.query(RuaEvento.evento_fecha)
+                    .filter(
+                        RuaEvento.login == user.login,
+                        or_(
+                            RuaEvento.evento_detalle.ilike("%solicitó la revisión de su documentación perso%"),
+                            RuaEvento.evento_detalle.ilike("%Solicitud para la revisión de documentación personal%")
+                        )
+                    )
+                    .order_by(RuaEvento.evento_fecha.desc())  # por si hay más de una revisión
+                    .first()
+                )
+
+                if evento_match and evento_match.evento_fecha:
+                    fecha_doc_adoptante_estado = evento_match.evento_fecha.strftime("%Y-%m-%d")
+
+
 
             user_dict = {
                 "login": user.login,
@@ -685,6 +728,7 @@ def get_users(
                 "subregistro_string": prim_subregistro_string,
                 "proyecto_estado_general": prim_estado_general,
                 "proyectos_ids": proyectos_ids,
+                "fecha_doc_adoptante_estado": fecha_doc_adoptante_estado or "",
 
             }
             users_list.append(user_dict)
