@@ -120,8 +120,13 @@ def get_users(
         None, description="Filtrar por tipo de proyecto (Monoparental, Matrimonio, Unión convivencial)" ),
     curso_aprobado: Optional[bool] = Query(None, description="Filtrar por curso aprobado"),
     doc_adoptante_estado: Optional[Literal[
-        "inicial_cargando", "pedido_revision", "actualizando", "aprobado", "rechazado", "inactivo"
-    ]] = Query(None, description="Filtrar por estado de documentación personal (incluye 'inactivo')"),
+        "inicial_cargando", "pedido_revision", "actualizando",
+        "aprobado", "rechazado", "inactivo", "inoperativo"
+    ]] = Query(None, description="Filtrar por estado de documentación personal (incluye 'inactivo' e 'inoperativo')"),
+
+    # doc_adoptante_estado: Optional[Literal[
+    #     "inicial_cargando", "pedido_revision", "actualizando", "aprobado", "rechazado", "inactivo"
+    # ]] = Query(None, description="Filtrar por estado de documentación personal (incluye 'inactivo')"),
                                           
 
     nro_orden_rua: Optional[int] = Query(None, description="Filtrar por número de orden"),
@@ -137,8 +142,8 @@ def get_users(
     ingreso_por: Literal["rua","oficio","convocatoria","todos"] = Query(
         "rua",
         description="Filtra por origen del proyecto: rua/oficio/convocatoria. 'todos' para no filtrar."
-    ),
-):
+    )   ):
+
     """
     Devuelve los usuarios de sec_users paginados. <br>
     group_description puede ser: adoptante, profesional, supervisora o administrador <br>
@@ -290,62 +295,71 @@ def get_users(
         if curso_aprobado is not None:  # Verificamos que no sea None, porque False es un valor válido
             query = query.filter(User.doc_adoptante_curso_aprobado == ("Y" if curso_aprobado else "N"))
 
-        # Filtro por estado de documentación personal
+        # # Filtro por estado de documentación personal
         # if doc_adoptante_estado:
-        #     query = query.filter(User.doc_adoptante_estado == doc_adoptante_estado)
+        #     if doc_adoptante_estado == "inactivo":
+        #         # 'inactivo' es un estado virtual: se filtra por active = 'N'
+        #         query = query.filter(User.active == "N")
+        #     else:
+        #         # Estados reales del enum; además, excluimos inactivos para no mezclar
+        #         query = query.filter(
+        #             User.doc_adoptante_estado == doc_adoptante_estado,
+        #             or_(User.active == None, User.active != "N")  # activos o null
+        #         )
 
         # Filtro por estado de documentación personal
         if doc_adoptante_estado:
             if doc_adoptante_estado == "inactivo":
-                # 'inactivo' es un estado virtual: se filtra por active = 'N'
+                # Estado virtual: usuarios desactivados
                 query = query.filter(User.active == "N")
+
+            elif doc_adoptante_estado == "inoperativo":
+                # Nuevo estado virtual: usuarios con operativo = 'N'
+                query = query.filter(func.upper(User.operativo) == "N")
+
             else:
                 # Estados reales del enum; además, excluimos inactivos para no mezclar
                 query = query.filter(
                     User.doc_adoptante_estado == doc_adoptante_estado,
-                    or_(User.active == None, User.active != "N")  # activos o null
+                    or_(User.active == None, User.active != "N")
                 )
+
 
 
         # Filtro por nro de orden
         if nro_orden_rua:
             query = query.filter(Proyecto.nro_orden_rua == nro_orden_rua)    
 
-        # ——— Filtro por campo operativo ——————————————————————————
-        # if operativo is None:          # el cliente no mandó el parámetro
-        #     operativo = "Y"            # asumimos solo operativos
-        # query = query.filter(User.operativo == operativo)
-        # ——————————————————————————————————————————————————————————
 
         # ——— Filtro por campo operativo ——————————————————————————
-        # Regla:
-        # - Si el cliente manda ?operativo=Y|N => respetar ese filtro.
-        # - Si NO manda 'operativo' (operativo is None):
-        #     * Por defecto filtrar solo Y.
-        #     * EXCEPCIÓN: si doc_adoptante_estado == "rechazado", NO filtrar por operativo (incluye Y y N).
-        # if operativo is not None:
-        #     query = query.filter(User.operativo == operativo)
-        # else:
-        #     if not (doc_adoptante_estado and doc_adoptante_estado == "rechazado"):
-        #         query = query.filter(User.operativo == "Y")
-        # ——————————————————————————————————————————————————————————
-
-        # ——— Filtro por campo operativo ——————————————————————————
-        # Regla:
-        # - Si el cliente manda ?operativo=Y|N => respetar ese filtro.
-        # - Si NO manda 'operativo' (operativo is None):
-        #     * Por defecto filtrar solo Y.
-        #     * Pero incluir también usuarios con doc_adoptante_estado='rechazado'.
         if operativo is not None:
             query = query.filter(User.operativo == operativo)
         else:
-            query = query.filter(
-                or_(
-                    User.operativo == "Y",
-                    User.doc_adoptante_estado == "rechazado"
+            if doc_adoptante_estado in ["inactivo", "inoperativo"]:
+                # No aplicar filtro adicional: ya se filtró arriba
+                pass
+            elif search and len(search.strip()) >= 3:
+                # Con búsqueda (sin inactivo/inoperativo) → incluir Y y N
+                query = query.filter(
+                    or_(
+                        func.upper(User.operativo).in_(["Y", "N"]),
+                        User.doc_adoptante_estado == "rechazado"
+                    )
                 )
-            )
-        # ——————————————————————————————————————————————————————————
+            else:
+                # Por defecto → solo Y y rechazado
+                query = query.filter(
+                    or_(
+                        func.upper(User.operativo) == "Y",
+                        User.doc_adoptante_estado == "rechazado"
+                    )
+                )
+
+
+
+
+
+
 
 
 
@@ -424,6 +438,7 @@ def get_users(
             "aprobado": "Doc. aprobada",
             "rechazado": "Doc. rechazada",
             "inactivo": "Inactivo",
+            "inoperativo": "Inoperativo",
 
             "invitacion_pendiente": "Invit. pendiente",
             "confeccionando": "Confeccionando",
@@ -647,9 +662,15 @@ def get_users(
                 "edad": edad,
                 "doc_adoptante_curso_aprobado": user.doc_adoptante_curso_aprobado == "Y",
                 # "doc_adoptante_estado": user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "",
+                # "doc_adoptante_estado": (
+                #     "inactivo" if user.active == "N"
+                #     else (user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "inicial_cargando")
+                # ),
+
                 "doc_adoptante_estado": (
                     "inactivo" if user.active == "N"
-                    else (user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "inicial_cargando")
+                    else ("inoperativo" if user.operativo == "N"
+                          else (user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states else "inicial_cargando"))
                 ),
 
                 "proyecto_id": proyecto_id_primario if proyecto_id_primario is not None else "",
