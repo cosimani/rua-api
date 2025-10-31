@@ -30,6 +30,16 @@ class ObservacionesPretensos(Base):
     observacion_a_cual_login = Column(String(190), ForeignKey("sec_users.login", ondelete="SET NULL"), nullable=True)
 
 
+class ObservacionesNNAs(Base):
+    __tablename__ = "observaciones_nnas"
+
+    observacion_id = Column(Integer, primary_key=True, autoincrement=True)
+    observacion_fecha = Column(DateTime, nullable=False, default="CURRENT_TIMESTAMP")
+    observacion = Column(Text, nullable=True)
+    login_que_observo = Column(String(190), ForeignKey("sec_users.login", ondelete="SET NULL"), nullable=True)
+    observacion_a_cual_nna = Column(Integer, ForeignKey("nna.nna_id", ondelete="SET NULL"), nullable=True)
+
+
 
 
 class NotificacionesRUA(Base):
