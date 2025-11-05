@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import SQLAlchemyError
 from models.nna import Nna
 from models.carpeta import DetalleNNAEnCarpeta, Carpeta, DetalleProyectosEnCarpeta
+from models.notif_y_observaciones import ObservacionesNNAs
 
 from models.convocatorias import Convocatoria, DetalleNNAEnConvocatoria
 
@@ -70,8 +71,12 @@ def get_nnas(
     excluir_nna_ids: Optional[List[int]] = Query(None),
 
     otra_jurisdiccion: Optional[bool] = Query(None),
-    hermanos: Optional[str] = Query(None, regex="^(grupo|sin)$"),
-):
+    hermanos: Optional[str] = Query(None, regex="^(grupo|sin)$"), 
+    con_no_inscriptos: Optional[bool] = Query(None)  # <-- ahora puede ser None, True o False
+    
+    ):
+
+
     try:
         query = db.query(Nna)
 
@@ -133,6 +138,29 @@ def get_nnas(
         # --- estados / convocatoria / nna_otra_jurisdiccion ---
         busqueda_activa = bool(search and len(search.strip()) >= 3)
 
+        # if estado_filtro:
+        #     estados = list(estado_filtro) if isinstance(estado_filtro, list) else [estado_filtro]
+        #     estados = [e for e in estados if e]
+
+        #     quiere_conv = "en_convocatoria" in estados
+        #     quiere_oj_token = "nna_otra_jurisdiccion" in estados
+
+        #     estados_reales = [e for e in estados if e not in ("en_convocatoria", "nna_otra_jurisdiccion")]
+
+        #     # AND: cada condición se agrega con .filter(...)
+        #     if estados_reales:
+        #         query = query.filter(Nna.nna_estado.in_(estados_reales))
+        #     if quiere_conv:
+        #         query = query.filter(
+        #             exists(
+        #                 select(1)
+        #                 .select_from(DetalleNNAEnConvocatoria)
+        #                 .where(DetalleNNAEnConvocatoria.nna_id == Nna.nna_id)
+        #             )
+        #         )
+        #     if quiere_oj_token:
+        #         query = query.filter(Nna.nna_otra_jurisdiccion == "Y")
+
         if estado_filtro:
             estados = list(estado_filtro) if isinstance(estado_filtro, list) else [estado_filtro]
             estados = [e for e in estados if e]
@@ -140,11 +168,27 @@ def get_nnas(
             quiere_conv = "en_convocatoria" in estados
             quiere_oj_token = "nna_otra_jurisdiccion" in estados
 
-            estados_reales = [e for e in estados if e not in ("en_convocatoria", "nna_otra_jurisdiccion")]
+            # 🔄 Ampliación automática de estados "no inscriptos"
+            equivalentes_no_inscriptos = {
+                "vinculacion": "vinculacion_no_inscriptos",
+                "guarda_provisoria": "guarda_provisoria_no_inscriptos",
+                "guarda_confirmada": "guarda_confirmada_no_inscriptos",
+                "adopcion_definitiva": "adopcion_definitiva_no_inscriptos",
+            }
+
+            estados_reales = []
+            for e in estados:
+                if e in ("en_convocatoria", "nna_otra_jurisdiccion"):
+                    continue
+                estados_reales.append(e)
+                # Si el estado tiene versión "no inscriptos", la agregamos también
+                if e in equivalentes_no_inscriptos:
+                    estados_reales.append(equivalentes_no_inscriptos[e])
 
             # AND: cada condición se agrega con .filter(...)
             if estados_reales:
                 query = query.filter(Nna.nna_estado.in_(estados_reales))
+
             if quiere_conv:
                 query = query.filter(
                     exists(
@@ -155,13 +199,25 @@ def get_nnas(
                 )
             if quiere_oj_token:
                 query = query.filter(Nna.nna_otra_jurisdiccion == "Y")
+
         else:
             if not busqueda_activa:
                 query = query.filter(Nna.nna_estado != "no_disponible")
 
-        # Aplico también el parámetro directo (AND con lo anterior) sin romper compatibilidad
+
+
+        # --- otra jurisdicción ---
         if otra_jurisdiccion is not None:
             query = query.filter(Nna.nna_otra_jurisdiccion == ("Y" if otra_jurisdiccion else "N"))
+
+        # ✅ Filtro de con_no_inscriptos
+        if con_no_inscriptos is not None:
+            if con_no_inscriptos:
+                # solo los que tienen estados con "_no_inscriptos"
+                query = query.filter(Nna.nna_estado.like("%_no_inscriptos"))
+            else:
+                # solo los que NO tienen "_no_inscriptos"
+                query = query.filter(~Nna.nna_estado.like("%_no_inscriptos"))
 
                 
         # ✅ Filtro de hermanos (AND con lo anterior)
@@ -203,6 +259,19 @@ def get_nnas(
                 for row in db.query(DetalleNNAEnConvocatoria.nna_id)
                               .filter(DetalleNNAEnConvocatoria.nna_id.in_(ids_pagina))
                               .all()
+            }
+
+        # ✅ pre-carga: ¿tiene observaciones?
+        nna_con_obs_set = set()
+        if ids_pagina:
+            nna_con_obs_set = {
+                row[0]
+                for row in (
+                    db.query(ObservacionesNNAs.observacion_a_cual_nna)
+                      .filter(ObservacionesNNAs.observacion_a_cual_nna.in_(ids_pagina))
+                      .distinct()
+                      .all()
+                )
             }
 
         # ✅ pre-carga: ¿tiene proyecto asociado? (NNA en carpeta que tiene proyectos)
@@ -297,6 +366,7 @@ def get_nnas(
                 "nna_otra_jurisdiccion": nna.nna_otra_jurisdiccion,
                 "in_convocatoria": esta_en_conv,
                 "in_proyecto": (nna.nna_id in nna_en_proyecto_set),
+                "tiene_observaciones": (nna.nna_id in nna_con_obs_set),
             })
 
         return {
@@ -1466,3 +1536,143 @@ def eliminar_documento_nna(
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
+
+
+
+
+@nna_router.post("/{nna_id}/cambiar_estado", response_model=dict, dependencies=[Depends(verify_api_key), 
+    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def cambiar_estado_nna(
+    nna_id: int,
+    data: dict = Body(..., example={"nuevo_estado": "vinculacion_no_inscriptos", "observaciones": "Motivo del cambio"}),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  ):
+
+
+    """
+    Cambia el estado de un NNA desde el frontend.
+    Guarda la observación en `observaciones_nnas` y responde con formato para mostrarNotificacionModal.
+    """
+    try:
+        nna = db.query(Nna).filter(Nna.nna_id == nna_id).first()
+        if not nna:
+            return {
+                "tipo_mensaje": "rojo",
+                "mensaje": "❌ NNA no encontrado.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        nuevo_estado = data.get("nuevo_estado")
+        observacion = data.get("observaciones", "")
+
+        if nna.nna_estado != "disponible":
+            return {
+                "tipo_mensaje": "naranja",
+                "mensaje": "⚠️ Solo se puede cambiar el estado desde 'Esperando familia'.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+        estados_permitidos = [
+            "vinculacion_no_inscriptos",
+            "guarda_provisoria_no_inscriptos",
+            "guarda_confirmada_no_inscriptos",
+            "adopcion_definitiva_no_inscriptos",
+        ]
+        if nuevo_estado not in estados_permitidos:
+            return {
+                "tipo_mensaje": "rojo",
+                "mensaje": "❌ Estado de destino no permitido.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+        nna.nna_estado = nuevo_estado
+
+        # Registrar observación
+        nueva_obs = ObservacionesNNAs(
+            observacion_fecha=datetime.now(),
+            observacion=observacion or f"Cambio de estado a {nuevo_estado}",
+            login_que_observo=current_user["user"]["login"],
+            observacion_a_cual_nna=nna.nna_id,
+        )
+        db.add(nueva_obs)
+        db.commit()
+
+        return {
+            "tipo_mensaje": "verde",
+            "mensaje": f"✅ Estado actualizado correctamente a <b>{nuevo_estado.replace('_', ' ').title()}</b>.",
+            "tiempo_mensaje": 4,
+            "next_page": "actual"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "tipo_mensaje": "rojo",
+            "mensaje": f"❌ Error al cambiar estado: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+
+
+# @nna_router.get("/{nna_id}/observaciones", response_model=list,
+#                 dependencies=[Depends(verify_api_key), 
+#                 Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+# def get_observaciones_nna(nna_id: int, db: Session = Depends(get_db)):
+#     """
+#     Devuelve todas las observaciones asociadas al NNA indicado.
+#     """
+#     obs = (
+#         db.query(ObservacionesNNAs)
+#         .filter(ObservacionesNNAs.observacion_a_cual_nna == nna_id)
+#         .order_by(ObservacionesNNAs.observacion_fecha.desc())
+#         .all()
+#     )
+
+#     return [
+#         {
+#             "fecha": o.observacion_fecha.strftime("%Y-%m-%d %H:%M"),
+#             "observacion": o.observacion or "",
+#             "login_que_observo": o.login_que_observo,
+#         }
+#         for o in obs
+#     ]
+
+
+
+@nna_router.get("/{nna_id}/observaciones", response_model=list,
+                dependencies=[
+                    Depends(verify_api_key),
+                    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))
+                ])
+def get_observaciones_nna(nna_id: int, db: Session = Depends(get_db)):
+    """
+    Devuelve todas las observaciones asociadas al NNA indicado,
+    incluyendo el nombre completo de quien la registró.
+    """
+    obs = (
+        db.query(
+            ObservacionesNNAs.observacion_fecha,
+            ObservacionesNNAs.observacion,
+            User.login.label("usuario_login"),
+            User.nombre.label("usuario_nombre"),
+            User.apellido.label("usuario_apellido"),
+        )
+        .join(User, User.login == ObservacionesNNAs.login_que_observo, isouter=True)
+        .filter(ObservacionesNNAs.observacion_a_cual_nna == nna_id)
+        .order_by(ObservacionesNNAs.observacion_fecha.desc())
+        .all()
+    )
+
+    return [
+        {
+            "fecha": o.observacion_fecha.strftime("%Y-%m-%d %H:%M"),
+            "observacion": o.observacion or "",
+            "login_que_observo": o.usuario_login or "—",
+            "nombre_completo_que_observo": f"{(o.usuario_nombre or '').strip()} {(o.usuario_apellido or '').strip()}".strip() or "—",
+        }
+        for o in obs
+    ]
