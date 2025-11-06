@@ -759,7 +759,8 @@ def get_user_by_login(
     login: str,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     Devuelve un único usuario por su `login`.
 
@@ -1207,7 +1208,8 @@ def get_user_by_login(
 async def create_user(
     request: Request, 
     db: Session = Depends(get_db)    
-):
+    ):
+
     """
     📌 **Crea un nuevo usuario y asigna su grupo.**
 
@@ -1769,7 +1771,8 @@ def update_user_by_login(
     payload: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     Actualiza campos del usuario identificado por `login`. Solo se actualizan los siguientes campos si están presentes en el JSON:
 
@@ -1889,7 +1892,8 @@ def update_user_document_by_login(
     ] = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     Sube un solo documento para el usuario identificado por `login`.
     El campo debe ser uno de los predefinidos. Guarda el archivo en una carpeta
@@ -1977,7 +1981,8 @@ def solicitar_revision_documentos(
     login: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+    ):
+
     """
     Marca que el usuario identificado por `login` solicita revisión de documentos,
     si todos los documentos requeridos están presentes. Devuelve next_page para el flujo del usuario.
@@ -2086,7 +2091,8 @@ def aprobar_curso_adoptante(
     login: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+    ):
+
     """
     ✅ Marca como aprobado el curso del usuario `login`, si pertenece al grupo 'adoptante'.
 
@@ -2165,7 +2171,8 @@ def descargar_documento_usuario(
         "doc_adoptante_migraciones"
     ] = Query(...),
     db: Session = Depends(get_db)
-):
+    ):
+    
     """
     Descarga un documento del usuario identificado por `login`.
     El campo debe ser uno de los documentos personales almacenados.

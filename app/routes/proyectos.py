@@ -6795,7 +6795,8 @@ def notificar_proyecto_mensaje(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     📢 Envía una notificación completa a los pretensos vinculados a un proyecto:
     - Crea notificaciones individuales
@@ -6988,7 +6989,8 @@ def registrar_observacion_proyecto(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     Registra una observación interna para un proyecto, sin enviar mail ni modificar estados.
     """
@@ -7059,81 +7061,6 @@ def registrar_observacion_proyecto(
 
 
 
-# @proyectos_router.get("/observacion/{proyecto_id}/listado", response_model=dict,
-#                       dependencies=[Depends(verify_api_key),
-#                                     Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
-# def listar_observaciones_de_proyecto(
-#     proyecto_id: int,
-#     db: Session = Depends(get_db),
-#     page: int = Query(1, ge=1),
-#     limit: int = Query(10, ge=1, le=100),
-#     current_user: dict = Depends(get_current_user)
-# ):
-#     """
-#     Devuelve un listado paginado de observaciones asociadas a un proyecto identificado por su `proyecto_id`.
-
-#     - Solo roles 'administrador', 'supervisora' o 'profesional' pueden acceder a esta información.
-#     """
-#     try:
-#         # Verificar existencia del proyecto
-#         existe_proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
-#         if not existe_proyecto:
-#             raise HTTPException(status_code=404, detail="El proyecto indicado no existe.")
-
-#         # Contar total de observaciones
-#         total_observaciones = (
-#             db.query(func.count(ObservacionesProyectos.observacion_id))
-#             .filter(ObservacionesProyectos.observacion_a_cual_proyecto == proyecto_id)
-#             .scalar()
-#         )
-
-#         # Paginación
-#         offset = (page - 1) * limit
-#         observaciones = (
-#             db.query(ObservacionesProyectos)
-#             .filter(ObservacionesProyectos.observacion_a_cual_proyecto == proyecto_id)
-#             .order_by(ObservacionesProyectos.observacion_fecha.desc())
-#             .offset(offset)
-#             .limit(limit)
-#             .all()
-#         )
-
-#         # Obtener todos los logins de quienes observaron
-#         logins_observadores = [o.login_que_observo for o in observaciones]
-
-#         # Obtener nombres y apellidos de esos logins
-#         usuarios_observadores = (
-#             db.query(User.login, User.nombre, User.apellido)
-#             .filter(User.login.in_(logins_observadores))
-#             .all()
-#         )
-#         mapa_observadores = {u.login: {"nombre": u.nombre, "apellido": u.apellido} for u in usuarios_observadores}
-
-#         # Armar respuesta
-#         resultado = []
-#         for o in observaciones:
-#             datos_observador = mapa_observadores.get(o.login_que_observo, {"nombre": "", "apellido": ""})
-#             nombre_completo = f"{datos_observador['nombre']} {datos_observador['apellido']}".strip()
-#             resultado.append({
-#                 "observacion": o.observacion,
-#                 "fecha": o.observacion_fecha.strftime("%Y-%m-%d %H:%M") if o.observacion_fecha else None,
-#                 "login_que_observo": o.login_que_observo,
-#                 "nombre_completo_que_observo": nombre_completo
-#             })
-
-#         return {
-#             "page": page,
-#             "limit": limit,
-#             "total": total_observaciones,
-#             "observaciones": resultado
-#         }
-
-#     except SQLAlchemyError as e:
-#         raise HTTPException(status_code=500, detail=f"Error al obtener las observaciones del proyecto: {str(e)}")
-
-
-
-
 @proyectos_router.get("/observacion/{proyecto_id}/listado", response_model=dict,
                       dependencies=[Depends(verify_api_key),
                                     Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
@@ -7143,7 +7070,8 @@ def listar_observaciones_de_proyecto(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     Devuelve un listado paginado de observaciones asociadas a un proyecto identificado por su `proyecto_id`.
     Incluye también los registros del historial dentro del mismo listado `observaciones`, con paginación correcta.
@@ -7219,15 +7147,14 @@ def listar_observaciones_de_proyecto(
 
 
 
-
-
 @proyectos_router.delete("/entrevista/{entrevista_id}", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
 def eliminar_entrevista_agendada(
     entrevista_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     ❌ Eliminar una entrevista agendada.
 
@@ -7285,6 +7212,7 @@ def eliminar_entrevista_agendada(
         }
 
 
+
 @proyectos_router.post("/entrevista/comentario-extra/{entrevista_id}", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional"]))])
 def agregar_comentario_extra(
@@ -7292,7 +7220,8 @@ def agregar_comentario_extra(
     data: dict = Body(..., example={"comentario_extra": "Comentario posterior a la entrevista"}),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     ✏️ Agregar un comentario adicional a una entrevista ya registrada.
 
@@ -7560,7 +7489,8 @@ def aprobar_proyecto(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+     
     """
     ✅ Aprueba formalmente un proyecto y asigna número de orden si no lo tiene.
     También envía una notificación al/los pretensos informando la aprobación.
@@ -7775,7 +7705,8 @@ def aprobar_proyecto(
 def descargar_pdf_proyecto(
     proyecto_id: int,
     db: Session = Depends(get_db)
-):
+    ):
+
     proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
     if not proyecto:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
@@ -7943,7 +7874,8 @@ def subir_informe_vinculacion(
     observacion: str = Form(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+    
     """
     📄 Sube el informe de vinculación del proyecto, con una observación interna.
     """

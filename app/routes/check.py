@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, and_
 from database.config import get_db, SessionLocal
 from helpers.moodle import existe_mail_en_moodle, existe_dni_en_moodle, is_curso_aprobado, get_setting_value
-import time
 from models.users import User
 from security.security import get_current_user, require_roles, verify_api_key
 from helpers.moodle import eliminar_usuario_en_moodle, get_idusuario_by_mail
@@ -12,8 +11,64 @@ from datetime import datetime, timedelta
 from models.proyecto import Proyecto, ProyectoHistorialEstado, FechaRevision
 from models.eventos_y_configs import RuaEvento
 
+import os, json, hashlib, time
+
+
+from pathlib import Path
+from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+
+from fastapi.responses import FileResponse
+
+
+load_dotenv()
+
 
 check_router = APIRouter()
+
+
+# --- Directorio donde se guarda el estado del último backup ---
+EXPORT_DIR = os.getenv("EXPORT_DIR") or "/docs-rua/exports"
+os.makedirs(EXPORT_DIR, exist_ok=True)
+BACKUP_STATE_FILE = os.path.join(EXPORT_DIR, "last_backup_state.json")
+
+# --- Directorios que se recorren ---
+DIRS_TO_BACKUP = [
+    os.getenv("UPLOAD_DIR_DOC_PRETENSOS"),
+    os.getenv("UPLOAD_DIR_DOC_PROYECTOS"),
+    os.getenv("UPLOAD_DIR_DOC_INFORMES"),
+    os.getenv("UPLOAD_DIR_DOC_NNAS"),
+    os.getenv("DIR_PDF_GENERADOS"),
+    EXPORT_DIR,  # se incluye el propio EXPORT_DIR
+]
+
+def _load_state():
+    if os.path.exists(BACKUP_STATE_FILE):
+        try:
+            with open(BACKUP_STATE_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            print("⚠️ Archivo de estado corrupto; se reinicia el estado de backup.")
+            return {}
+    return {}
+
+
+def _save_state(state: dict):
+    """Guarda el estado del último backup incremental."""
+    with open(BACKUP_STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+
+def _file_md5(path: str) -> str:
+    """Calcula un hash MD5 del archivo (opcional, para verificar cambios reales)."""
+    try:
+        with open(path, "rb") as f:
+            h = hashlib.md5()
+            for chunk in iter(lambda: f.read(8192), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return ""
+
 
 
 
@@ -106,7 +161,8 @@ def api_moodle_check(
     dni: str = Query(..., description="DNI a verificar en Moodle"),
     mail: str = Query(..., description="Correo electrónico a verificar en Moodle"),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     Verifica si el DNI y el mail proporcionados existen en Moodle y mide el tiempo de respuesta.
     """
@@ -135,11 +191,12 @@ def api_moodle_check(
     }
 
 
+
 @check_router.get("/api_moodle_curso_aprobado", response_model=dict, dependencies=[Depends(verify_api_key)])
 def api_moodle_curso_aprobado(
     mail: str = Query(..., description="Correo electrónico del usuario en Moodle"),
     db: Session = Depends(get_db)
-):
+    ):
     """
     Verifica si un usuario ha completado un curso en Moodle y mide el tiempo de respuesta.
     Si el curso está aprobado, actualiza el campo doc_adoptante_curso_aprobado en la base de datos.
@@ -175,7 +232,8 @@ def api_moodle_curso_aprobado(
 def api_moodle_eliminar_usuario(
     mail: str = Query(..., description = "Correo electrónico del usuario a eliminar de Moodle"),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     Elimina un usuario de Moodle por su email. Ejecuta la función de eliminación
     y luego verifica si el usuario sigue existiendo en Moodle.
@@ -221,9 +279,90 @@ def api_moodle_eliminar_usuario(
 
 
 
+# ============================================================
+# 🔁 BACKUP INCREMENTAL - Verificación de cambios
+# ============================================================
+
+@check_router.get( "/backup/verificar",
+    response_model=dict, dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],)
+def verificar_archivos_para_backup(db: Session = Depends(get_db)):
+    """
+    Analiza los directorios definidos en .env y devuelve los archivos nuevos o modificados
+    desde el último backup.
+    No copia ni comprime nada: solo lista diferencias para descarga incremental.
+    """
+
+    prev_state = _load_state()
+    new_state = {}
+    changed_files = []
+    total_archivos = 0
+
+    for base_dir in DIRS_TO_BACKUP:
+        if not base_dir or not os.path.exists(base_dir):
+            continue
+
+        for root, _, files in os.walk(base_dir):
+            for f in files:
+                full_path = os.path.join(root, f)
+                try:
+                    stat = os.stat(full_path)
+                    new_state[full_path] = {"mtime": stat.st_mtime, "size": stat.st_size}
+                    total_archivos += 1
+
+                    prev = prev_state.get(full_path)
+                    if not prev or prev["size"] != stat.st_size or prev["mtime"] != stat.st_mtime:
+                        changed_files.append({
+                            "path": full_path,
+                            "size": stat.st_size,
+                            "mtime": stat.st_mtime,
+                            "md5": _file_md5(full_path)
+                        })
+                except Exception:
+                    continue
+
+    _save_state(new_state)
+
+    return {
+        "total_archivos_escaneados": total_archivos,
+        "archivos_cambiados": len(changed_files),
+        "detalles": changed_files
+    }
+
+
+
+@check_router.get("/files/descargar", response_class=FileResponse,
+                  dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))])
+def descargar_archivo_directo(path: str = Query(..., description="Ruta absoluta del archivo a descargar")):
+    """
+    Permite descargar directamente un archivo del servidor (usado por el cliente de backup).
+    """
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    return FileResponse(path, filename=os.path.basename(path), media_type="application/octet-stream")
 
 
 
 
+@check_router.get("/backup/estado",
+    response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))])
+def obtener_estado_backup():
+    """
+    Devuelve un resumen del último backup incremental registrado en el servidor.
+    Solo accesible por administradores.
+    """
+    if not os.path.exists(BACKUP_STATE_FILE):
+        raise HTTPException(status_code=404, detail="No existe un estado previo de backup.")
 
+    try:
+        with open(BACKUP_STATE_FILE, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error leyendo el archivo de estado: {str(e)}")
+
+    return {
+        "total_archivos_indexados": len(data),
+        "ultimo_backup": datetime.fromtimestamp(os.path.getmtime(BACKUP_STATE_FILE)).strftime("%Y-%m-%d %H:%M:%S"),
+        "ubicacion": BACKUP_STATE_FILE
+    }
 
