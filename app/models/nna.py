@@ -41,6 +41,28 @@ class Nna(Base):
     #                           'vinculacion', 'guarda_provisoria', 'guarda_confirmada', 'adopcion_definitiva', 
     #                           'interrupcion', 'mayor_sin_adopcion', 'en_convocatoria', 'no_disponible' ), nullable=True)
 
+    # nna_estado = Column(Enum(
+    #     'sin_ficha_sin_sentencia',
+    #     'con_ficha_sin_sentencia',
+    #     'sin_ficha_con_sentencia',
+    #     'disponible',
+    #     'preparando_carpeta',
+    #     'enviada_a_juzgado',
+    #     'proyecto_seleccionado',
+    #     'vinculacion',
+    #     'guarda_provisoria',
+    #     'guarda_confirmada',
+    #     'adopcion_definitiva',
+    #     'vinculacion_no_inscriptos',   
+    #     'guarda_provisoria_no_inscriptos',
+    #     'guarda_confirmada_no_inscriptos',
+    #     'adopcion_definitiva_no_inscriptos',
+    #     'interrupcion',
+    #     'mayor_sin_adopcion',
+    #     'en_convocatoria',
+    #     'no_disponible'
+    # ), nullable=True)
+
     nna_estado = Column(Enum(
         'sin_ficha_sin_sentencia',
         'con_ficha_sin_sentencia',
@@ -57,11 +79,14 @@ class Nna(Base):
         'guarda_provisoria_no_inscriptos',
         'guarda_confirmada_no_inscriptos',
         'adopcion_definitiva_no_inscriptos',
+        'valorando_excepcion_no_inscriptos', 
+        'sin_disponibilidad_adoptiva',       
         'interrupcion',
         'mayor_sin_adopcion',
         'en_convocatoria',
         'no_disponible'
     ), nullable=True)
+
 
     hermanos_id = Column(Integer, nullable=True)
     
