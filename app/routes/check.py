@@ -283,19 +283,25 @@ def api_moodle_eliminar_usuario(
 # 🔁 BACKUP INCREMENTAL - Verificación de cambios
 # ============================================================
 
-@check_router.get( "/backup/verificar",
-    response_model=dict, dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],)
-def verificar_archivos_para_backup(db: Session = Depends(get_db)):
+
+@check_router.get("/backup/verificar", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))])
+def verificar_archivos_para_backup(
+    db: Session = Depends(get_db),
+    limit: int = Query(0, description="Máximo número de archivos a escanear (0 = sin límite)"),
+    modo_rapido: bool = Query(False, description="Si True, ignora hashes MD5 y solo compara tamaño/fecha")
+    ):
+
     """
     Analiza los directorios definidos en .env y devuelve los archivos nuevos o modificados
-    desde el último backup.
-    No copia ni comprime nada: solo lista diferencias para descarga incremental.
+    desde el último backup. Soporta limitación de cantidad y modo rápido sin hashes.
     """
 
     prev_state = _load_state()
     new_state = {}
     changed_files = []
     total_archivos = 0
+    procesados = 0
 
     for base_dir in DIRS_TO_BACKUP:
         if not base_dir or not os.path.exists(base_dir):
@@ -311,22 +317,36 @@ def verificar_archivos_para_backup(db: Session = Depends(get_db)):
 
                     prev = prev_state.get(full_path)
                     if not prev or prev["size"] != stat.st_size or prev["mtime"] != stat.st_mtime:
-                        changed_files.append({
+                        changed = {
                             "path": full_path,
                             "size": stat.st_size,
                             "mtime": stat.st_mtime,
-                            "md5": _file_md5(full_path)
-                        })
+                        }
+                        if not modo_rapido:
+                            changed["md5"] = _file_md5(full_path)
+                        changed_files.append(changed)
+
+                    procesados += 1
+                    if limit and procesados >= limit:
+                        _save_state(new_state)
+                        return {
+                            "total_archivos_escaneados": total_archivos,
+                            "archivos_cambiados": len(changed_files),
+                            "limit_reached": True,
+                            "detalles": changed_files
+                        }
                 except Exception:
                     continue
 
     _save_state(new_state)
-
     return {
         "total_archivos_escaneados": total_archivos,
         "archivos_cambiados": len(changed_files),
+        "limit_reached": False,
         "detalles": changed_files
     }
+
+
 
 
 
