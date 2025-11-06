@@ -386,3 +386,24 @@ def obtener_estado_backup():
         "ubicacion": BACKUP_STATE_FILE
     }
 
+
+
+@check_router.delete("/backup/reset",
+    response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))])
+def reiniciar_backup_incremental():
+    """
+    Reinicia el estado del backup incremental eliminando el archivo last_backup_state.json.
+    Permite comenzar de nuevo el proceso completo de backup.
+    """
+    if not os.path.exists(BACKUP_STATE_FILE):
+        return {"success": True, "message": "No existía estado previo de backup. Nada que eliminar."}
+
+    try:
+        os.remove(BACKUP_STATE_FILE)
+        return {
+            "success": True,
+            "message": f"El archivo de estado '{BACKUP_STATE_FILE}' fue eliminado. El próximo backup comenzará desde cero."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudo eliminar el archivo de estado: {str(e)}")
