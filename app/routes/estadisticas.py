@@ -788,9 +788,12 @@ def _stream_nna_rows(conn):
         def traducir_detalle_estado(estado: Optional[str], en_conv: bool) -> str:
             if not estado:
                 return ""
+
             if estado == "disponible":
                 return "Esperando flia. en CONV" if en_conv else "Esperando familia"
+
             mapa = {
+                # Estados previos
                 "sin_ficha_sin_sentencia": "Sin ficha ni sentencia",
                 "con_ficha_sin_sentencia": "Sólo con ficha",
                 "sin_ficha_con_sentencia": "Sólo con sentencia",
@@ -805,8 +808,40 @@ def _stream_nna_rows(conn):
                 "mayor_sin_adopcion": "Mayor",
                 "no_disponible": "No disponible",
                 "en_convocatoria": "Convocatoria",
+
+                # 🆕 Nuevos estados (2025)
+                "vinculacion_no_inscriptos": "Vinculación (no inscriptos)",
+                "guarda_provisoria_no_inscriptos": "Guarda provisoria (no inscriptos)",
+                "guarda_confirmada_no_inscriptos": "Guarda confirmada (no inscriptos)",
+                "adopcion_definitiva_no_inscriptos": "Adopción definitiva (no inscriptos)",
+                "valorando_excepcion_no_inscriptos": "Valorando excepción (no inscriptos)",
+                "sin_disponibilidad_adoptiva": "Sin disponibilidad adoptiva",
             }
+
             return mapa.get(estado, estado)
+
+        # def traducir_detalle_estado(estado: Optional[str], en_conv: bool) -> str:
+        #     if not estado:
+        #         return ""
+        #     if estado == "disponible":
+        #         return "Esperando flia. en CONV" if en_conv else "Esperando familia"
+        #     mapa = {
+        #         "sin_ficha_sin_sentencia": "Sin ficha ni sentencia",
+        #         "con_ficha_sin_sentencia": "Sólo con ficha",
+        #         "sin_ficha_con_sentencia": "Sólo con sentencia",
+        #         "preparando_carpeta": "Preparando carpeta",
+        #         "enviada_a_juzgado": "Enviado a juzgado",
+        #         "proyecto_seleccionado": "Proyecto seleccionado",
+        #         "vinculacion": "Vinculación",
+        #         "guarda_provisoria": "Guarda provisoria",
+        #         "guarda_confirmada": "Guarda confirmada",
+        #         "adopcion_definitiva": "Adopción definitiva",
+        #         "interrupcion": "Interrupción",
+        #         "mayor_sin_adopcion": "Mayor",
+        #         "no_disponible": "No disponible",
+        #         "en_convocatoria": "Convocatoria",
+        #     }
+        #     return mapa.get(estado, estado)
 
         # ---------------------------------------------------------------------
         # 4️⃣ Stream final: generar filas con el mismo “detalle_estado”
