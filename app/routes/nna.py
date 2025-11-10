@@ -1517,7 +1517,8 @@ def eliminar_documento_nna(
     campo: Literal["nna_ficha", "nna_sentencia"] = Query(...),
     ruta: str = Query(...),
     db: Session = Depends(get_db)
-):
+    ):
+
     nna = db.query(Nna).filter(Nna.nna_id == nna_id).first()
     if not nna:
         return {
@@ -1570,196 +1571,6 @@ def eliminar_documento_nna(
 
 
 
-# @nna_router.post("/{nna_id}/cambiar_estado", response_model=dict, dependencies=[Depends(verify_api_key), 
-#     Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
-# def cambiar_estado_nna(
-#     nna_id: int,
-#     data: dict = Body(..., example={"nuevo_estado": "vinculacion_no_inscriptos", "observaciones": "Motivo del cambio"}),
-#     db: Session = Depends(get_db),
-#     current_user: dict = Depends(get_current_user),  ):
-
-
-#     """
-#     Cambia el estado de un NNA desde el frontend.
-#     Guarda la observación en `observaciones_nnas` y responde con formato para mostrarNotificacionModal.
-#     """
-#     try:
-#         nna = db.query(Nna).filter(Nna.nna_id == nna_id).first()
-#         if not nna:
-#             return {
-#                 "tipo_mensaje": "rojo",
-#                 "mensaje": "❌ NNA no encontrado.",
-#                 "tiempo_mensaje": 6,
-#                 "next_page": "actual"
-#             }
-
-#         nuevo_estado = data.get("nuevo_estado")
-#         observacion = data.get("observaciones", "")
-
-#         if nna.nna_estado != "disponible":
-#             return {
-#                 "tipo_mensaje": "naranja",
-#                 "mensaje": "⚠️ Solo se puede cambiar el estado desde 'Esperando familia'.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-#         # estados_permitidos = [
-#         #     "vinculacion_no_inscriptos",
-#         #     "guarda_provisoria_no_inscriptos",
-#         #     "guarda_confirmada_no_inscriptos",
-#         #     "adopcion_definitiva_no_inscriptos",
-#         # ]
-#         estados_permitidos = [
-#             "vinculacion_no_inscriptos",
-#             "guarda_provisoria_no_inscriptos",
-#             "guarda_confirmada_no_inscriptos",
-#             "adopcion_definitiva_no_inscriptos",
-#             "valorando_excepcion_no_inscriptos",   
-#             "sin_disponibilidad_adoptiva"          
-#         ]
-#         if nuevo_estado not in estados_permitidos:
-#             return {
-#                 "tipo_mensaje": "rojo",
-#                 "mensaje": "❌ Estado de destino no permitido.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-#         nna.nna_estado = nuevo_estado
-
-#         # Registrar observación
-#         nueva_obs = ObservacionesNNAs(
-#             observacion_fecha=datetime.now(),
-#             observacion=observacion or f"Cambio de estado a {nuevo_estado}",
-#             login_que_observo=current_user["user"]["login"],
-#             observacion_a_cual_nna=nna.nna_id,
-#         )
-#         db.add(nueva_obs)
-#         db.commit()
-
-#         return {
-#             "tipo_mensaje": "verde",
-#             "mensaje": f"✅ Estado actualizado correctamente a <b>{nuevo_estado.replace('_', ' ').title()}</b>.",
-#             "tiempo_mensaje": 4,
-#             "next_page": "actual"
-#         }
-
-#     except SQLAlchemyError as e:
-#         db.rollback()
-#         return {
-#             "tipo_mensaje": "rojo",
-#             "mensaje": f"❌ Error al cambiar estado: {str(e)}",
-#             "tiempo_mensaje": 6,
-#             "next_page": "actual"
-#         }
-
-
-# @nna_router.post("/{nna_id}/cambiar_estado", response_model=dict, dependencies=[
-#     Depends(verify_api_key),
-#     Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))
-# ])
-# def cambiar_estado_nna(
-#     nna_id: int,
-#     data: dict = Body(..., example={"nuevo_estado": "vinculacion_no_inscriptos", "observaciones": "Motivo del cambio"}),
-#     db: Session = Depends(get_db),
-#     current_user: dict = Depends(get_current_user),
-# ):
-#     """
-#     Cambia el estado de un NNA desde el frontend.
-#     Guarda la observación en `observaciones_nnas` y responde con formato para mostrarNotificacionModal.
-#     Si el nuevo estado es igual al actual, no se realiza ningún cambio ni se registra observación.
-#     """
-#     try:
-#         nna = db.query(Nna).filter(Nna.nna_id == nna_id).first()
-#         if not nna:
-#             return {
-#                 "tipo_mensaje": "rojo",
-#                 "mensaje": "❌ NNA no encontrado.",
-#                 "tiempo_mensaje": 6,
-#                 "next_page": "actual"
-#             }
-
-#         nuevo_estado = data.get("nuevo_estado")
-#         observacion = data.get("observaciones", "")
-
-#         # Estados desde los cuales se puede cambiar
-#         estados_origen_permitidos = [
-#             "disponible",
-#             "vinculacion_no_inscriptos",
-#             "guarda_provisoria_no_inscriptos",
-#             "guarda_confirmada_no_inscriptos",
-#             "adopcion_definitiva_no_inscriptos",
-#             "valorando_excepcion_no_inscriptos",
-#             "sin_disponibilidad_adoptiva",
-#         ]
-
-#         # Estados posibles de destino
-#         estados_destino_permitidos = [
-#             "vinculacion_no_inscriptos",
-#             "guarda_provisoria_no_inscriptos",
-#             "guarda_confirmada_no_inscriptos",
-#             "adopcion_definitiva_no_inscriptos",
-#             "valorando_excepcion_no_inscriptos",
-#             "sin_disponibilidad_adoptiva",
-#         ]
-
-#         # ⚠️ Si el nuevo estado es igual al actual → no hacer nada
-#         if nna.nna_estado == nuevo_estado:
-#             return {
-#                 "tipo_mensaje": "naranja",
-#                 "mensaje": f"⚠️ El NNA ya se encuentra en el estado <b>{nuevo_estado.replace('_', ' ').title()}</b>. No se realizaron cambios.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-#         # Validar que el estado actual permita el cambio
-#         if nna.nna_estado not in estados_origen_permitidos:
-#             return {
-#                 "tipo_mensaje": "naranja",
-#                 "mensaje": f"⚠️ No se puede cambiar el estado desde '{nna.nna_estado}'.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-#         # Validar que el destino sea válido
-#         if nuevo_estado not in estados_destino_permitidos:
-#             return {
-#                 "tipo_mensaje": "rojo",
-#                 "mensaje": "❌ Estado de destino no permitido.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-#         # Aplicar cambio de estado
-#         nna.nna_estado = nuevo_estado
-
-#         # Registrar observación
-#         nueva_obs = ObservacionesNNAs(
-#             observacion_fecha=datetime.now(),
-#             observacion=observacion or f"Cambio de estado a {nuevo_estado}",
-#             login_que_observo=current_user["user"]["login"],
-#             observacion_a_cual_nna=nna.nna_id,
-#         )
-#         db.add(nueva_obs)
-#         db.commit()
-
-#         return {
-#             "tipo_mensaje": "verde",
-#             "mensaje": f"✅ Estado actualizado correctamente a <b>{nuevo_estado.replace('_', ' ').title()}</b>.",
-#             "tiempo_mensaje": 4,
-#             "next_page": "actual"
-#         }
-
-#     except SQLAlchemyError as e:
-#         db.rollback()
-#         return {
-#             "tipo_mensaje": "rojo",
-#             "mensaje": f"❌ Error al cambiar estado: {str(e)}",
-#             "tiempo_mensaje": 6,
-#             "next_page": "actual"
-#         }
-
 
 @nna_router.post("/{nna_id}/cambiar_estado", response_model=dict, dependencies=[
     Depends(verify_api_key),
@@ -1770,7 +1581,8 @@ def cambiar_estado_nna(
     data: dict = Body(..., example={"nuevo_estado": "vinculacion_no_inscriptos", "observaciones": "Motivo del cambio"}),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
-):
+    ):
+
     """
     Cambia el estado de un NNA desde el frontend.
     Guarda la observación en `observaciones_nnas` y responde con formato para mostrarNotificacionModal.
@@ -1870,43 +1682,21 @@ def cambiar_estado_nna(
 
 
 
-# @nna_router.get("/{nna_id}/observaciones", response_model=list,
-#                 dependencies=[Depends(verify_api_key), 
-#                 Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
-# def get_observaciones_nna(nna_id: int, db: Session = Depends(get_db)):
-#     """
-#     Devuelve todas las observaciones asociadas al NNA indicado.
-#     """
-#     obs = (
-#         db.query(ObservacionesNNAs)
-#         .filter(ObservacionesNNAs.observacion_a_cual_nna == nna_id)
-#         .order_by(ObservacionesNNAs.observacion_fecha.desc())
-#         .all()
-#     )
-
-#     return [
-#         {
-#             "fecha": o.observacion_fecha.strftime("%Y-%m-%d %H:%M"),
-#             "observacion": o.observacion or "",
-#             "login_que_observo": o.login_que_observo,
-#         }
-#         for o in obs
-#     ]
-
-
-
 @nna_router.get("/{nna_id}/observaciones", response_model=list,
-                dependencies=[
-                    Depends(verify_api_key),
-                    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))
-                ])
+    dependencies=[ Depends(verify_api_key),
+      Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"])) ])
 def get_observaciones_nna(nna_id: int, db: Session = Depends(get_db)):
     """
     Devuelve todas las observaciones asociadas al NNA indicado,
-    incluyendo el nombre completo de quien la registró.
+    incluyendo:
+    - ID único de observación (observacion_id)
+    - Nombre y login de quien la registró
+    - Fecha formateada (YYYY-MM-DD HH:MM)
     """
+
     obs = (
         db.query(
+            ObservacionesNNAs.observacion_id,
             ObservacionesNNAs.observacion_fecha,
             ObservacionesNNAs.observacion,
             User.login.label("usuario_login"),
@@ -1921,10 +1711,77 @@ def get_observaciones_nna(nna_id: int, db: Session = Depends(get_db)):
 
     return [
         {
+            "observacion_id": o.observacion_id,
             "fecha": o.observacion_fecha.strftime("%Y-%m-%d %H:%M"),
             "observacion": o.observacion or "",
             "login_que_observo": o.usuario_login or "—",
-            "nombre_completo_que_observo": f"{(o.usuario_nombre or '').strip()} {(o.usuario_apellido or '').strip()}".strip() or "—",
+            "nombre_completo_que_observo": (
+                f"{(o.usuario_nombre or '').strip()} {(o.usuario_apellido or '').strip()}".strip() or "—"
+            ),
         }
         for o in obs
     ]
+
+
+
+
+@nna_router.put("/observaciones/{observacion_id}", response_model=dict,
+    dependencies=[ Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"])) ])
+def editar_observacion_nna(
+    observacion_id: int,
+    data: dict = Body(..., example={"observacion": "Texto corregido de la observación"}),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+    ):
+
+    """
+    Permite editar una observación del NNA,
+    solo si fue registrada por el mismo usuario que intenta modificarla.
+    """
+    try:
+        obs = db.query(ObservacionesNNAs).filter_by(observacion_id=observacion_id).first()
+        if not obs:
+            return {
+                "tipo_mensaje": "rojo",
+                "mensaje": "❌ Observación no encontrada.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
+
+        # Validar propiedad de la observación
+        if obs.login_que_observo != current_user["user"]["login"]:
+            return {
+                "tipo_mensaje": "naranja",
+                "mensaje": "⚠️ Solo podés editar observaciones que registraste vos.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+        nuevo_texto = (data.get("observacion") or "").strip()
+        if not nuevo_texto:
+            return {
+                "tipo_mensaje": "naranja",
+                "mensaje": "⚠️ La observación no puede quedar vacía.",
+                "tiempo_mensaje": 4,
+                "next_page": "actual"
+            }
+
+        obs.observacion = nuevo_texto
+        db.commit()
+
+        return {
+            "tipo_mensaje": "verde",
+            "mensaje": "✅ Observación actualizada correctamente.",
+            "tiempo_mensaje": 4,
+            "next_page": "actual"
+        }
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        return {
+            "tipo_mensaje": "rojo",
+            "mensaje": f"❌ Error al editar observación: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }

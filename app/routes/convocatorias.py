@@ -615,8 +615,9 @@ def delete_convocatoria(convocatoria_id: int, db: Session = Depends(get_db)):
 def cerrar_y_eliminar_convocatoria(
     convocatoria_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
+    current_user: dict = Depends(get_current_user),  
+    ):
+    
     """
     Cierra una convocatoria aplicando reglas:
     - Si hay proyectos 'avanzados' (vinculación, guarda provisoria/confirmada, adopción definitiva) asociados a sus postulaciones -> BLOQUEA.
