@@ -1,11 +1,12 @@
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Body
-from typing import Literal
+from typing import Literal, Optional
 
 from models.users import User, Group, UserGroup 
 from models.proyecto import Proyecto
 
-from models.notif_y_observaciones import NotificacionesRUA
+from models.notif_y_observaciones import NotificacionesRUA, Mensajeria
+
 
 from database.config import get_db  # Importá get_db desde config.py
 from sqlalchemy.orm import Session
@@ -17,6 +18,8 @@ from datetime import date, datetime
 from security.security import get_current_user, require_roles, verify_api_key
 
 from helpers.utils import enviar_mail, get_setting_value
+from helpers.whatsapp_helper import enviar_whatsapp
+
 
 from helpers.notificaciones_utils import crear_notificacion_individual, crear_notificacion_masiva_por_rol, \
     marcar_notificaciones_como_vistas, obtener_notificaciones_para_usuario
@@ -34,7 +37,8 @@ def crear_notificacion(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     📌 Crea una nueva notificación para un usuario.
 
@@ -104,7 +108,8 @@ def crear_notificacion_para_rol(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     📌 Crea una notificación para todos los usuarios de un rol específico (excepto 'adoptante').
 
@@ -164,9 +169,6 @@ def crear_notificacion_para_rol(
 
 
 
-
-
-
 @notificaciones_router.put("/notificaciones/{notificacion_id}/vista", response_model = dict, 
                   dependencies = [Depends(verify_api_key),
                                  Depends(require_roles(["supervision", "supervisora", "profesional", "adoptante", "coordinadora"]))])
@@ -174,7 +176,8 @@ def marcar_notificacion_como_vista(
     notificacion_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     ✅ Marca como vista una notificación específica. 
     Para roles que NO son adoptante, marca todas las notificaciones con mismo contenido y fecha como vistas.
@@ -209,6 +212,7 @@ def marcar_notificacion_como_vista(
 
 
 
+
 @notificaciones_router.get("/notificaciones/listado", response_model = dict, 
                   dependencies = [Depends(verify_api_key),
                                   Depends(require_roles(["supervision", "supervisora", "profesional", "adoptante", "coordinadora"]))])
@@ -218,7 +222,8 @@ def listar_notificaciones(
     filtro: Literal["vistas", "no_vistas", "todas"] = Query(..., description = "Filtrar por estado de vista"),
     page: int = Query(1, ge = 1),
     limit: int = Query(5, ge = 1, le = 100)
-):
+    ):
+
     """
     📄 Devuelve un listado paginado de notificaciones para el usuario autenticado, 
     incluyendo la cantidad total de no vistas.
@@ -245,6 +250,7 @@ def listar_notificaciones(
 
 
 
+
 @notificaciones_router.get("/notificaciones/{login}/listado", response_model=dict,
     dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def listar_notificaciones_de_usuario(
@@ -253,7 +259,8 @@ def listar_notificaciones_de_usuario(
     page: int = Query(1, ge=1),
     limit: int = Query(5, ge=1, le=100),
     db: Session = Depends(get_db),
-):
+    ):
+
     """
     📄 Devuelve un listado paginado de notificaciones para el `login` indicado,
     incluyendo la cantidad total de no vistas.
@@ -288,7 +295,8 @@ def listar_notificaciones_comunes_del_proyecto(
     page: int = Query(1, ge=1),
     limit: int = Query(5, ge=1, le=100),
     db: Session = Depends(get_db),
-):
+    ):
+
     """
     📄 Devuelve notificaciones que fueron enviadas a *ambos usuarios* del proyecto
     y que tienen el mismo contenido (mensaje, link, tipo_mensaje, etc).
@@ -360,4 +368,181 @@ def listar_notificaciones_comunes_del_proyecto(
         "limit": limit,
         "total": total,
         "notificaciones": notificaciones
+    }
+
+
+
+
+
+# ==========================================================
+#  📤 Enviar mensaje (WhatsApp o Email)
+# ==========================================================
+@notificaciones_router.post("/mensajeria/enviar", response_model=dict,
+    dependencies=[Depends(verify_api_key), 
+    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def enviar_mensaje(
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    📩 Envía un mensaje (WhatsApp o Email) y lo registra en la tabla `mensajeria`.
+
+    Ejemplo JSON:
+    ```json
+    {
+        "tipo": "whatsapp",
+        "login_destinatario": "37630123",
+        "destinatario_texto": "Juan Pérez (37630123)",
+        "asunto": "Recordatorio de entrevista",
+        "contenido": "Hola Juan, te recordamos la entrevista el jueves a las 10 hs."
+    }
+    ```
+    """
+    tipo = data.get("tipo")
+    login_destinatario = data.get("login_destinatario")
+    destinatario_texto = data.get("destinatario_texto")
+    asunto = data.get("asunto")
+    contenido = data.get("contenido")
+
+    if not tipo or tipo not in ("whatsapp", "email"):
+        raise HTTPException(400, "El campo 'tipo' debe ser 'whatsapp' o 'email'.")
+
+    if not contenido:
+        raise HTTPException(400, "El campo 'contenido' es obligatorio.")
+
+    # Validar usuario destinatario
+    user_destinatario = None
+    if login_destinatario:
+        user_destinatario = db.query(User).filter_by(login=login_destinatario).first()
+        if not user_destinatario:
+            raise HTTPException(404, f"No existe el usuario con login '{login_destinatario}'.")
+
+    login_emisor = current_user["user"]["login"]
+
+    estado = "no_enviado"
+    respuesta_envio = {}
+
+    try:
+        # 🔹 Enviar mensaje real según tipo
+        if tipo == "whatsapp":
+            respuesta_envio = enviar_whatsapp(
+                destinatario=user_destinatario.celular if user_destinatario else None,
+                mensaje=contenido
+            )
+            estado = "enviado" if "messages" in respuesta_envio else "error"
+
+        elif tipo == "email":
+            if not user_destinatario or not user_destinatario.email:
+                raise HTTPException(400, "El destinatario no tiene email registrado.")
+            enviar_mail(
+                destinatario=user_destinatario.email,
+                asunto=asunto or "(sin asunto)",
+                cuerpo=contenido
+            )
+            estado = "enviado"
+
+        # 🔹 Registrar en DB
+        nuevo_mensaje = Mensajeria(
+            tipo=tipo,
+            login_emisor=login_emisor,
+            login_destinatario=login_destinatario,
+            destinatario_texto=destinatario_texto or (user_destinatario and f"{user_destinatario.nombre} {user_destinatario.apellido}"),
+            asunto=asunto,
+            contenido=contenido,
+            estado=estado,
+            mensaje_externo_id=respuesta_envio.get("messages", [{}])[0].get("id") if isinstance(respuesta_envio, dict) else None,
+            data_json=respuesta_envio
+        )
+
+        db.add(nuevo_mensaje)
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde" if estado != "error" else "rojo",
+            "mensaje": f"Mensaje {tipo} {'enviado' if estado != 'error' else 'no enviado'}.",
+            "tiempo_mensaje": 4,
+            "next_page": "actual"
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Error al enviar el mensaje: {str(e)}")
+
+
+# ==========================================================
+#  📋 Listar mensajes
+# ==========================================================
+@notificaciones_router.get("/mensajeria/listado", response_model=dict,
+    dependencies=[Depends(verify_api_key), 
+    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def listar_mensajes(
+    tipo: Optional[Literal["whatsapp", "email"]] = Query(None),
+    estado: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db)
+):
+    """
+    📄 Lista mensajes enviados (paginado y filtrado).
+    """
+    query = db.query(Mensajeria)
+
+    if tipo:
+        query = query.filter(Mensajeria.tipo == tipo)
+    if estado:
+        query = query.filter(Mensajeria.estado == estado)
+    if search:
+        search_like = f"%{search}%"
+        query = query.filter(Mensajeria.destinatario_texto.like(search_like) | Mensajeria.asunto.like(search_like))
+
+    total = query.count()
+    mensajes = query.order_by(Mensajeria.fecha_envio.desc()).offset((page - 1) * limit).limit(limit).all()
+
+    data = []
+    for m in mensajes:
+        data.append({
+            "mensaje_id": m.mensaje_id,
+            "fecha_envio": m.fecha_envio.strftime("%Y-%m-%d %H:%M"),
+            "tipo": m.tipo,
+            "destinatario": m.destinatario_texto,
+            "asunto": m.asunto,
+            "contenido": m.contenido,
+            "estado": m.estado
+        })
+
+    return {
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "mensajes": data
+    }
+
+
+# ==========================================================
+#  🔁 Actualizar estado del mensaje
+# ==========================================================
+@notificaciones_router.put("/mensajeria/{mensaje_id}/estado", response_model=dict,
+    dependencies=[Depends(verify_api_key), 
+    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def actualizar_estado_mensaje(
+    mensaje_id: int,
+    nuevo_estado: Literal["no_enviado", "enviado", "recibido", "leido", "entregado", "error"] = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
+    """
+    🔄 Actualiza el estado de un mensaje (útil cuando llega confirmación de lectura o error).
+    """
+    mensaje = db.query(Mensajeria).filter_by(mensaje_id=mensaje_id).first()
+    if not mensaje:
+        raise HTTPException(404, "Mensaje no encontrado.")
+
+    mensaje.estado = nuevo_estado
+    db.commit()
+
+    return {
+        "success": True,
+        "mensaje": f"Estado actualizado a '{nuevo_estado}'."
     }

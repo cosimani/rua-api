@@ -909,7 +909,7 @@ def enviar_mail_multiples(
     cuerpo: str,
     cc: Optional[List[str]] = None,
     bcc: Optional[List[str]] = None,
-):
+    ):
     
     remitente = os.getenv("MAIL_REMITENTE")
     nombre_remitente = os.getenv("MAIL_NOMBRE_REMITENTE", "RUA")
