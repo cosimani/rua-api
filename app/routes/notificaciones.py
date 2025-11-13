@@ -375,100 +375,163 @@ def listar_notificaciones_comunes_del_proyecto(
 
 
 # ==========================================================
-#  📤 Enviar mensaje (WhatsApp o Email)
+#  📤 Enviar mensaje (WhatsApp o Email) — versión DEBUG
 # ==========================================================
-@notificaciones_router.post("/mensajeria/enviar", response_model=dict,
-    dependencies=[Depends(verify_api_key), 
+@notificaciones_router.post("/mensajeria/{tipo}", response_model=dict,
+    dependencies=[Depends(verify_api_key),
     Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def enviar_mensaje(
+    tipo: Literal["whatsapp", "email"],
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
-    """
-    📩 Envía un mensaje (WhatsApp o Email) y lo registra en la tabla `mensajeria`.
+    ):
 
-    Ejemplo JSON:
-    ```json
-    {
-        "tipo": "whatsapp",
-        "login_destinatario": "37630123",
-        "destinatario_texto": "Juan Pérez (37630123)",
-        "asunto": "Recordatorio de entrevista",
-        "contenido": "Hola Juan, te recordamos la entrevista el jueves a las 10 hs."
-    }
-    ```
-    """
-    tipo = data.get("tipo")
-    login_destinatario = data.get("login_destinatario")
-    destinatario_texto = data.get("destinatario_texto")
+    print("======================================================")
+    print(f"[🟢 INICIO] Envío de mensaje tipo '{tipo}'")
+    print(f"[📨 Data recibida]: {data}")
+
+    destinatarios = data.get("destinatarios", [])
     asunto = data.get("asunto")
     contenido = data.get("contenido")
 
-    if not tipo or tipo not in ("whatsapp", "email"):
-        raise HTTPException(400, "El campo 'tipo' debe ser 'whatsapp' o 'email'.")
+    print(f"[👥 Destinatarios]: {destinatarios}")
+    print(f"[✉️ Asunto]: {asunto}")
+    print(f"[📝 Contenido]: {contenido}")
 
+    if not destinatarios:
+        print("[❌ ERROR] No se especificaron destinatarios")
+        raise HTTPException(400, "Debe especificar al menos un destinatario.")
     if not contenido:
+        print("[❌ ERROR] El campo 'contenido' es obligatorio.")
         raise HTTPException(400, "El campo 'contenido' es obligatorio.")
 
-    # Validar usuario destinatario
-    user_destinatario = None
-    if login_destinatario:
-        user_destinatario = db.query(User).filter_by(login=login_destinatario).first()
-        if not user_destinatario:
-            raise HTTPException(404, f"No existe el usuario con login '{login_destinatario}'.")
-
     login_emisor = current_user["user"]["login"]
+    print(f"[👤 Emisor actual]: {login_emisor}")
 
-    estado = "no_enviado"
-    respuesta_envio = {}
+    resultados = []
 
-    try:
-        # 🔹 Enviar mensaje real según tipo
-        if tipo == "whatsapp":
-            respuesta_envio = enviar_whatsapp(
-                destinatario=user_destinatario.celular if user_destinatario else None,
-                mensaje=contenido
+    for login_destinatario in destinatarios:
+        print("------------------------------------------------------")
+        print(f"[➡️ Procesando destinatario]: {login_destinatario}")
+
+        try:
+            user_destinatario = db.query(User).filter_by(login=login_destinatario).first()
+            if not user_destinatario:
+                print(f"[⚠️ Usuario no encontrado]: {login_destinatario}")
+                resultados.append({
+                    "login": login_destinatario,
+                    "success": False,
+                    "mensaje": f"Usuario '{login_destinatario}' no encontrado."
+                })
+                continue
+
+            print(f"[✅ Usuario encontrado]: {user_destinatario.nombre} {user_destinatario.apellido}")
+            estado = "no_enviado"
+            respuesta_envio = {}
+
+            # 🔹 Enviar según tipo
+            if tipo == "whatsapp":
+                print(f"[📲 Enviando WhatsApp a {user_destinatario.celular}] ...")
+                respuesta_envio = enviar_whatsapp(
+                    destinatario=user_destinatario.celular,
+                    mensaje=contenido
+                )
+                print(f"[📦 Respuesta WhatsApp]: {respuesta_envio}")
+                estado = "enviado" if "messages" in respuesta_envio else "error"
+
+            elif tipo == "email":
+                print(f"[📧 Enviando Email a {user_destinatario.email}] ...")
+                if not user_destinatario.email:
+                    print("[⚠️ ERROR] El usuario no tiene email registrado.")
+                    resultados.append({
+                        "login": login_destinatario,
+                        "success": False,
+                        "mensaje": f"El usuario {login_destinatario} no tiene email registrado."
+                    })
+                    continue
+
+                enviar_mail(
+                    destinatario=user_destinatario.email,
+                    asunto=asunto or "(sin asunto)",
+                    cuerpo=contenido
+                )
+                print("[✅ Email enviado correctamente]")
+                estado = "enviado"
+
+            # 🔹 Registrar en DB
+            print(f"[🗄 Registrando en base de datos]: estado={estado}")
+            nuevo_mensaje = Mensajeria(
+                tipo=tipo,
+                login_emisor=login_emisor,
+                login_destinatario=login_destinatario,
+                destinatario_texto=f"{user_destinatario.nombre} {user_destinatario.apellido}",
+                asunto=asunto,
+                contenido=contenido,
+                estado=estado,
+                mensaje_externo_id=respuesta_envio.get("messages", [{}])[0].get("id") if isinstance(respuesta_envio, dict) else None,
+                data_json=respuesta_envio
             )
-            estado = "enviado" if "messages" in respuesta_envio else "error"
+            db.add(nuevo_mensaje)
 
-        elif tipo == "email":
-            if not user_destinatario or not user_destinatario.email:
-                raise HTTPException(400, "El destinatario no tiene email registrado.")
-            enviar_mail(
-                destinatario=user_destinatario.email,
-                asunto=asunto or "(sin asunto)",
-                cuerpo=contenido
-            )
-            estado = "enviado"
+            resultados.append({
+                "login": login_destinatario,
+                "success": estado == "enviado",
+                "mensaje": f"Mensaje {tipo} {'enviado' if estado == 'enviado' else 'no enviado'}."
+            })
+            print(f"[✅ Resultado agregado]: {resultados[-1]}")
 
-        # 🔹 Registrar en DB
-        nuevo_mensaje = Mensajeria(
-            tipo=tipo,
-            login_emisor=login_emisor,
-            login_destinatario=login_destinatario,
-            destinatario_texto=destinatario_texto or (user_destinatario and f"{user_destinatario.nombre} {user_destinatario.apellido}"),
-            asunto=asunto,
-            contenido=contenido,
-            estado=estado,
-            mensaje_externo_id=respuesta_envio.get("messages", [{}])[0].get("id") if isinstance(respuesta_envio, dict) else None,
-            data_json=respuesta_envio
-        )
+        except Exception as e:
+            print(f"[❌ ERROR EXCEPCIÓN]: {str(e)}")
+            resultados.append({
+                "login": login_destinatario,
+                "success": False,
+                "mensaje": f"Error al enviar: {str(e)}"
+            })
 
-        db.add(nuevo_mensaje)
-        db.commit()
+    print("------------------------------------------------------")
+    print("[💾 Commit en base de datos...]")
+    db.commit()
 
-        return {
-            "success": True,
-            "tipo_mensaje": "verde" if estado != "error" else "rojo",
-            "mensaje": f"Mensaje {tipo} {'enviado' if estado != 'error' else 'no enviado'}.",
-            "tiempo_mensaje": 4,
-            "next_page": "actual"
-        }
+    # =====================================================
+    # 🔍 Determinar color general del mensaje
+    # =====================================================
+    total = len(resultados)
+    enviados = sum(1 for r in resultados if r["success"])
+    no_enviados = total - enviados
 
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(500, f"Error al enviar el mensaje: {str(e)}")
+    print(f"[📊 Totales] enviados={enviados}, no_enviados={no_enviados}, total={total}")
+
+    if enviados == 0:
+        tipo_mensaje = "rojo"        # Ninguno se envió
+    elif enviados < total:
+        tipo_mensaje = "naranja"     # Algunos fallaron
+    else:
+        tipo_mensaje = "verde"       # Todos enviados
+
+    print(f"[🎨 Tipo mensaje general]: {tipo_mensaje}")
+
+    resumen = "<br>".join([
+        f"{r['login']}: {r['mensaje']}" for r in resultados
+    ])
+
+    print("[📄 Resumen final]:")
+    for r in resultados:
+        print(f"  - {r['login']}: {r['mensaje']}")
+
+    print("[✅ FIN envío de mensajes]")
+    print("======================================================\n")
+
+    return {
+        "success": True,
+        "tipo_mensaje": tipo_mensaje,
+        "mensaje": resumen,
+        "tiempo_mensaje": 5,
+        "next_page": "actual"
+    }
+
+
+
 
 
 # ==========================================================

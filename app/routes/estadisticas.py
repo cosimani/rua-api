@@ -438,6 +438,8 @@ def _autoformat_sheet(ws):
         letter = get_column_letter(col)
         ws.column_dimensions[letter].width = 18
 
+
+
 # ---------- Streaming queries (bajo lock de lectura) ----------
 
 def _get_engine():
@@ -882,6 +884,118 @@ def _stream_nna_rows(conn):
 
 
 
+POSTULACIONES_HEADERS = [
+    "convocatoria_referencia",
+    "fecha_postulacion",
+    "nombre",
+    "apellido",
+    "dni",
+    "nombre_conyuge",
+    "apellido_conyuge",
+    "dni_conyuge",
+    "provincia",
+    "localidad",
+    "mail",
+    "telefono_contacto",
+    "relacionado_a_proyecto",
+    "proyecto_id",
+    "convocatoria_id",
+    "postulacion_id",
+]
+
+
+def _stream_postulaciones_rows(conn):
+
+    try:
+        conn.exec_driver_sql("SET collation_connection = 'utf8mb4_general_ci'")
+    except Exception:
+        pass
+
+    sql_txt = """
+        SELECT
+            c.convocatoria_referencia,
+            p.fecha_postulacion,
+
+            p.nombre,
+            p.apellido,
+            p.dni,
+
+            p.conyuge_nombre,
+            p.conyuge_apellido,
+            p.conyuge_dni,
+
+            p.provincia,
+            p.localidad,
+            p.mail,
+            p.telefono_contacto,
+
+            COALESCE(dp.proyecto_id, NULL) AS proyecto_id,
+
+            /* al final */
+            p.convocatoria_id,
+            p.postulacion_id
+
+        FROM postulaciones p
+        LEFT JOIN convocatorias c
+            ON c.convocatoria_id = p.convocatoria_id
+
+        LEFT JOIN (
+            SELECT 
+                postulacion_id,
+                MAX(proyecto_id) AS proyecto_id
+            FROM detalle_proyecto_postulacion
+            GROUP BY postulacion_id
+        ) dp ON dp.postulacion_id = p.postulacion_id
+
+        ORDER BY p.fecha_postulacion DESC
+    """
+
+    sql = text(sql_txt).execution_options(stream_results=True)
+    cur = conn.execution_options(stream_results=True).execute(sql)
+
+
+    try:
+        for row in cur:
+            # Fecha de forma segura
+            if row.fecha_postulacion:
+                try:
+                    fecha_post = row.fecha_postulacion.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    fecha_post = str(row.fecha_postulacion)
+            else:
+                fecha_post = None
+
+            yield [
+                row.convocatoria_referencia,
+                fecha_post,
+
+                row.nombre,
+                row.apellido,
+                row.dni,
+
+                row.conyuge_nombre,
+                row.conyuge_apellido,
+                row.conyuge_dni,
+
+                row.provincia,
+                row.localidad,
+                row.mail,
+                row.telefono_contacto,
+
+                "Sí" if row.proyecto_id else "No",
+                row.proyecto_id,
+
+                row.convocatoria_id,
+                row.postulacion_id,
+            ]
+    finally:
+        cur.close()
+
+
+
+
+
+
 def _build_excel_file(path: str):
     eng = _get_engine()
     with eng.connect() as conn:
@@ -906,6 +1020,13 @@ def _build_excel_file(path: str):
         for row in _stream_nna_rows(conn):
             ws_nna.append(row)
 
+        # --- Hoja Postulaciones ---
+        ws_pos = wb.create_sheet("Postulaciones")
+        ws_pos.append(POSTULACIONES_HEADERS)
+        for row in _stream_postulaciones_rows(conn):
+            ws_pos.append(row)
+
+
         # Guardado en etapa
         root, _ = os.path.splitext(path)
         stage_path = root + ".__stage__.xlsx"
@@ -913,9 +1034,10 @@ def _build_excel_file(path: str):
 
     # Reabrimos para formatear
     wb2 = load_workbook(stage_path)
-    for name in ["Proyectos RUA", "NNA"]:
+    for name in ["Proyectos RUA", "NNA", "Postulaciones"]:
         if name in wb2.sheetnames:
             _autoformat_sheet(wb2[name])
+
     wb2.save(path)
 
     try:
