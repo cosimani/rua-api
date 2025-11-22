@@ -1344,7 +1344,8 @@ def validar_pretenso(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     🔐 Valida que un login + mail correspondan a un usuario con rol 'adoptante',
     que no sea el usuario actualmente autenticado, y que existan en el sistema.
@@ -1425,7 +1426,8 @@ def crear_proyecto_preliminar(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+    ):
+
     """
     Este endpoint permite crear un nuevo proyecto con los datos mínimos requeridos con login_1 como el usuario autenticado.
 
@@ -1733,7 +1735,8 @@ def crear_proyecto_preliminar(
 def crear_proyecto(
     data: dict = Body(...),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     Crea un nuevo proyecto en la base de datos.
 
@@ -1964,7 +1967,8 @@ def crear_notificacion_proyecto(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     Registra una observación sobre un proyecto adoptivo con notificacion a pretensos por correo.
 
@@ -2088,7 +2092,8 @@ def solicitar_revision_proyecto(
     datos: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+    ):
+
     """
     📌 Endpoint para solicitar la revisión del proyecto adoptivo.
 
@@ -2307,7 +2312,8 @@ def subir_documento_proyecto(
     ] = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
-):
+    ):
+    
     """
     Sube un documento al proyecto identificado por `proyecto_id`.
     Guarda el archivo en una carpeta específica del proyecto y actualiza el campo correspondiente.

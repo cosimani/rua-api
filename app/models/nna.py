@@ -95,6 +95,28 @@ class Nna(Base):
     detalle_nna = relationship("DetalleNNAEnCarpeta", back_populates="nna", lazy="joined")
     detalle_convocatorias = relationship("DetalleNNAEnConvocatoria", back_populates="nna", lazy="joined")
 
+    historial_estados = relationship("NnaHistorialEstado", back_populates="nna")
+
+
+
+
+
+
+
+class NnaHistorialEstado(Base):
+    __tablename__ = "nna_historial_estado"
+
+    historial_id = Column(Integer, primary_key=True, autoincrement=True)
+    nna_id = Column(Integer, ForeignKey("nna.nna_id"), nullable=False)
+
+    estado_anterior = Column(String(100), nullable=True)
+    estado_nuevo = Column(String(100), nullable=False)
+    comentarios = Column(Text, nullable=True)
+    fecha_hora = Column(DateTime, default=datetime.now)
+
+    nna = relationship("Nna", back_populates="historial_estados")
+
+
 
 
 
