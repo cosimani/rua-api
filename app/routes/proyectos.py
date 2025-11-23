@@ -18,7 +18,7 @@ from models.carpeta import Carpeta, DetalleProyectosEnCarpeta, DetalleNNAEnCarpe
 from models.notif_y_observaciones import ObservacionesProyectos, ObservacionesPretensos, NotificacionesRUA
 from models.convocatorias import DetalleProyectoPostulacion
 from models.ddjj import DDJJ
-from models.nna import Nna
+from models.nna import Nna, NnaHistorialEstado
 
 from bs4 import BeautifulSoup
 
@@ -178,7 +178,8 @@ def _save_historial_upload(
     file: UploadFile, 
     UPLOAD_DIR_DOC_PROYECTOS: str,
     db: Session,                # <— añadimos la sesión aquí
-):
+    ):
+
     """Valida, guarda en disco y anexa al JSON histórico."""
     ext = os.path.splitext(file.filename.lower())[1]
     if ext not in {".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png"}:
@@ -229,19 +230,47 @@ def _download_all(raw:str, zipname:str, proyecto_id:int):
     return FileResponse(tmp.name, filename=f"{zipname}_{proyecto_id}.zip", media_type="application/zip")
 
 
+# def _set_estado_nna_por_proyecto(db: Session, proyecto_id: int, nuevo_estado: str) -> int:
+#     """
+#     Actualiza el estado (nna_estado) de todos los NNA asociados a las carpetas
+#     donde participa el proyecto dado. Devuelve la cantidad de NNA actualizados.
+#     """
+#     # Subconsulta con carpetas donde está el proyecto
+#     subq_carpetas = (
+#         db.query(DetalleProyectosEnCarpeta.carpeta_id)
+#           .filter(DetalleProyectosEnCarpeta.proyecto_id == proyecto_id)
+#           .subquery()
+#     )
+
+#     # NNA que están en esas carpetas
+#     nnas_q = (
+#         db.query(Nna)
+#           .join(DetalleNNAEnCarpeta, DetalleNNAEnCarpeta.nna_id == Nna.nna_id)
+#           .filter(DetalleNNAEnCarpeta.carpeta_id.in_(subq_carpetas))
+#     )
+
+#     count = 0
+#     for nna in nnas_q.all():
+#         if nna.nna_estado != nuevo_estado:
+#             nna.nna_estado = nuevo_estado
+#             count += 1
+
+#     return count
+
+
 def _set_estado_nna_por_proyecto(db: Session, proyecto_id: int, nuevo_estado: str) -> int:
     """
     Actualiza el estado (nna_estado) de todos los NNA asociados a las carpetas
     donde participa el proyecto dado. Devuelve la cantidad de NNA actualizados.
+    Además registra el historial de cambios de estado.
     """
-    # Subconsulta con carpetas donde está el proyecto
+
     subq_carpetas = (
         db.query(DetalleProyectosEnCarpeta.carpeta_id)
           .filter(DetalleProyectosEnCarpeta.proyecto_id == proyecto_id)
           .subquery()
     )
 
-    # NNA que están en esas carpetas
     nnas_q = (
         db.query(Nna)
           .join(DetalleNNAEnCarpeta, DetalleNNAEnCarpeta.nna_id == Nna.nna_id)
@@ -249,14 +278,23 @@ def _set_estado_nna_por_proyecto(db: Session, proyecto_id: int, nuevo_estado: st
     )
 
     count = 0
+
     for nna in nnas_q.all():
         if nna.nna_estado != nuevo_estado:
+
+            estado_anterior = nna.nna_estado
             nna.nna_estado = nuevo_estado
+
+            db.add(NnaHistorialEstado(
+                nna_id = nna.nna_id,
+                estado_anterior = estado_anterior,
+                estado_nuevo = nuevo_estado,
+                fecha_hora = datetime.now()
+            ))
+
             count += 1
 
     return count
-
-
 
 
 
@@ -266,7 +304,8 @@ def eliminar_proyecto(
     proyecto_id: int,
     login: str = Query(..., description="DNI de uno de los pretensos (login_1 o login_2)"),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     🔥 Elimina un proyecto y sus registros relacionados si el `login` proporcionado corresponde
     al `login_1` o `login_2` del proyecto.
@@ -2390,7 +2429,8 @@ def descargar_documento_proyecto(
     proyecto_id: int,
     campo: Literal["doc_proyecto_convivencia_o_estado_civil"] = Query(...),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     Descarga un documento del proyecto identificado por `proyecto_id`.
     El campo debe ser uno de los documentos almacenados.
@@ -2420,7 +2460,8 @@ def solicitar_valoracion(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     📌 Solicita la valoración de un proyecto asignando profesionales y número de orden.
 
@@ -2633,7 +2674,9 @@ def solicitar_valoracion(
 def obtener_profesionales_asignadas(
     proyecto_id: int,
     db: Session = Depends(get_db)
-):
+    ):
+
+
     """
     📄 Devuelve el listado de profesionales asignadas a un proyecto.
     """
@@ -2686,7 +2729,9 @@ def obtener_profesionales_asignadas(
 def get_historial_estado_proyecto(
     proyecto_id: int,
     db: Session = Depends(get_db)
-):
+    ):
+
+
     """
     📚 Devuelve el historial de cambios de estado de un proyecto.
 
@@ -2733,7 +2778,8 @@ def agendar_entrevista(
     }),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     
     EVALUACIONES_VALIDAS = [
         "Deseo y motivación",
@@ -2922,7 +2968,8 @@ def agendar_entrevista(
 def obtener_entrevistas_de_proyecto(
     proyecto_id: int,
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     📋 Obtener entrevistas agendadas para un proyecto adoptivo.
     Incluye eventos clave como inicio de valoración, entrevistas agendadas y entrega de informe.
@@ -3035,7 +3082,8 @@ async def reasignar_profesionales(
     payload: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     🔁 Reasigna los profesionales de un proyecto ya calendarizado.
 
@@ -3145,7 +3193,8 @@ def subir_informe_profesionales(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     📄 Sube un archivo de informe profesional para un proyecto.
 
@@ -3270,7 +3319,8 @@ def subir_documento_proyecto(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     📄 Sube un documento a un proyecto según el tipo indicado.
 
@@ -3331,7 +3381,8 @@ def solicitar_valoracion_final(
     data: dict = Body(..., example = { "proyecto_id": 123 }),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     📌 Solicita a Supervisión la valoración final de un proyecto adoptivo.
 
@@ -3504,7 +3555,7 @@ def entregar_informe_vinculacion(
     data: dict = Body(..., example = { "proyecto_id": 123 }),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
 
     proyecto_id = data.get("proyecto_id")
     if not proyecto_id:
@@ -3613,7 +3664,7 @@ def entregar_informe_vinculacion(
     data: dict = Body(..., example = { "proyecto_id": 123 }),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
 
     proyecto_id = data.get("proyecto_id")
     if not proyecto_id:
@@ -3720,7 +3771,8 @@ def entregar_informe_vinculacion(
 def obtener_fecha_para_valorar(
     proyecto_id: int,
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     📅 Devuelve la fecha y hora en la que un proyecto pasó al estado `para_valorar`.
 
@@ -3771,7 +3823,8 @@ def valorar_proyecto_final(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     📌 Endpoint para que una supervisora registre la valoración final del proyecto.
 
@@ -4440,7 +4493,8 @@ def valorar_proyecto_final(
 def descargar_informe_valoracion(
     proyecto_id: int,
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     📄 Descarga el Informe de Valoración (informe_profesionales) asociado al proyecto.
     """
@@ -4463,55 +4517,56 @@ def descargar_informe_valoracion(
 
 # 1) Informe de valoración
 @proyectos_router.put( "/entrevista/informe/{proyecto_id}", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional"]))]
-)
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional"]))])
 def subir_informe_valoracion(
     proyecto_id:int,
     file:UploadFile=File(...),
     db:Session=Depends(get_db)
-):
+    ):
+
     proyecto=db.query(Proyecto).get(proyecto_id)
     if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
     return _save_historial_upload(proyecto,"informe_profesionales",file,UPLOAD_DIR_DOC_PROYECTOS, db)
 
 
 
-@proyectos_router.get(
-    "/entrevista/informe/{proyecto_id}/descargar-todos",
-    response_class=FileResponse,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))]
-)
+@proyectos_router.get("/entrevista/informe/{proyecto_id}/descargar-todos", response_class=FileResponse,
+    dependencies=[Depends(verify_api_key), 
+    Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))])
 def descargar_todos_valoracion(
     proyecto_id:int, db:Session=Depends(get_db)
-):
+    ):
+
     proyecto=db.query(Proyecto).get(proyecto_id)
     if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
     return _download_all(proyecto.informe_profesionales or "","informes_valoracion", proyecto_id)
 
 
+
 # 2) Informe de vinculación
 @proyectos_router.put( "/informe-vinculacion/{proyecto_id}", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))]
-)
+    dependencies=[Depends(verify_api_key), 
+    Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))])
 def subir_informe_vinculacion(
     proyecto_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
-):
+    ):
+
     proyecto = db.query(Proyecto).get(proyecto_id)
     if not proyecto:
         raise HTTPException(404, "Proyecto no encontrado")
     return _save_historial_upload( proyecto, "doc_informe_vinculacion", file, UPLOAD_DIR_DOC_PROYECTOS, db )
 
 
-@proyectos_router.get(
-    "/informe-vinculacion/{proyecto_id}/descargar-todos",
-    response_class=FileResponse,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))]
-)
+
+@proyectos_router.get("/informe-vinculacion/{proyecto_id}/descargar-todos",
+    response_class=FileResponse, dependencies=[Depends(verify_api_key), 
+    Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))])
 def descargar_todos_vinculacion(
     proyecto_id:int, db:Session=Depends(get_db)
-):
+    ):
+
     proyecto=db.query(Proyecto).get(proyecto_id)
     if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
     return _download_all(proyecto.doc_informe_vinculacion or "","informes_vinculacion",proyecto_id)
@@ -4520,16 +4575,18 @@ def descargar_todos_vinculacion(
 
 # 3) Informe seguimiento de guarda
 @proyectos_router.put( "/informe-seguimiento-guarda/{proyecto_id}", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))]
-)
+    dependencies=[Depends(verify_api_key), 
+    Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))])
 def subir_informe_guarda(
     proyecto_id:int,
     file:UploadFile=File(...),
     db:Session=Depends(get_db)
-):
+    ):
+
     proyecto=db.query(Proyecto).get(proyecto_id)
     if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
     return _save_historial_upload(proyecto,"doc_informe_seguimiento_guarda",file,UPLOAD_DIR_DOC_PROYECTOS, db)
+
 
 
 @proyectos_router.get("/informe-seguimiento-guarda/{proyecto_id}/descargar-todos", response_class=FileResponse,
@@ -4537,7 +4594,8 @@ def subir_informe_guarda(
                   Depends(require_roles(["administrador","profesional","supervision", "supervisora"]))])
 def descargar_todos_guarda(
     proyecto_id:int, db:Session=Depends(get_db)
-):
+    ):
+
     proyecto=db.query(Proyecto).get(proyecto_id)
     if not proyecto: raise HTTPException(404,"Proyecto no encontrado")
     return _download_all(proyecto.doc_informe_seguimiento_guarda or "","informes_guarda",proyecto_id)
@@ -4551,7 +4609,8 @@ def descargar_todos_guarda(
 def descargar_todos_informes_valoracion(
     proyecto_id: int,
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     Descarga todos los informes de valoración asociados a un proyecto:
     - Si hay uno solo, lo devuelve directamente.
@@ -4612,7 +4671,8 @@ def descargar_documento_proyecto(
     proyecto_id: int,
     tipo_documento: Literal["informe_entrevistas", "sentencia_guarda", "sentencia_adopcion", "doc_interrupcion"],
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     📄 Descarga un documento del proyecto identificado por `proyecto_id`.
 
@@ -4655,7 +4715,8 @@ def subir_dictamen(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     📄 Sube un archivo que es el dictamen del juzgado cuando elige a este proyecto.
 
@@ -4729,7 +4790,8 @@ def subir_dictamen(
 def descargar_dictamen(
     proyecto_id: int,
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     📄 Descarga el dictamen del proyecto identificado por `proyecto_id`.
 
@@ -5014,7 +5076,8 @@ def subir_sentencia_guarda(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     📄 Sube la sentencia de guarda para un proyecto.
 
@@ -5060,7 +5123,8 @@ def subir_sentencia_guarda(
 def descargar_sentencia_guarda(
     proyecto_id: int,
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     📄 Descarga la sentencia de guarda del proyecto identificado por `proyecto_id`.
 
@@ -5090,7 +5154,8 @@ def confirmar_guarda_provisoria(
     body: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     observacion = body.get("observacion", "").strip()
 
     proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
@@ -5156,6 +5221,8 @@ def confirmar_guarda_provisoria(
         }
 
 
+
+
 @proyectos_router.put("/confirmar-sentencia-guarda/{proyecto_id}", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def confirmar_sentencia_guarda(
@@ -5163,7 +5230,8 @@ def confirmar_sentencia_guarda(
     body: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     observacion = body.get("observacion", "").strip()
 
     proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
@@ -5235,7 +5303,8 @@ def confirmar_sentencia_adopcion(
     body: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     observacion = body.get("observacion", "").strip()
 
     proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
@@ -5302,14 +5371,14 @@ def confirmar_sentencia_adopcion(
 
 @proyectos_router.put("/interrumpir-vinculacion-o-guarda/{proyecto_id}", response_model=dict,
     dependencies=[Depends(verify_api_key),
-                  Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))],
-)
+                  Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))],)
 def interrumpir_vinculacion_o_guarda(
     proyecto_id: int,
     body: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
-):
+    ):
+
     """
     Interrumpe el proceso del proyecto (vinculación/guarda), libera NNA y elimina carpeta(s) asociadas.
     - Proyecto -> 'baja_interrupcion'
@@ -5395,12 +5464,31 @@ def interrumpir_vinculacion_o_guarda(
             ]
 
             # 1) NNA -> disponible
+            # if nna_ids:
+            #     db.query(Nna).filter(Nna.nna_id.in_(nna_ids)).update(
+            #         {Nna.nna_estado: "disponible"},
+            #         synchronize_session=False
+            #     )
+            #     nna_liberados_set.update(nna_ids)  # 👈 acumular únicos
+
             if nna_ids:
-                db.query(Nna).filter(Nna.nna_id.in_(nna_ids)).update(
-                    {Nna.nna_estado: "disponible"},
-                    synchronize_session=False
-                )
-                nna_liberados_set.update(nna_ids)  # 👈 acumular únicos
+                nnas = db.query(Nna).filter(Nna.nna_id.in_(nna_ids)).all()
+
+                for nna in nnas:
+                    if nna.nna_estado != "disponible":
+
+                        estado_anterior = nna.nna_estado
+                        nna.nna_estado = "disponible"
+
+                        db.add(NnaHistorialEstado(
+                            nna_id=nna.nna_id,
+                            estado_anterior=estado_anterior,
+                            estado_nuevo="disponible",
+                            fecha_hora=datetime.now()
+                        ))
+
+                        nna_liberados_set.add(nna.nna_id)
+
 
             # 2) Borrar vínculos por BULK
             db.query(DetalleProyectosEnCarpeta).filter(
@@ -5474,7 +5562,8 @@ def baja_por_convocatoria(
     body: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
-):
+    ):
+
     """
     Marca el proyecto como 'baja_por_convocatoria'.
     Requisitos:
@@ -5575,7 +5664,8 @@ def subir_sentencia_adopcion(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     📄 Sube la sentencia de adopción para un proyecto.
 
@@ -5621,7 +5711,8 @@ def subir_sentencia_adopcion(
 def descargar_sentencia_adopcion(
     proyecto_id: int,
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     📄 Descarga la sentencia de adopción del proyecto identificado por `proyecto_id`.
 
@@ -7945,7 +8036,8 @@ def subir_informe_vinculacion(
 def descargar_informe_vinculacion(
     proyecto_id: int,
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     📄 Descarga el informe de vinculación asociado al proyecto.
     """
@@ -7974,7 +8066,8 @@ def subir_informe_seguimiento_guarda(
     observacion: str = Form(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     🛡️ Sube el informe de seguimiento de guarda del proyecto, con una observación interna.
     """
@@ -8038,7 +8131,8 @@ def subir_informe_seguimiento_guarda(
 def descargar_informe_seguimiento_guarda(
     proyecto_id: int,
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     🛡️ Descarga el informe de seguimiento de guarda asociado al proyecto.
     """
@@ -8066,8 +8160,8 @@ def actualizar_nro_orden(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
-):
-
+    ):
+    
     nuevo_nro = data.get("nuevo_nro_orden", "").strip()
 
     # Validar que no esté vacío
@@ -8142,8 +8236,7 @@ def actualizar_nro_orden(
 
 @proyectos_router.get("/nnas/por-proyecto/{proyecto_id}", dependencies=[
     Depends(verify_api_key),
-    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))
-])
+    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
 def get_nnas_por_proyecto(proyecto_id: int, db: Session = Depends(get_db)):
     """
     🔍 Devuelve los NNAs vinculados a las carpetas en las que participa el proyecto indicado.
@@ -8213,7 +8306,8 @@ def actualizar_estado_proyecto(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     Cambia `estado_general` de un proyecto y deja registro
     en historial + observaciones.
@@ -8446,7 +8540,8 @@ def update_domicilio_de_proyecto(
     proyecto_id: int,
     data: dict = Body(...),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     ✏️ Actualiza el domicilio del proyecto y sincroniza el domicilio real en la DDJJ
     y en el usuario correspondiente (o en ambos usuarios si es biparental).
@@ -8519,77 +8614,6 @@ def update_domicilio_de_proyecto(
 
 
 
-# @proyectos_router.get("/ratificar/proyectos_que_deben_ratificar_al_dia_del_parametro", response_model=list,
-#     dependencies=[Depends(verify_api_key),
-#                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
-# def get_proyectos_para_ratificar_al_dia_del_parametro(
-#     request: Request,
-#     fecha_parametro: Optional[str] = Query(None, description="Fecha en formato YYYY-MM-DD para calcular ratificación"),
-#     db: Session = Depends(get_db)
-# ):
-#     """
-#     Devuelve los proyectos que deben ratificar a la fecha indicada o al día de hoy si no se pasa parámetro.
-#     """
-#     try:
-#         # Si no se pasa la fecha, usar la fecha actual
-#         if fecha_parametro:
-#             try:
-#                 fecha_limite = datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
-#             except ValueError:
-#                 raise HTTPException(status_code=400, detail="Formato de fecha inválido. Use YYYY-MM-DD.")
-#         else:
-#             fecha_limite = date.today()
-
-#         proyectos = db.query(Proyecto).filter(
-#             Proyecto.estado_general == "viable",
-#             Proyecto.ingreso_por == "rua"
-#         ).all()
-
-#         resultado = []
-
-#         for proyecto in proyectos:
-#             # Fechas de historial
-#             fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-#                 ProyectoHistorialEstado.estado_anterior == "viable",
-#                 ProyectoHistorialEstado.estado_nuevo == "viable"
-#             ).scalar()
-
-#             fecha_para_valorar_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-#                 ProyectoHistorialEstado.estado_anterior == "para_valorar",
-#                 ProyectoHistorialEstado.estado_nuevo == "viable"
-#             ).scalar()
-
-#             # Normalizar fechas
-#             fechas_posibles = []
-#             if proyecto.ultimo_cambio_de_estado:
-#                 fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
-#             if fecha_viable_a_viable:
-#                 fechas_posibles.append(fecha_viable_a_viable)
-#             if fecha_para_valorar_a_viable:
-#                 fechas_posibles.append(fecha_para_valorar_a_viable)
-
-#             fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
-#             fecha_ratificacion = (fecha_cambio_final + timedelta(days=356)) if fecha_cambio_final else None
-
-#             # Comparar con la fecha límite
-#             if fecha_ratificacion and fecha_ratificacion.date() <= fecha_limite:
-#                 resultado.append({
-#                     "proyecto_id": proyecto.proyecto_id,
-#                     "login_1": proyecto.login_1,
-#                     "login_2": proyecto.login_2,
-#                     "fecha_cambio_final": fecha_cambio_final.strftime("%Y-%m-%d %H:%M:%S") if fecha_cambio_final else None,
-#                     "fecha_ratificacion": fecha_ratificacion.strftime("%Y-%m-%d") if fecha_ratificacion else None
-#                 })
-
-#         return resultado
-
-#     except SQLAlchemyError as e:
-#         raise HTTPException(status_code=500, detail=f"Error al recuperar proyectos para ratificar: {str(e)}")
-
-
-
 @proyectos_router.get("/ratificar/proyectos_que_deben_ratificar_al_dia_del_parametro", response_model=list,
     dependencies=[Depends(verify_api_key),
                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
@@ -8597,7 +8621,8 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
     request: Request,
     fecha_parametro: Optional[str] = Query(None, description="Fecha en formato YYYY-MM-DD para calcular ratificación"),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     Devuelve los proyectos que deben ratificar a la fecha indicada o al día de hoy si no se pasa parámetro.
     Considera proyectos en estado 'viable' o 'en_carpeta'.
@@ -8732,282 +8757,6 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
 
 
 
-
-# @proyectos_router.post("/ratificar/notificar-siguiente-proyecto", dependencies=[Depends(verify_api_key),
-#                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
-# def notificar_siguiente_proyecto_para_ratificar(
-#     request: Request,
-#     fecha_parametro: Optional[str] = Query(None, description="Fecha en formato YYYY-MM-DD para calcular ratificación"),
-#     db: Session = Depends(get_db)
-# ):
-#     try:
-
-#         hoy = datetime.now()
-#         hace_7 = hoy - timedelta(days=7)
-
-#         # Fecha límite (hoy o parámetro)
-#         fecha_limite = date.today()
-#         if fecha_parametro:
-#             try:
-#                 fecha_limite = datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
-#             except ValueError:
-#                 raise HTTPException(status_code=400, detail="Formato de fecha inválido. Use YYYY-MM-DD.")
-
-#         # Buscar proyecto pendiente de ratificar que no haya recibido aviso en los últimos 7 días
-#         subq_notificados = (
-#             db.query(UsuarioNotificadoRatificacion.proyecto_id)
-#             .filter(
-#                 func.greatest(
-#                     func.coalesce(UsuarioNotificadoRatificacion.mail_enviado_1, datetime.min),
-#                     func.coalesce(UsuarioNotificadoRatificacion.mail_enviado_2, datetime.min),
-#                     func.coalesce(UsuarioNotificadoRatificacion.mail_enviado_3, datetime.min),
-#                     func.coalesce(UsuarioNotificadoRatificacion.mail_enviado_4, datetime.min),
-#                 ) > hace_7
-#             )
-#         )
-
-
-#         proyectos = db.query(Proyecto).filter(
-#             Proyecto.estado_general == "viable",
-#             Proyecto.ingreso_por == "rua",
-#             ~Proyecto.proyecto_id.in_(subq_notificados)
-#         ).all()
-
-#         candidatos = []
-#         for proyecto in proyectos:
-#             fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-#                 ProyectoHistorialEstado.estado_anterior == "viable",
-#                 ProyectoHistorialEstado.estado_nuevo == "viable"
-#             ).scalar()
-
-#             fecha_para_valorar_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-#                 ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-#                 ProyectoHistorialEstado.estado_anterior == "para_valorar",
-#                 ProyectoHistorialEstado.estado_nuevo == "viable"
-#             ).scalar()
-
-#             fechas_posibles = []
-#             if proyecto.ultimo_cambio_de_estado:
-#                 fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
-#             if fecha_viable_a_viable:
-#                 fechas_posibles.append(fecha_viable_a_viable)
-#             if fecha_para_valorar_a_viable:
-#                 fechas_posibles.append(fecha_para_valorar_a_viable)
-
-#             fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
-#             if fecha_cambio_final:
-#                 fecha_ratificacion = fecha_cambio_final + timedelta(days=356)
-#                 if fecha_ratificacion.date() <= fecha_limite:
-#                     candidatos.append((proyecto, fecha_ratificacion))
-
-#         if not candidatos:
-#             raise HTTPException(status_code=404, detail="No hay proyectos pendientes para notificar.")
-
-#         candidatos.sort(key=lambda x: x[1])
-#         proyecto_obj, fecha_ratif = candidatos[0]
-
-#         logins = [proyecto_obj.login_1, proyecto_obj.login_2] if proyecto_obj.login_2 else [proyecto_obj.login_1]
-#         enviados = []
-
-#         # -------------------- NUEVO: control para enviar 1 solo mail interno si se da de baja --------------------
-#         baja_caducidad_triggered = False
-#         baja_contexto = {
-#             "proyecto_id": proyecto_obj.proyecto_id,
-#             "logins": [l for l in logins if l],
-#             "cuando": None,
-#         }
-#         # ---------------------------------------------------------------------------------------------------------
-
-#         for login in logins:
-#             if not login:
-#                 continue
-
-#             usuario = db.query(User).filter(User.login == login).first()
-#             if not usuario or not usuario.mail:
-#                 continue
-
-#             notificacion = db.query(UsuarioNotificadoRatificacion).filter_by(
-#                 proyecto_id=proyecto_obj.proyecto_id,
-#                 login=login
-#             ).first()
-
-#             hoy = datetime.now()
-#             nro_envio = 1
-#             if not notificacion:
-#                 notificacion = UsuarioNotificadoRatificacion(
-#                     proyecto_id=proyecto_obj.proyecto_id,
-#                     login=login,
-#                     mail_enviado_1=hoy
-#                 )
-#                 db.add(notificacion)
-
-#             elif notificacion.mail_enviado_2 is None:
-#                 notificacion.mail_enviado_2 = hoy
-#                 nro_envio = 2
-#             elif notificacion.mail_enviado_3 is None:
-#                 notificacion.mail_enviado_3 = hoy
-#                 nro_envio = 3
-#             elif notificacion.mail_enviado_4 is None:
-#                 notificacion.mail_enviado_4 = hoy
-#                 nro_envio = 4
-#             else:
-#                 # ✅ Si pasaron más de 7 días del cuarto aviso → cambiar a baja_caducidad
-#                 if notificacion.mail_enviado_4 and (hoy - notificacion.mail_enviado_4) > timedelta(days=7):
-#                     proyecto_obj.estado_general = "baja_caducidad"
-#                     # Marcamos que debemos enviar el mail interno (una vez)
-#                     if not baja_caducidad_triggered:
-#                         baja_caducidad_triggered = True
-#                         baja_contexto["cuando"] = hoy
-#                     db.commit()
-#                     enviados.append({"login": login, "mensaje": "Proyecto pasado a baja_caducidad"})
-#                 continue
-
-#             primer_nombre = (
-#                 usuario.nombre.split()[0].lower().capitalize()
-#                 if usuario.nombre else ""
-#             )
-
-#             cuerpo_html = f"""
-#             <html>
-#               <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-#                 <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-#                   <tr>
-#                     <td align="center">
-#                       <table cellpadding="0" cellspacing="0" width="600"
-#                         style="background-color: #ffffff; border-radius: 10px; padding: 30px;
-#                               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40;
-#                               box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-#                         <tr>
-#                           <td style="padding-top: 20px; font-size: 17px;">
-#                             <p>¡Hola, <strong>{primer_nombre}</strong>! Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
-#                             <p>Te informamos que se cumple un año de tu inscripción en el Registro Único de Adopciones 
-#                               de Córdoba. Por indicaciones del artículo 14 de la ley 25.854 necesitamos que
-#                               confirmes tu voluntad de continuar inscripta/o ingresando al Sistema RUA y haciendo clic 
-#                               en el botón de Ratificación que estará disponible durante los próximos 30 días dentro del Sistema RUA.
-#                             </p>
-
-#                             <p><em>
-#                               Transcurrido ese plazo sin que nos confirmes tu continuidad, el sistema te excluye
-#                               automáticamente del Registro y, para volver a formar parte, tendrás que iniciar el trámite
-#                               nuevamente.
-#                             </em></p>
-#                           </td>
-#                         </tr>
-
-#                         <tr>
-#                           <td align="center" style="padding: 30px 0;">
-#                             <a href="https://rua.justiciacordoba.gob.ar/login/" target="_blank"
-#                               style="display: inline-block; padding: 12px 24px; background-color: #007bff;
-#                                       color: #ffffff; border-radius: 8px; text-decoration: none;
-#                                       font-weight: bold; font-size: 16px;">
-#                               Ir al sistema RUA
-#                             </a>
-#                           </td>
-#                         </tr>
-              
-#                         <tr>
-#                           <td style="font-size: 17px; padding-top: 20px;">
-#                             ¡Muchas gracias por seguir en el Registro Único de Adopciones de Córdoba!
-#                           </td>
-#                         </tr>
-#                       </table>
-#                     </td>
-#                   </tr>
-#                 </table>
-#               </body>
-#             </html>
-#             """         
-
-#             enviar_mail(
-#                 destinatario=usuario.mail,
-#                 asunto="Ratificación de inscripción",
-#                 cuerpo=cuerpo_html
-#             )
-
-#             # Registrar evento en RuaEvento
-#             evento = RuaEvento(
-#                 login=login,
-#                 evento_fecha=hoy,
-#                 evento_detalle=f"Notificación de ratificación enviada (intento {nro_envio}) al mail {usuario.mail}"
-#             )
-#             db.add(evento)
-
-#             enviados.append({"login": login, "mail": usuario.mail, "proyecto_id": proyecto_obj.proyecto_id, "envio": nro_envio})
-
-#         db.commit()
-
-#         # -------------------- NUEVO: si se gatilló la baja, mail interno (una sola vez) --------------------
-#         if baja_caducidad_triggered:
-#             try:
-#                 cuando = baja_contexto["cuando"] or datetime.now()
-#                 asunto_int = "Proyecto dado de baja por caducidad — RUA"
-#                 lista_logins = ", ".join(baja_contexto["logins"]) if baja_contexto["logins"] else "(s/d)"
-#                 cuerpo_int = f"""
-#                 <html>
-#                   <body style="margin:0; padding:0; background-color:#f8f9fa;">
-#                     <table cellpadding="0" cellspacing="0" width="100%" style="background-color:#f8f9fa; padding:20px;">
-#                       <tr>
-#                         <td align="center">
-#                           <table cellpadding="0" cellspacing="0" width="600"
-#                                  style="background-color:#ffffff; border-radius:10px; padding:30px;
-#                                         font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-#                                         color:#343a40; box-shadow:0 0 10px rgba(0,0,0,0.1);">
-#                             <tr>
-#                               <td style="font-size:22px; color:#dc2626;">
-#                                 <strong>Proyecto dado de baja por caducidad</strong>
-#                               </td>
-#                             </tr>
-#                             <tr>
-#                               <td style="padding-top:16px; font-size:16px;">
-#                                 <p>Se alcanzó la cantidad máxima de notificaciones y venció el plazo tras el último aviso.</p>
-#                               </td>
-#                             </tr>
-#                             <tr>
-#                               <td style="padding-top:12px; font-size:16px;">
-#                                 <div style="background-color:#fef2f2; padding:15px 20px; border-left:4px solid #dc2626; border-radius:6px;">
-#                                   <p><strong>Proyecto:</strong> #{baja_contexto['proyecto_id']}</p>
-#                                   <p><strong>Logins involucrados:</strong> {lista_logins}</p>
-#                                   <p><strong>Fecha/hora:</strong> {cuando.strftime('%d/%m/%Y %H:%M:%S')}</p>
-#                                   <p><strong>Nuevo estado:</strong> baja_caducidad</p>
-#                                 </div>
-#                               </td>
-#                             </tr>
-#                             <tr>
-#                               <td style="padding-top:20px; font-size:16px;">
-#                                 <p>Este correo es informativo y no requiere respuesta.</p>
-#                               </td>
-#                             </tr>
-#                           </table>
-#                         </td>
-#                       </tr>
-#                     </table>
-#                   </body>
-#                 </html>
-#                 """
-#                 enviar_mail_multiples(
-#                     destinatarios=DESTINATARIOS_RUA,
-#                     asunto=asunto_int,
-#                     cuerpo=cuerpo_int,
-#                 )
-#             except Exception as e:
-#                 # No romper el flujo si el correo interno falla
-#                 print(f"⚠️ Error enviando correo interno por baja_caducidad: {e}")
-#         # -----------------------------------------------------------------------------------------------------
-
-#         return {
-#             "message": f"Se enviaron {len(enviados)} notificaciones para el proyecto {proyecto_obj.proyecto_id}.",
-#             "fecha_ratificacion": fecha_ratif.strftime("%Y-%m-%d"),
-#             "detalles": enviados,
-#             "baja_caducidad_notificada": bool(baja_caducidad_triggered),
-#         }
-
-#     except SQLAlchemyError as e:
-#         db.rollback()
-#         raise HTTPException(status_code=500, detail=f"Error al enviar notificaciones: {str(e)}")
-
-
-
 @proyectos_router.post("/ratificar/notificar-siguiente-proyecto", 
     dependencies=[Depends(verify_api_key),
                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "coordinadora"]))])
@@ -9015,7 +8764,8 @@ def notificar_siguiente_proyecto_para_ratificar(
     request: Request,
     fecha_parametro: Optional[str] = Query(None, description="Fecha en formato YYYY-MM-DD para calcular ratificación"),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     Selecciona el siguiente proyecto pendiente de ratificación según la misma lógica
     que get_proyectos_para_ratificar_al_dia_del_parametro, evitando enviar mails duplicados
@@ -9322,7 +9072,8 @@ def notificar_siguiente_proyecto_para_ratificar(
 def ratificar_proyecto(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     Ratifica la continuidad del proyecto del usuario. Registra un cambio simbólico viable → viable.
     Y notifica por correo a algunas chicas del RUA
@@ -9492,6 +9243,8 @@ def ratificar_proyecto(
     }
 
 
+
+
 # ---------- PUT: subir / migrar a multi ----------
 @proyectos_router.put("/proyectos/documentos/{proyecto_id}", response_model=dict,
     dependencies=[Depends(verify_api_key), 
@@ -9503,7 +9256,9 @@ def subir_documento_proyecto(
     prefijo: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
-):
+    ):
+
+
     real_field = _resolve_field(campo)
 
     _, ext = os.path.splitext(file.filename.lower())
@@ -9576,6 +9331,7 @@ def subir_documento_proyecto(
         }
 
 
+
 # ---------- GET: descargar uno o todos ----------
 @proyectos_router.get("/proyectos/documentos/{proyecto_id}/descargar-todos", response_class=FileResponse,
     dependencies=[Depends(verify_api_key), 
@@ -9584,7 +9340,8 @@ def descargar_todos_documentos_proyecto(
     proyecto_id: int,
     campo: str = Query(...),        # acepta alias o nombre real
     db: Session = Depends(get_db),
-):
+    ):
+
     real_field = _resolve_field(campo)
 
     proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
@@ -9631,7 +9388,8 @@ def eliminar_documento_proyecto(
     ruta: str = Query(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)   # 👈 necesario para chequear rol
-):
+    ):
+
 
     real_field = _resolve_field(campo)
 
@@ -9798,9 +9556,7 @@ def eliminar_documento_proyecto(
 
 
 
-@proyectos_router.get(
-    "/proyectos/documentos/{proyecto_id}/descargar-uno",
-    response_class=FileResponse,
+@proyectos_router.get("/proyectos/documentos/{proyecto_id}/descargar-uno", response_class=FileResponse,
     dependencies=[Depends(verify_api_key),
                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def descargar_un_documento_proyecto(
@@ -9808,7 +9564,8 @@ def descargar_un_documento_proyecto(
     campo: str = Query(...),
     ruta: str = Query(...),
     db: Session = Depends(get_db),
-):
+    ):
+
     real_field = _resolve_field(campo)
     ruta_param = unquote(ruta).replace("\\", "/")  # ← decodificar y normalizar
 

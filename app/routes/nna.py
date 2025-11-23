@@ -9,7 +9,7 @@ from typing import List, Optional, Literal
 from database.config import get_db
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import SQLAlchemyError
-from models.nna import Nna
+from models.nna import Nna, NnaHistorialEstado
 from models.carpeta import DetalleNNAEnCarpeta, Carpeta, DetalleProyectosEnCarpeta
 from models.notif_y_observaciones import ObservacionesNNAs
 
@@ -641,8 +641,8 @@ def get_nnas_por_ids(nna_ids: List[int] = Body(...), db: Session = Depends(get_d
 
 
 
-@nna_router.post("/", response_model=dict, 
-                  dependencies=[Depends( verify_api_key ), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+@nna_router.post("/", response_model=dict, dependencies=[Depends( verify_api_key ), 
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def create_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
     """
     Crea un nuevo registro de NNA.
@@ -661,7 +661,11 @@ def create_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
     - nna_sentencia: str
     - nna_archivado: str ("Y" o "N")
     """
+
     try:
+        # Estado inicial del NNA (si no viene, se define uno por defecto)
+        estado_inicial = nna_data.get("nna_estado", "disponible")
+
         new_nna = Nna(
             nna_nombre=nna_data.get("nna_nombre"),
             nna_apellido=nna_data.get("nna_apellido"),
@@ -676,13 +680,29 @@ def create_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
             nna_ficha=nna_data.get("nna_ficha"),
             nna_sentencia=nna_data.get("nna_sentencia"),
             nna_archivado=nna_data.get("nna_archivado", "N"),
+            nna_estado=estado_inicial
         )
 
         db.add(new_nna)
         db.commit()
         db.refresh(new_nna)
 
-        return {"message": "NNA creado con éxito", "nna_id": new_nna.nna_id}
+        # ✅ REGISTRO EN HISTORIAL (primera asignación de estado)
+        historial = NnaHistorialEstado(
+            nna_id=new_nna.nna_id,
+            estado_anterior=None,              # Primera asignación
+            estado_nuevo=estado_inicial,
+            fecha_hora=datetime.now()
+        )
+
+        db.add(historial)
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "NNA creado con éxito",
+            "nna_id": new_nna.nna_id
+        }
 
     except SQLAlchemyError as e:
         db.rollback()
@@ -711,52 +731,228 @@ def delete_nna(nna_id: int, db: Session = Depends(get_db)):
 
 
 
+# @nna_router.post("/upsert", response_model=dict,
+#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+# def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
+#     """
+#     Inserta o actualiza un NNA.
+#     - Si viene `nna_id`, actualiza ese registro (incluido el DNI si cambia).
+#     - Si no viene `nna_id`, hace upsert por DNI.
+#     - La disponibilidad solo puede alternarse entre `disponible` <-> `no_disponible`.
+#       En otros estados, no se permite.
+#     """
+
+#     def _aplicar_disponibilidad(nna_obj: Nna, flag: str):
+#         """
+#         Reglas de transición de disponibilidad.
+#         """
+#         if flag not in ("Y", "N", None):
+#             return (False, "Valor inválido para 'nna_no_disponible' (use 'Y' o 'N').")
+
+#         estado = nna_obj.nna_estado
+
+#         # disponible -> no_disponible
+#         if flag == "Y" and estado == "disponible":
+#             nna_obj.nna_estado = "no_disponible"
+#             return (True, None)
+
+#         # no_disponible -> disponible
+#         if flag == "N" and estado == "no_disponible":
+#             nna_obj.nna_estado = "disponible"
+#             return (True, None)
+
+#         # estados distintos a disponible/no_disponible
+#         if estado not in ("disponible", "no_disponible"):
+#             if flag == "Y":
+#                 # bloquear y devolver mensaje
+#                 return (
+#                     False,
+#                     f"El estado actual del NNA es '{estado}'. "
+#                     "No se puede marcar como no disponible desde este estado."
+#                 )
+#             if flag == "N":
+#                 # se ignora el intento, pero se permiten otros cambios
+#                 return (True, None)
+
+#         # no hay cambio real
+#         return (True, None)
+
+
+#     def _yn(val):
+#         if val is None:
+#             return None
+#         s = str(val).strip().lower()
+#         if s in {"y", "1", "true", "t", "sí", "si"}:
+#             return "Y"
+#         if s in {"n", "0", "false", "f"}:
+#             return "N"
+#         # fallback: si te llega ya "Y"/"N" u otro string
+#         return "Y" if str(val).strip().upper() == "Y" else "N"
+
+#     try:
+#         # 1) Validar DNI
+#         dni = normalizar_y_validar_dni(nna_data.get("nna_dni"))
+#         if not dni:
+#             return {"success": False, "tipo_mensaje": "rojo",
+#                     "mensaje": "Debe proporcionar un DNI válido de 6 a 9 dígitos",
+#                     "tiempo_mensaje": 6, "next_page": "actual"}
+
+#         # 2) Validar campos obligatorios
+#         campos_obligatorios = {
+#             "nna_nombre": "Nombre",
+#             "nna_apellido": "Apellido",
+#             "nna_fecha_nacimiento": "Fecha de nacimiento",
+#             "nna_localidad": "Localidad",
+#             "nna_provincia": "Provincia"
+#         }
+#         faltantes = [nombre for campo, nombre in campos_obligatorios.items() if not nna_data.get(campo)]
+#         if faltantes:
+#             return {"success": False, "tipo_mensaje": "naranja",
+#                     "mensaje": f"Faltan campos obligatorios: {', '.join(faltantes)}.",
+#                     "tiempo_mensaje": 6, "next_page": "actual"}
+
+#         # 3) Campos actualizables (no incluye nna_estado)
+#         campos = [
+#             "nna_nombre", "nna_apellido", "nna_fecha_nacimiento", "nna_calle_y_nro",
+#             "nna_depto_etc", "nna_barrio", "nna_localidad", "nna_provincia",
+#             "nna_subregistro_salud", "nna_en_convocatoria", "nna_archivado",
+#             "nna_5A", "nna_5B", "nna_ficha", "nna_sentencia", "nna_otra_jurisdiccion"
+#         ]
+#         flag_disp = nna_data.get("nna_no_disponible")  # "Y" | "N" | None
+
+#         nna_id = nna_data.get("nna_id")
+
+#         # ---------- UPDATE POR ID ----------
+#         if nna_id:
+#             nna_existente = db.query(Nna).filter(Nna.nna_id == nna_id).first()
+#             if not nna_existente:
+#                 return {"success": False, "tipo_mensaje": "rojo",
+#                         "mensaje": f"No se encontró NNA con ID {nna_id}.",
+#                         "tiempo_mensaje": 6, "next_page": "actual"}
+
+#             # Unicidad de DNI contra otros NNA
+#             otro = db.query(Nna).filter(Nna.nna_dni == dni, Nna.nna_id != nna_id).first()
+#             if otro:
+#                 return {"success": False, "tipo_mensaje": "naranja",
+#                         "mensaje": "Ya existe otro NNA con este DNI.",
+#                         "tiempo_mensaje": 6, "next_page": "actual"}
+
+#             # Aplicar disponibilidad (si corresponde)
+#             ok, msg = _aplicar_disponibilidad(nna_existente, flag_disp)
+#             if not ok:
+#                 return {"success": False, "tipo_mensaje": "naranja",
+#                         "mensaje": msg, "tiempo_mensaje": 7, "next_page": "actual"}
+
+#             # Actualizar DNI + campos normales
+#             nna_existente.nna_dni = dni
+#             for campo in campos:
+#                 if campo in nna_data:
+#                     if campo == "nna_otra_jurisdiccion":
+#                         setattr(nna_existente, campo, _yn(nna_data[campo]))
+#                     else:
+#                         setattr(nna_existente, campo, nna_data[campo])
+
+#             db.commit()
+#             db.refresh(nna_existente)
+#             return {"success": True, "tipo_mensaje": "verde",
+#                     "mensaje": "NNA actualizado correctamente",
+#                     "tiempo_mensaje": 5, "next_page": "actual",
+#                     "nna_id": nna_existente.nna_id}
+
+#         # ---------- UPSERT POR DNI ----------
+#         nna_existente = db.query(Nna).filter(Nna.nna_dni == dni).first()
+#         if nna_existente:
+#             ok, msg = _aplicar_disponibilidad(nna_existente, flag_disp)
+#             if not ok:
+#                 return {"success": False, "tipo_mensaje": "naranja",
+#                         "mensaje": msg, "tiempo_mensaje": 7, "next_page": "actual"}
+
+#             for campo in campos:
+#                 if campo in nna_data:
+#                     if campo == "nna_otra_jurisdiccion":
+#                         setattr(nna_existente, campo, _yn(nna_data[campo]))
+#                     else:
+#                         setattr(nna_existente, campo, nna_data[campo])
+
+#             db.commit()
+#             db.refresh(nna_existente)
+#             return {"success": True, "tipo_mensaje": "verde",
+#                     "mensaje": "NNA actualizado correctamente",
+#                     "tiempo_mensaje": 5, "next_page": "actual",
+#                     "nna_id": nna_existente.nna_id}
+
+#         # ---------- CREATE ----------
+#         # Garantizar que no exista otro con el mismo DNI (race-safe)
+#         otro = db.query(Nna).filter(Nna.nna_dni == dni).first()
+#         if otro:
+#             return {"success": False, "tipo_mensaje": "naranja",
+#                     "mensaje": "Ya existe un NNA con este DNI.",
+#                     "tiempo_mensaje": 6, "next_page": "actual"}
+
+#         # Estado inicial - Al crear se agrega como disponible
+#         estado_inicial = "disponible"
+
+#         nuevo_nna = Nna(
+#             nna_dni=dni,
+#             nna_estado=estado_inicial,
+#             **{campo: (_yn(nna_data.get(campo)) if campo == "nna_otra_jurisdiccion" else nna_data.get(campo))
+#               for campo in campos}
+#         )
+                
+#         db.add(nuevo_nna)
+#         db.commit()
+#         db.refresh(nuevo_nna)
+#         return {"success": True, "tipo_mensaje": "verde",
+#                 "mensaje": "NNA creado correctamente",
+#                 "tiempo_mensaje": 5, "next_page": "actual",
+#                 "nna_id": nuevo_nna.nna_id}
+
+#     except SQLAlchemyError as e:
+#         db.rollback()
+#         return {"success": False, "tipo_mensaje": "rojo",
+#                 "mensaje": f"Error en upsert de NNA: {str(e)}",
+#                 "tiempo_mensaje": 6, "next_page": "actual"}
+
+
+
+
 @nna_router.post("/upsert", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
-    """
-    Inserta o actualiza un NNA.
-    - Si viene `nna_id`, actualiza ese registro (incluido el DNI si cambia).
-    - Si no viene `nna_id`, hace upsert por DNI.
-    - La disponibilidad solo puede alternarse entre `disponible` <-> `no_disponible`.
-      En otros estados, no se permite.
-    """
+
+    def _registrar_historial(nna_id: int, anterior: str, nuevo: str):
+        db.add(NnaHistorialEstado(
+            nna_id=nna_id,
+            estado_anterior=anterior,
+            estado_nuevo=nuevo,
+            fecha_hora=datetime.now()
+        ))
 
     def _aplicar_disponibilidad(nna_obj: Nna, flag: str):
-        """
-        Reglas de transición de disponibilidad.
-        """
         if flag not in ("Y", "N", None):
             return (False, "Valor inválido para 'nna_no_disponible' (use 'Y' o 'N').")
 
         estado = nna_obj.nna_estado
 
-        # disponible -> no_disponible
         if flag == "Y" and estado == "disponible":
+            estado_prev = estado
             nna_obj.nna_estado = "no_disponible"
+            _registrar_historial(nna_obj.nna_id, estado_prev, "no_disponible")
             return (True, None)
 
-        # no_disponible -> disponible
         if flag == "N" and estado == "no_disponible":
+            estado_prev = estado
             nna_obj.nna_estado = "disponible"
+            _registrar_historial(nna_obj.nna_id, estado_prev, "disponible")
             return (True, None)
 
-        # estados distintos a disponible/no_disponible
         if estado not in ("disponible", "no_disponible"):
             if flag == "Y":
-                # bloquear y devolver mensaje
-                return (
-                    False,
-                    f"El estado actual del NNA es '{estado}'. "
-                    "No se puede marcar como no disponible desde este estado."
-                )
+                return (False, f"El estado actual del NNA es '{estado}'. No se puede marcar como no disponible desde este estado.")
             if flag == "N":
-                # se ignora el intento, pero se permiten otros cambios
                 return (True, None)
 
-        # no hay cambio real
         return (True, None)
-
 
     def _yn(val):
         if val is None:
@@ -766,11 +962,9 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
             return "Y"
         if s in {"n", "0", "false", "f"}:
             return "N"
-        # fallback: si te llega ya "Y"/"N" u otro string
         return "Y" if str(val).strip().upper() == "Y" else "N"
 
     try:
-        # 1) Validar DNI
         dni = normalizar_y_validar_dni(nna_data.get("nna_dni"))
         if not dni:
             return {"success": False, "tipo_mensaje": "rojo",
@@ -791,15 +985,14 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
                     "mensaje": f"Faltan campos obligatorios: {', '.join(faltantes)}.",
                     "tiempo_mensaje": 6, "next_page": "actual"}
 
-        # 3) Campos actualizables (no incluye nna_estado)
         campos = [
             "nna_nombre", "nna_apellido", "nna_fecha_nacimiento", "nna_calle_y_nro",
             "nna_depto_etc", "nna_barrio", "nna_localidad", "nna_provincia",
             "nna_subregistro_salud", "nna_en_convocatoria", "nna_archivado",
             "nna_5A", "nna_5B", "nna_ficha", "nna_sentencia", "nna_otra_jurisdiccion"
         ]
-        flag_disp = nna_data.get("nna_no_disponible")  # "Y" | "N" | None
 
+        flag_disp = nna_data.get("nna_no_disponible")
         nna_id = nna_data.get("nna_id")
 
         # ---------- UPDATE POR ID ----------
@@ -817,71 +1010,66 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
                         "mensaje": "Ya existe otro NNA con este DNI.",
                         "tiempo_mensaje": 6, "next_page": "actual"}
 
-            # Aplicar disponibilidad (si corresponde)
+
             ok, msg = _aplicar_disponibilidad(nna_existente, flag_disp)
             if not ok:
                 return {"success": False, "tipo_mensaje": "naranja",
                         "mensaje": msg, "tiempo_mensaje": 7, "next_page": "actual"}
 
-            # Actualizar DNI + campos normales
             nna_existente.nna_dni = dni
             for campo in campos:
                 if campo in nna_data:
-                    if campo == "nna_otra_jurisdiccion":
-                        setattr(nna_existente, campo, _yn(nna_data[campo]))
-                    else:
-                        setattr(nna_existente, campo, nna_data[campo])
+                    setattr(nna_existente, campo,
+                            _yn(nna_data[campo]) if campo == "nna_otra_jurisdiccion"
+                            else nna_data[campo])
 
             db.commit()
             db.refresh(nna_existente)
+
             return {"success": True, "tipo_mensaje": "verde",
                     "mensaje": "NNA actualizado correctamente",
                     "tiempo_mensaje": 5, "next_page": "actual",
                     "nna_id": nna_existente.nna_id}
 
-        # ---------- UPSERT POR DNI ----------
-        nna_existente = db.query(Nna).filter(Nna.nna_dni == dni).first()
-        if nna_existente:
-            ok, msg = _aplicar_disponibilidad(nna_existente, flag_disp)
-            if not ok:
-                return {"success": False, "tipo_mensaje": "naranja",
-                        "mensaje": msg, "tiempo_mensaje": 7, "next_page": "actual"}
 
-            for campo in campos:
-                if campo in nna_data:
-                    if campo == "nna_otra_jurisdiccion":
-                        setattr(nna_existente, campo, _yn(nna_data[campo]))
-                    else:
-                        setattr(nna_existente, campo, nna_data[campo])
+        # ============================================================
+        # 🚫 BLOQUEO SI NO HAY nna_id Y DNI YA EXISTE
+        # ============================================================
 
-            db.commit()
-            db.refresh(nna_existente)
-            return {"success": True, "tipo_mensaje": "verde",
-                    "mensaje": "NNA actualizado correctamente",
-                    "tiempo_mensaje": 5, "next_page": "actual",
-                    "nna_id": nna_existente.nna_id}
+        existe = db.query(Nna).filter(Nna.nna_dni == dni).first()
+        if existe:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Ya existe un NNA con este DNI. Para modificarlo debe seleccionarlo y editarlo desde su ficha.",
+                "tiempo_mensaje": 6,
+                "next_page": "actual"
+            }
 
-        # ---------- CREATE ----------
-        # Garantizar que no exista otro con el mismo DNI (race-safe)
-        otro = db.query(Nna).filter(Nna.nna_dni == dni).first()
-        if otro:
-            return {"success": False, "tipo_mensaje": "naranja",
-                    "mensaje": "Ya existe un NNA con este DNI.",
-                    "tiempo_mensaje": 6, "next_page": "actual"}
-
-        # Estado inicial - Al crear se agrega como disponible
         estado_inicial = "disponible"
 
         nuevo_nna = Nna(
             nna_dni=dni,
             nna_estado=estado_inicial,
-            **{campo: (_yn(nna_data.get(campo)) if campo == "nna_otra_jurisdiccion" else nna_data.get(campo))
+            **{campo: (_yn(nna_data.get(campo)) if campo == "nna_otra_jurisdiccion"
+                       else nna_data.get(campo))
               for campo in campos}
         )
-                
+
+
         db.add(nuevo_nna)
+        db.flush()  # permite obtener ID sin confirmar aún
+
+        _registrar_historial(
+            nuevo_nna.nna_id,
+            None,
+            estado_inicial
+        )
+
         db.commit()
         db.refresh(nuevo_nna)
+
+
         return {"success": True, "tipo_mensaje": "verde",
                 "mensaje": "NNA creado correctamente",
                 "tiempo_mensaje": 5, "next_page": "actual",
@@ -896,197 +1084,6 @@ def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
 
 
 
-# @nna_router.post("/upsert", response_model=dict,
-#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
-# def upsert_nna(nna_data: dict = Body(...), db: Session = Depends(get_db)):
-#     """
-#     Inserta o actualiza un NNA.  
-#     Si viene `nna_id`, se actualiza ese registro (incluso si cambia el DNI).  
-#     Si no viene `nna_id`, se busca por DNI y se hace upsert.
-#     """
-
-#     try:
-#         # Validar y normalizar DNI
-#         dni = normalizar_y_validar_dni(nna_data.get("nna_dni"))
-#         if not dni:
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "rojo",
-#                 "mensaje": "Debe proporcionar un DNI válido de 6 a 9 dígitos",
-#                 "tiempo_mensaje": 6,
-#                 "next_page": "actual"
-#             }
-
-#         # Validar campos obligatorios con nombres amigables
-#         campos_obligatorios = {
-#             "nna_nombre": "Nombre",
-#             "nna_apellido": "Apellido",
-#             "nna_fecha_nacimiento": "Fecha de nacimiento",
-#             "nna_localidad": "Localidad",
-#             "nna_provincia": "Provincia"
-#         }
-
-#         faltantes = [nombre for campo, nombre in campos_obligatorios.items() if not nna_data.get(campo)]
-
-#         if faltantes:
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "naranja",
-#                 "mensaje": f"Faltan campos obligatorios: {', '.join(faltantes)}.",
-#                 "tiempo_mensaje": 6,
-#                 "next_page": "actual"
-#             }
-
-
-
-#         campos = [
-#             "nna_nombre", "nna_apellido", "nna_fecha_nacimiento", "nna_calle_y_nro",
-#             "nna_depto_etc", "nna_barrio", "nna_localidad", "nna_provincia",
-#             "nna_subregistro_salud", "nna_en_convocatoria", "nna_archivado",
-#             "nna_5A", "nna_5B", "nna_no_disponible"
-#         ]
-
-#         nna_id = nna_data.get("nna_id")
-#         if nna_id:
-#             # ——— ACTUALIZAR POR ID ———
-#             nna_existente = db.query(Nna).filter(Nna.nna_id == nna_id).first()
-#             if not nna_existente:
-#                 return {
-#                     "success": False,
-#                     "tipo_mensaje": "rojo",
-#                     "mensaje": f"No se encontró NNA con ID {nna_id}.",
-#                     "tiempo_mensaje": 6,
-#                     "next_page": "actual"
-#                 }
-
-#             # Validar que el nuevo DNI no exista en otro NNA
-#             otro_con_igual_dni = db.query(Nna).filter(
-#                 Nna.nna_dni == dni,
-#                 Nna.nna_id != nna_id
-#             ).first()
-#             if otro_con_igual_dni:
-#                 return {
-#                     "success": False,
-#                     "tipo_mensaje": "naranja",
-#                     "mensaje": f"Ya existe otro NNA con este DNI.",
-#                     "tiempo_mensaje": 6,
-#                     "next_page": "actual"
-#                 }
-
-
-#             # Verificamos si se desea marcar como no disponible
-#             flag = nna_data.get("nna_no_disponible")
-#             if flag == "Y":
-#                 if nna_existente.nna_estado in ("disponible", "no_disponible"):
-#                     nna_existente.nna_estado = "no_disponible"
-#                 else:
-#                     return {
-#                         "success": False,
-#                         "tipo_mensaje": "rojo",
-#                         "mensaje": "Sólo se puede marcar como no disponible a NNA en estado 'disponible'.",
-#                         "tiempo_mensaje": 6,
-#                         "next_page": "actual"
-#                     }
-#             elif flag == "N":
-#                 nna_existente.nna_estado = "disponible"
-
-#             # Actualizamos todos los campos (incluido el dni)
-#             nna_existente.nna_dni = dni
-#             for campo in campos:
-#                 if campo in ("nna_no_disponible",):
-#                     continue
-#                 if campo in nna_data:
-#                     setattr(nna_existente, campo, nna_data[campo])
-
-#             db.commit()
-#             db.refresh(nna_existente)
-#             return {
-#                 "success": True,
-#                 "tipo_mensaje": "verde",
-#                 "mensaje": "NNA actualizado correctamente",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual",
-#                 "nna_id": nna_existente.nna_id
-#             }
-
-#         # ——— UPSERT POR DNI (como antes) ———
-#         nna_existente = db.query(Nna).filter(Nna.nna_dni == dni).first()
-#         if nna_existente:
-#             flag = nna_data.get("nna_no_disponible")
-#             if flag == "Y":
-#                 if nna_existente.nna_estado in ("disponible", "no_disponible"):
-#                     nna_existente.nna_estado = "no_disponible"
-#                 else:
-#                     return {
-#                         "success": False,
-#                         "tipo_mensaje": "rojo",
-#                         "mensaje": "Sólo se puede marcar como no disponible a NNA en estado 'disponible'.",
-#                         "tiempo_mensaje": 6,
-#                         "next_page": "actual"
-#                     }
-#             elif flag == "N":
-#                 nna_existente.nna_estado = "disponible"
-
-#             for campo in campos:
-#                 if campo in ("nna_no_disponible",):
-#                     continue
-#                 if campo in nna_data:
-#                     setattr(nna_existente, campo, nna_data[campo])
-
-#             db.commit()
-#             db.refresh(nna_existente)
-#             return {
-#                 "success": True,
-#                 "tipo_mensaje": "verde",
-#                 "mensaje": "NNA actualizado correctamente",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual",
-#                 "nna_id": nna_existente.nna_id
-#             }
-
-#         # ——— CREAR NUEVO NNA ———
-
-#         # Validar que no exista otro con el mismo DNI
-#         otro_con_igual_dni = db.query(Nna).filter(Nna.nna_dni == dni).first()
-#         if otro_con_igual_dni:
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "naranja",
-#                 "mensaje": f"Ya existe un NNA con este DNI.",
-#                 "tiempo_mensaje": 6,
-#                 "next_page": "actual"
-#             }
-
-#         nuevo_nna = Nna(
-#             nna_dni=dni,
-#             nna_estado="disponible",
-#             **{campo: nna_data.get(campo)
-#                for campo in campos
-#                if campo not in ("nna_no_disponible",)}
-#         )
-#         db.add(nuevo_nna)
-#         db.commit()
-#         db.refresh(nuevo_nna)
-#         return {
-#             "success": True,
-#             "tipo_mensaje": "verde",
-#             "mensaje": "NNA creado correctamente",
-#             "tiempo_mensaje": 5,
-#             "next_page": "actual",
-#             "nna_id": nuevo_nna.nna_id
-#         }
-
-#     except SQLAlchemyError as e:
-#         db.rollback()
-#         return {
-#             "success": False,
-#             "tipo_mensaje": "rojo",
-#             "mensaje": f"Error en upsert de NNA: {str(e)}",
-#             "tiempo_mensaje": 6,
-#             "next_page": "actual"
-#         }
-
-
 
 @nna_router.put("/documentos/{nna_id}", response_model=dict,
     dependencies=[Depends(verify_api_key),
@@ -1096,7 +1093,8 @@ def update_nna_document_by_id(
     campo: Literal["nna_ficha", "nna_sentencia"] = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
-):
+    ):
+
     allowed_extensions = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"}
     _, ext = os.path.splitext(file.filename.lower())
 
@@ -1205,7 +1203,8 @@ def descargar_todos_documentos_nna(
     nna_id: int,
     campo: Literal["nna_ficha", "nna_sentencia"] = Query(...),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     Descarga todos los documentos (de ficha o sentencia) asociados a un NNA:
     - Si hay uno solo, lo devuelve directamente.
@@ -1281,7 +1280,9 @@ def descargar_documento_nna(
     nna_id: int,
     campo: Literal["nna_ficha", "nna_sentencia"] = Query(...),
     db: Session = Depends(get_db)
-):
+    ):
+
+
     """
     Descarga un documento del NNA identificado por `nna_id`.
     El campo debe ser 'nna_ficha' o 'nna_sentencia'.
@@ -1309,7 +1310,8 @@ def descargar_documento_nna(
 def definir_hermanos(
     nna_ids: List[int] = Body(..., embed=True),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     Asocia un grupo de NNAs como hermanos mediante un `hermanos_id` común.
     - Si ninguno tiene `hermanos_id`, se asigna uno nuevo (máximo actual + 1).
@@ -1385,7 +1387,8 @@ def definir_hermanos(
 def quitar_hermanos(
     nna_ids: List[int] = Body(..., embed=True),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     Quita a uno o varios NNAs de su grupo de hermanos (pone hermanos_id en NULL).
     """
@@ -1574,8 +1577,7 @@ def eliminar_documento_nna(
 
 @nna_router.post("/{nna_id}/cambiar_estado", response_model=dict, dependencies=[
     Depends(verify_api_key),
-    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))
-])
+    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def cambiar_estado_nna(
     nna_id: int,
     data: dict = Body(..., example={"nuevo_estado": "vinculacion_no_inscriptos", "observaciones": "Motivo del cambio"}),
@@ -1600,7 +1602,18 @@ def cambiar_estado_nna(
             }
 
         nuevo_estado = data.get("nuevo_estado")
-        observacion = data.get("observaciones", "")
+
+        if not nuevo_estado:
+            return {
+                "tipo_mensaje": "naranja",
+                "mensaje": "Debe indicar un nuevo estado.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+
+        observacion = (data.get("observaciones") or "").strip()
+
 
         # Estados desde los cuales se puede cambiar
         estados_origen_permitidos = [
@@ -1651,13 +1664,26 @@ def cambiar_estado_nna(
                 "next_page": "actual"
             }
 
+
+        estado_anterior = nna.nna_estado
+
         # Aplicar cambio de estado
         nna.nna_estado = nuevo_estado
+
+
+        db.add(NnaHistorialEstado(
+            nna_id = nna.nna_id,
+            estado_anterior = estado_anterior,
+            estado_nuevo = nuevo_estado,
+            fecha_hora = datetime.now()
+        ))
+
+
 
         # Registrar observación solo si realmente hubo cambio
         nueva_obs = ObservacionesNNAs(
             observacion_fecha=datetime.now(),
-            observacion=observacion or f"Cambio de estado a {nuevo_estado}",
+            observacion = observacion or f"Cambio de estado de {estado_anterior} a {nuevo_estado}",
             login_que_observo=current_user["user"]["login"],
             observacion_a_cual_nna=nna.nna_id,
         )

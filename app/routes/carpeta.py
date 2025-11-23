@@ -17,7 +17,7 @@ from helpers.utils import construir_subregistro_string
 from models.carpeta import Carpeta, DetalleProyectosEnCarpeta, DetalleNNAEnCarpeta
 from models.proyecto import Proyecto, ProyectoHistorialEstado
 from models.users import User
-from models.nna import Nna
+from models.nna import Nna, NnaHistorialEstado
 from models.eventos_y_configs import RuaEvento
 from fastapi.responses import FileResponse, JSONResponse
 import tempfile, shutil
@@ -68,7 +68,8 @@ def listar_carpetas(
     busqueda_rapida: Optional[str] = Query(None),
     estado_filtro: Optional[str] = Query(None),
     estado_proyecto_filtro: Optional[str] = Query(None),
-):
+    ):
+
     try:
 
         # ✅ Aliased para usuarios dentro del endpoint
@@ -248,7 +249,8 @@ def listar_carpetas(
 def obtener_carpeta(
     carpeta_id: int,
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     📁 Obtiene los detalles completos de una carpeta por su ID.
     """
@@ -329,7 +331,8 @@ def obtener_carpeta(
 def crear_carpeta(
     data: dict = Body(...),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     📁 Crea una nueva carpeta y puede asociarla a uno o más proyectos y/o NNAs.
 
@@ -478,7 +481,8 @@ def actualizar_carpeta(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)  # Usá tu método real para obtener el usuario
-):
+    ):
+
     """
     🔄 Actualiza los proyectos y NNAs asociados a una carpeta.
 
@@ -701,65 +705,6 @@ def actualizar_carpeta(
 
 
 
-# @carpetas_router.delete("/{carpeta_id}", response_model=dict,
-#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
-# def eliminar_carpeta(
-#     carpeta_id: int,
-#     db: Session = Depends(get_db),
-#     current_user: dict = Depends(get_current_user)
-# ):
-#     """
-#     🗑️ Elimina una carpeta solo si su estado es 'vacia'.
-
-#     🔒 Requiere rol de administradora o supervisora.
-#     """
-#     try:
-#         carpeta = db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).first()
-#         if not carpeta:
-#             raise HTTPException(status_code=404, detail="Carpeta no encontrada")
-
-#         if carpeta.estado_carpeta != "vacia":
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "naranja",
-#                 "mensaje": "Solo se pueden eliminar carpetas vacías.",
-#                 "tiempo_mensaje": 6,
-#                 "next_page": "actual"
-#             }
-
-#         # Eliminar relaciones si existieran (precaución defensiva)
-#         db.query(DetalleProyectosEnCarpeta).filter(DetalleProyectosEnCarpeta.carpeta_id == carpeta_id).delete()
-#         db.query(DetalleNNAEnCarpeta).filter(DetalleNNAEnCarpeta.carpeta_id == carpeta_id).delete()
-#         db.delete(carpeta)
-
-#         # Registrar evento
-#         evento = RuaEvento(
-#             login=current_user["user"]["login"],
-#             evento_detalle=f"Se eliminó la carpeta ID {carpeta_id}",
-#             evento_fecha=datetime.now()
-#         )
-#         db.add(evento)
-
-#         db.commit()
-
-#         return {
-#             "success": True,
-#             "tipo_mensaje": "verde",
-#             "mensaje": "Carpeta eliminada correctamente.",
-#             "tiempo_mensaje": 5,
-#             "next_page": "actual"
-#         }
-
-#     except SQLAlchemyError as e:
-#         db.rollback()
-#         return {
-#             "success": False,
-#             "tipo_mensaje": "rojo",
-#             "mensaje": f"Error al eliminar carpeta: {str(e)}",
-#             "tiempo_mensaje": 8,
-#             "next_page": "actual"
-#         }
-
 
 @carpetas_router.delete("/{carpeta_id}", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
@@ -767,7 +712,8 @@ def eliminar_carpeta(
     carpeta_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     🗑️ Elimina una carpeta solo si su estado es 'vacia' y no tiene NNAs ni proyectos asociados.
 
@@ -923,13 +869,15 @@ def enviar_a_juzgado(carpeta_id: int, db: Session = Depends(get_db)):
     }
 
 
+
 @carpetas_router.put("/{carpeta_id}/volver-a-preparacion", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def volver_a_preparacion(
     carpeta_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     🔄 Devuelve la carpeta a estado 'preparando_carpeta' para permitir su edición.
 
@@ -992,106 +940,6 @@ def volver_a_preparacion(
 
 
 
-# @carpetas_router.put("/{carpeta_id}/marcar-con-dictamen", response_model=dict,
-#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
-# def marcar_con_dictamen(
-#     carpeta_id: int,
-#     data: dict = Body(...),  # 📥 Recibe proyecto_id opcional en el body
-#     db: Session = Depends(get_db),
-#     current_user: dict = Depends(get_current_user)
-# ):
-#     """
-#     📌 Marca la carpeta como 'proyecto_seleccionado' o 'desierto' según el proyecto recibido (o ninguno).
-#     🔁 Cambios:
-#     - Si recibe un proyecto_id válido, deja solo ese y marca como 'proyecto_seleccionado'.
-#     - Si no recibe ninguno, marca como 'desierto' y elimina todos los proyectos asociados.
-#     - Registra evento RuaEvento.
-#     """
-
-#     try:
-#         carpeta = db.query(Carpeta).filter(Carpeta.carpeta_id == carpeta_id).first()
-
-#         if not carpeta:
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "rojo",
-#                 "mensaje": "Carpeta no encontrada.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-#         if carpeta.estado_carpeta in ["proyecto_seleccionado", "desierto"]:
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "naranja",
-#                 "mensaje": f"La carpeta ya está marcada como '{carpeta.estado_carpeta}'.",
-#                 "tiempo_mensaje": 4,
-#                 "next_page": "actual"
-#             }
-
-#         proyecto_id = data.get("proyecto_id")
-#         proyectos_asociados = [dp.proyecto_id for dp in carpeta.detalle_proyectos]
-
-#         if proyecto_id:
-#             # ✅ Verificar que el proyecto exista en la carpeta
-#             if proyecto_id not in proyectos_asociados:
-#                 return {
-#                     "success": False,
-#                     "tipo_mensaje": "naranja",
-#                     "mensaje": f"El proyecto seleccionado (ID {proyecto_id}) no está asociado a esta carpeta.",
-#                     "tiempo_mensaje": 5,
-#                     "next_page": "actual"
-#                 }
-
-#             # ✅ Eliminar los demás proyectos
-#             db.query(DetalleProyectosEnCarpeta).filter(
-#                 DetalleProyectosEnCarpeta.carpeta_id == carpeta_id,
-#                 DetalleProyectosEnCarpeta.proyecto_id != proyecto_id
-#             ).delete()
-
-#             carpeta.estado_carpeta = "proyecto_seleccionado"
-#             estado_nuevo = "proyecto_seleccionado"
-
-#         else:
-#             # ✅ Si no se recibe proyecto, eliminar todos y marcar como desierto
-#             db.query(DetalleProyectosEnCarpeta).filter(
-#                 DetalleProyectosEnCarpeta.carpeta_id == carpeta_id
-#             ).delete()
-
-#             carpeta.estado_carpeta = "desierto"
-#             estado_nuevo = "desierto"
-
-#         # Registrar evento
-#         login_actual = current_user["user"]["login"]
-#         evento = RuaEvento(
-#             login=login_actual,
-#             evento_detalle=f"Se marcó la carpeta #{carpeta_id} como '{estado_nuevo}' por dictamen del juzgado.",
-#             evento_fecha=datetime.now()
-#         )
-#         db.add(evento)
-
-#         db.commit()
-
-#         return {
-#             "success": True,
-#             "tipo_mensaje": "verde",
-#             "mensaje": f"✅ La carpeta fue marcada como '{estado_nuevo}'.",
-#             "tiempo_mensaje": 5,
-#             "next_page": "actual"
-#         }
-
-#     except SQLAlchemyError as e:
-#         db.rollback()
-#         return {
-#             "success": False,
-#             "tipo_mensaje": "rojo",
-#             "mensaje": f"Ocurrió un error al marcar la carpeta: {str(e)}",
-#             "tiempo_mensaje": 6,
-#             "next_page": "actual"
-#         }
-
-
-
 @carpetas_router.put("/{carpeta_id}/marcar-con-dictamen", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def marcar_con_dictamen(
@@ -1099,7 +947,8 @@ def marcar_con_dictamen(
     data: dict = Body(...),  # 📥 Recibe proyecto_id opcional en el body
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     📌 Marca la carpeta como 'proyecto_seleccionado' o 'desierto' según el proyecto recibido (o ninguno).
     🔁 Cambios:
@@ -1182,10 +1031,24 @@ def marcar_con_dictamen(
             estado_nuevo = "proyecto_seleccionado"
 
             # ✅ Cambiar estado de todos los NNAs a vinculacion
+            # for dnna in carpeta.detalle_nna:
+            #     nna = dnna.nna
+            #     if nna:
+            #         nna.nna_estado = "vinculacion"
+
             for dnna in carpeta.detalle_nna:
                 nna = dnna.nna
                 if nna:
+                    estado_anterior = nna.nna_estado
                     nna.nna_estado = "vinculacion"
+
+                    db.add(NnaHistorialEstado(
+                        nna_id = nna.nna_id,
+                        estado_anterior = estado_anterior,
+                        estado_nuevo = "vinculacion",
+                        fecha_hora = datetime.now()
+                    ))
+
 
         else:
             # ✅ Si no se recibe proyecto, carpeta queda desierta
@@ -1252,7 +1115,8 @@ def seleccionar_proyecto(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     🔄 Selecciona un único proyecto para esta carpeta.
 
@@ -1522,7 +1386,8 @@ def eliminar_carpeta_proyecto_seleccionado(
     dni_pretenso: str = Query(..., description="DNI del pretenso autorizado para eliminar la carpeta"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     🗑️ Elimina una carpeta en estado 'proyecto_seleccionado' si:
     - Tiene exactamente un proyecto.
