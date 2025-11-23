@@ -68,7 +68,8 @@ async def login(
     password: str = Form(...),
     db: Session = Depends(get_db),
     bypass_recaptcha: str = Form("Y")
-):
+    ):
+    
     """
     Verifica las credenciales del usuario y devuelve un token si son correctas.
     """

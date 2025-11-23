@@ -31,6 +31,8 @@ check_router = APIRouter()
 EXPORT_DIR = os.getenv("EXPORT_DIR") or "/docs-rua/exports"
 os.makedirs(EXPORT_DIR, exist_ok=True)
 BACKUP_STATE_FILE = os.path.join(EXPORT_DIR, "last_backup_state.json")
+BACKUP_LOCK_FILE = os.path.join(EXPORT_DIR, "backup.lock")
+
 
 # --- Directorios que se recorren ---
 DIRS_TO_BACKUP = [
@@ -42,21 +44,33 @@ DIRS_TO_BACKUP = [
     EXPORT_DIR,  # se incluye el propio EXPORT_DIR
 ]
 
-def _load_state():
+# Normalizamos rutas permitidas para el backup/descarga
+ALLOWED_BACKUP_ROOTS = [
+    os.path.realpath(p) for p in DIRS_TO_BACKUP if p
+]
+
+# Límite de tamaño de archivo para backup (ejemplo: 500 MB)
+MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024
+
+
+
+def _load_state() -> dict:
     if os.path.exists(BACKUP_STATE_FILE):
         try:
-            with open(BACKUP_STATE_FILE, "r") as f:
+            with open(BACKUP_STATE_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
-            print("⚠️ Archivo de estado corrupto; se reinicia el estado de backup.")
+            print("⚠️ Archivo de estado de backup corrupto; se reinicia el estado.")
             return {}
     return {}
 
 
-def _save_state(state: dict):
+def _save_state(state: dict) -> None:
     """Guarda el estado del último backup incremental."""
-    with open(BACKUP_STATE_FILE, "w") as f:
+    with open(BACKUP_STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2)
+
+
 
 def _file_md5(path: str) -> str:
     """Calcula un hash MD5 del archivo (opcional, para verificar cambios reales)."""
@@ -68,8 +82,6 @@ def _file_md5(path: str) -> str:
         return h.hexdigest()
     except Exception:
         return ""
-
-
 
 
 @check_router.post("/verificaciones_de_cron", response_model=dict, dependencies=[Depends( verify_api_key ), 
@@ -279,93 +291,182 @@ def api_moodle_eliminar_usuario(
 
 
 
-# ============================================================
-# 🔁 BACKUP INCREMENTAL - Verificación de cambios
-# ============================================================
+# ======================================================================
+#  BACKUP INCREMENTAL - VERIFICACIÓN DE CAMBIOS
+# ======================================================================
 
-
-@check_router.get("/backup/verificar", response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))])
+@check_router.get(
+    "/backup/verificar",
+    response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))]
+)
 def verificar_archivos_para_backup(
     db: Session = Depends(get_db),
     limit: int = Query(0, description="Máximo número de archivos a escanear (0 = sin límite)"),
-    modo_rapido: bool = Query(False, description="Si True, ignora hashes MD5 y solo compara tamaño/fecha")
-    ):
-
+    modo_rapido: bool = Query(True, description="Si True, ignora hashes MD5 y solo compara tamaño/fecha")
+):
     """
     Analiza los directorios definidos en .env y devuelve los archivos nuevos o modificados
     desde el último backup. Soporta limitación de cantidad y modo rápido sin hashes.
+    Incluye:
+    - Lock para evitar ejecuciones concurrentes
+    - Límite de tamaño de archivo
+    - Registro de evento en RuaEvento
     """
 
-    prev_state = _load_state()
-    new_state = {}
-    changed_files = []
-    total_archivos = 0
-    procesados = 0
+    # 🔒 Lock simple para evitar ejecuciones concurrentes
+    if os.path.exists(BACKUP_LOCK_FILE):
+        raise HTTPException(status_code=423, detail="Ya hay un proceso de backup en ejecución.")
 
-    for base_dir in DIRS_TO_BACKUP:
-        if not base_dir or not os.path.exists(base_dir):
-            continue
+    open(BACKUP_LOCK_FILE, "w").close()
 
-        for root, _, files in os.walk(base_dir):
-            for f in files:
-                full_path = os.path.join(root, f)
-                try:
-                    stat = os.stat(full_path)
-                    new_state[full_path] = {"mtime": stat.st_mtime, "size": stat.st_size}
-                    total_archivos += 1
+    try:
+        prev_state = _load_state()
+        new_state = {}
+        changed_files = []
+        total_archivos = 0
+        procesados = 0
+        archivos_omitidos_por_tamano = 0
 
-                    prev = prev_state.get(full_path)
-                    if not prev or prev["size"] != stat.st_size or prev["mtime"] != stat.st_mtime:
-                        changed = {
-                            "path": full_path,
-                            "size": stat.st_size,
+        for base_dir in DIRS_TO_BACKUP:
+            if not base_dir:
+                continue
+            base_dir_real = os.path.realpath(base_dir)
+            if not os.path.exists(base_dir_real):
+                continue
+
+            for root, _, files in os.walk(base_dir_real):
+                for f in files:
+                    full_path = os.path.join(root, f)
+                    full_path_real = os.path.realpath(full_path)
+
+                    # Evitar incluir el archivo de estado del backup y el lock en el propio backup
+                    if full_path_real == os.path.realpath(BACKUP_STATE_FILE):
+                        continue
+                    if full_path_real == os.path.realpath(BACKUP_LOCK_FILE):
+                        continue
+
+                    try:
+                        stat = os.stat(full_path_real)
+
+                        # Límite de tamaño
+                        if stat.st_size > MAX_FILE_SIZE_BYTES:
+                            archivos_omitidos_por_tamano += 1
+                            continue
+
+                        new_state[full_path_real] = {
                             "mtime": stat.st_mtime,
+                            "size": stat.st_size
                         }
-                        if not modo_rapido:
-                            changed["md5"] = _file_md5(full_path)
-                        changed_files.append(changed)
+                        total_archivos += 1
 
-                    procesados += 1
-                    if limit and procesados >= limit:
-                        _save_state(new_state)
-                        return {
-                            "total_archivos_escaneados": total_archivos,
-                            "archivos_cambiados": len(changed_files),
-                            "limit_reached": True,
-                            "detalles": changed_files
-                        }
-                except Exception:
-                    continue
+                        prev = prev_state.get(full_path_real)
+                        if (not prev or
+                            prev.get("size") != stat.st_size or
+                            prev.get("mtime") != stat.st_mtime):
+                            changed = {
+                                "path": full_path_real,
+                                "size": stat.st_size,
+                                "mtime": stat.st_mtime,
+                            }
+                            if not modo_rapido:
+                                changed["md5"] = _file_md5(full_path_real)
+                            changed_files.append(changed)
 
-    _save_state(new_state)
-    return {
-        "total_archivos_escaneados": total_archivos,
-        "archivos_cambiados": len(changed_files),
-        "limit_reached": False,
-        "detalles": changed_files
-    }
+                        procesados += 1
+                        if limit and procesados >= limit:
+                            _save_state(new_state)
+
+                            # Registrar evento en RuaEvento
+                            db.add(RuaEvento(
+                                evento_detalle=(
+                                    f"Backup incremental verificado parcialmente (limit={limit}). "
+                                    f"Archivos escaneados: {total_archivos}, "
+                                    f"archivos cambiados: {len(changed_files)}, "
+                                    f"omitidos por tamaño: {archivos_omitidos_por_tamano}."
+                                ),
+                                evento_fecha=datetime.now()
+                            ))
+                            db.commit()
+
+                            return {
+                                "total_archivos_escaneados": total_archivos,
+                                "archivos_cambiados": len(changed_files),
+                                "limit_reached": True,
+                                "archivos_omitidos_por_tamano": archivos_omitidos_por_tamano,
+                                "detalles": changed_files
+                            }
+                    except Exception:
+                        # Podés loguear algo si querés
+                        continue
+
+        _save_state(new_state)
+
+        # Registrar evento en RuaEvento
+        db.add(RuaEvento(
+            evento_detalle=(
+                "Backup incremental verificado completamente. "
+                f"Archivos escaneados: {total_archivos}, "
+                f"archivos cambiados: {len(changed_files)}, "
+                f"omitidos por tamaño: {archivos_omitidos_por_tamano}."
+            ),
+            evento_fecha=datetime.now()
+        ))
+        db.commit()
+
+        return {
+            "total_archivos_escaneados": total_archivos,
+            "archivos_cambiados": len(changed_files),
+            "limit_reached": False,
+            "archivos_omitidos_por_tamano": archivos_omitidos_por_tamano,
+            "detalles": changed_files
+        }
+
+    finally:
+        # Quitar lock siempre, aunque falle algo
+        try:
+            if os.path.exists(BACKUP_LOCK_FILE):
+                os.remove(BACKUP_LOCK_FILE)
+        except Exception:
+            # Si no se puede borrar, lo registrás en logs del servidor
+            pass
 
 
-
-
-
-@check_router.get("/files/descargar", response_class=FileResponse,
-                  dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))])
-def descargar_archivo_directo(path: str = Query(..., description="Ruta absoluta del archivo a descargar")):
+@check_router.get(
+    "/files/descargar",
+    response_class=FileResponse,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))]
+)
+def descargar_archivo_directo(
+    path: str = Query(..., description="Ruta absoluta del archivo a descargar")
+):
     """
     Permite descargar directamente un archivo del servidor (usado por el cliente de backup).
+    🔒 Solo se permite descargar archivos ubicados dentro de los directorios configurados
+    en DIRS_TO_BACKUP / ALLOWED_BACKUP_ROOTS.
     """
-    if not os.path.exists(path):
+
+    real_path = os.path.realpath(path)
+
+    if not os.path.exists(real_path) or not os.path.isfile(real_path):
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
-    return FileResponse(path, filename=os.path.basename(path), media_type="application/octet-stream")
+
+    # Bloqueamos symlinks (opcional pero recomendable)
+    if os.path.islink(real_path):
+        raise HTTPException(status_code=403, detail="No se permite descargar enlaces simbólicos")
+
+    # Validar que el archivo esté dentro de los directorios permitidos
+    if not any(real_path.startswith(root) for root in ALLOWED_BACKUP_ROOTS):
+        raise HTTPException(status_code=403, detail="Ruta de archivo no permitida para descarga")
+
+    return FileResponse(real_path, filename=os.path.basename(real_path), media_type="application/octet-stream")
 
 
-
-
-@check_router.get("/backup/estado",
+@check_router.get(
+    "/backup/estado",
     response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))]
+)
 def obtener_estado_backup():
     """
     Devuelve un resumen del último backup incremental registrado en el servidor.
@@ -375,22 +476,25 @@ def obtener_estado_backup():
         raise HTTPException(status_code=404, detail="No existe un estado previo de backup.")
 
     try:
-        with open(BACKUP_STATE_FILE, "r") as f:
+        with open(BACKUP_STATE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error leyendo el archivo de estado: {str(e)}")
 
     return {
         "total_archivos_indexados": len(data),
-        "ultimo_backup": datetime.fromtimestamp(os.path.getmtime(BACKUP_STATE_FILE)).strftime("%Y-%m-%d %H:%M:%S"),
+        "ultimo_backup": datetime.fromtimestamp(
+            os.path.getmtime(BACKUP_STATE_FILE)
+        ).strftime("%Y-%m-%d %H:%M:%S"),
         "ubicacion": BACKUP_STATE_FILE
     }
 
 
-
-@check_router.delete("/backup/reset",
+@check_router.delete(
+    "/backup/reset",
     response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))])
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))]
+)
 def reiniciar_backup_incremental():
     """
     Reinicia el estado del backup incremental eliminando el archivo last_backup_state.json.
@@ -403,7 +507,10 @@ def reiniciar_backup_incremental():
         os.remove(BACKUP_STATE_FILE)
         return {
             "success": True,
-            "message": f"El archivo de estado '{BACKUP_STATE_FILE}' fue eliminado. El próximo backup comenzará desde cero."
+            "message": (
+                f"El archivo de estado '{BACKUP_STATE_FILE}' fue eliminado. "
+                "El próximo backup comenzará desde cero."
+            )
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"No se pudo eliminar el archivo de estado: {str(e)}")
