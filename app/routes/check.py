@@ -295,16 +295,14 @@ def api_moodle_eliminar_usuario(
 #  BACKUP INCREMENTAL - VERIFICACIÓN DE CAMBIOS
 # ======================================================================
 
-@check_router.get(
-    "/backup/verificar",
-    response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))]
-)
+@check_router.get("/backup/verificar", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))])
 def verificar_archivos_para_backup(
     db: Session = Depends(get_db),
     limit: int = Query(0, description="Máximo número de archivos a escanear (0 = sin límite)"),
     modo_rapido: bool = Query(True, description="Si True, ignora hashes MD5 y solo compara tamaño/fecha")
-):
+    ):
+
     """
     Analiza los directorios definidos en .env y devuelve los archivos nuevos o modificados
     desde el último backup. Soporta limitación de cantidad y modo rápido sin hashes.
@@ -432,14 +430,9 @@ def verificar_archivos_para_backup(
             pass
 
 
-@check_router.get(
-    "/files/descargar",
-    response_class=FileResponse,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))]
-)
-def descargar_archivo_directo(
-    path: str = Query(..., description="Ruta absoluta del archivo a descargar")
-):
+@check_router.get("/files/descargar", response_class=FileResponse,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))])
+def descargar_archivo_directo(path: str = Query(..., description="Ruta absoluta del archivo a descargar")):
     """
     Permite descargar directamente un archivo del servidor (usado por el cliente de backup).
     🔒 Solo se permite descargar archivos ubicados dentro de los directorios configurados
@@ -462,11 +455,8 @@ def descargar_archivo_directo(
     return FileResponse(real_path, filename=os.path.basename(real_path), media_type="application/octet-stream")
 
 
-@check_router.get(
-    "/backup/estado",
-    response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))]
-)
+@check_router.get("/backup/estado", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))])
 def obtener_estado_backup():
     """
     Devuelve un resumen del último backup incremental registrado en el servidor.
@@ -490,11 +480,8 @@ def obtener_estado_backup():
     }
 
 
-@check_router.delete(
-    "/backup/reset",
-    response_model=dict,
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))]
-)
+@check_router.delete("/backup/reset", response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))])
 def reiniciar_backup_incremental():
     """
     Reinicia el estado del backup incremental eliminando el archivo last_backup_state.json.
