@@ -1,6 +1,6 @@
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Body
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 
 from models.users import User, Group, UserGroup 
 from models.proyecto import Proyecto
@@ -18,11 +18,12 @@ from datetime import date, datetime
 from security.security import get_current_user, require_roles, verify_api_key
 
 from helpers.utils import enviar_mail, get_setting_value
-from helpers.whatsapp_helper import enviar_whatsapp
+from helpers.whatsapp_helper import enviar_whatsapp, enviar_whatsapp_texto, _enviar_template_whatsapp
 
 
 from helpers.notificaciones_utils import crear_notificacion_individual, crear_notificacion_masiva_por_rol, \
     marcar_notificaciones_como_vistas, obtener_notificaciones_para_usuario
+
 
 
 
@@ -373,162 +374,196 @@ def listar_notificaciones_comunes_del_proyecto(
 
 
 
-
-# ==========================================================
-#  📤 Enviar mensaje (WhatsApp o Email) — versión DEBUG
-# ==========================================================
-@notificaciones_router.post("/mensajeria/{tipo}", response_model=dict,
-    dependencies=[Depends(verify_api_key),
-    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
-def enviar_mensaje(
-    tipo: Literal["whatsapp", "email"],
+@notificaciones_router.post("/mensajeria/whatsapp", response_model = dict,
+    dependencies = [
+        Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))
+    ])
+def enviar_whatsapp(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-    ):
+):
 
-    print("======================================================")
-    print(f"[🟢 INICIO] Envío de mensaje tipo '{tipo}'")
-    print(f"[📨 Data recibida]: {data}")
+    print("\n" + "=" * 80)
+    print("🚀 [ENVÍO WHATSAPP]")
+    print("📨 Payload:", data)
+
+    destinatarios = data.get("destinatarios", [])
+    plantilla = data.get("plantilla")
+    parametros = data.get("parametros", [])
+
+    if not destinatarios:
+        raise HTTPException(400, "Debe indicar destinatarios")
+
+    if not plantilla:
+        raise HTTPException(400, "Debe indicar 'plantilla'")
+
+    login_emisor = current_user["user"]["login"]
+    resultados = []
+
+    for login_destinatario in destinatarios:
+
+        try:
+            user = db.query(User).filter_by(login = login_destinatario).first()
+
+            if not user or not user.celular:
+                resultados.append({
+                    "login": login_destinatario,
+                    "success": False,
+                    "mensaje": "Usuario sin celular o inexistente"
+                })
+                continue
+
+            numero = user.celular.replace("+", "").replace(" ", "").replace("-", "")
+            if not numero.startswith("54"):
+                numero = "54" + numero
+
+            print(f"📲 Enviando a {numero} - Plantilla: {plantilla}")
+
+            respuesta_envio = _enviar_template_whatsapp(
+                destinatario = numero,
+                template_name = plantilla,
+                parametros = parametros
+            )
+
+            estado = "enviado" if "messages" in respuesta_envio else "error"
+
+            mensaje_externo_id = None
+            if "messages" in respuesta_envio:
+                mensaje_externo_id = respuesta_envio["messages"][0].get("id")
+
+            nuevo = Mensajeria(
+                tipo = "whatsapp",
+                login_emisor = login_emisor,
+                login_destinatario = login_destinatario,
+                destinatario_texto = f"{user.nombre} {user.apellido}",
+                contenido = f"Plantilla: {plantilla}",
+                estado = estado,
+                mensaje_externo_id = mensaje_externo_id,
+                data_json = respuesta_envio
+            )
+
+            db.add(nuevo)
+
+            resultados.append({
+                "login": login_destinatario,
+                "success": estado == "enviado",
+                "mensaje": f"WhatsApp {estado}"
+            })
+
+        except Exception as e:
+            resultados.append({
+                "login": login_destinatario,
+                "success": False,
+                "mensaje": str(e)
+            })
+
+    db.commit()
+
+    enviados = sum(1 for r in resultados if r["success"])
+    total = len(resultados)
+
+    tipo_mensaje = "verde" if enviados == total else "naranja" if enviados > 0 else "rojo"
+
+    return {
+        "success": True,
+        "tipo_mensaje": tipo_mensaje,
+        "mensaje": "<br>".join([f"{r['login']}: {r['mensaje']}" for r in resultados]),
+        "tiempo_mensaje": 5,
+        "next_page": "actual"
+    }
+
+
+
+
+
+@notificaciones_router.post("/mensajeria/email", response_model = dict,
+    dependencies = [
+        Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))
+    ])
+def enviar_email(
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+
+    print("\n🚀 [ENVÍO EMAIL]")
+    print("📨 Payload:", data)
 
     destinatarios = data.get("destinatarios", [])
     asunto = data.get("asunto")
     contenido = data.get("contenido")
 
-    print(f"[👥 Destinatarios]: {destinatarios}")
-    print(f"[✉️ Asunto]: {asunto}")
-    print(f"[📝 Contenido]: {contenido}")
-
     if not destinatarios:
-        print("[❌ ERROR] No se especificaron destinatarios")
-        raise HTTPException(400, "Debe especificar al menos un destinatario.")
+        raise HTTPException(400, "Debe indicar destinatarios")
+
     if not contenido:
-        print("[❌ ERROR] El campo 'contenido' es obligatorio.")
-        raise HTTPException(400, "El campo 'contenido' es obligatorio.")
+        raise HTTPException(400, "Debe indicar contenido")
 
     login_emisor = current_user["user"]["login"]
-    print(f"[👤 Emisor actual]: {login_emisor}")
-
     resultados = []
 
     for login_destinatario in destinatarios:
-        print("------------------------------------------------------")
-        print(f"[➡️ Procesando destinatario]: {login_destinatario}")
 
         try:
-            user_destinatario = db.query(User).filter_by(login=login_destinatario).first()
-            if not user_destinatario:
-                print(f"[⚠️ Usuario no encontrado]: {login_destinatario}")
+            user = db.query(User).filter_by(login = login_destinatario).first()
+
+            if not user or not user.email:
                 resultados.append({
                     "login": login_destinatario,
                     "success": False,
-                    "mensaje": f"Usuario '{login_destinatario}' no encontrado."
+                    "mensaje": "Usuario sin email"
                 })
                 continue
 
-            print(f"[✅ Usuario encontrado]: {user_destinatario.nombre} {user_destinatario.apellido}")
-            estado = "no_enviado"
-            respuesta_envio = {}
-
-            # 🔹 Enviar según tipo
-            if tipo == "whatsapp":
-                print(f"[📲 Enviando WhatsApp a {user_destinatario.celular}] ...")
-                respuesta_envio = enviar_whatsapp(
-                    destinatario=user_destinatario.celular,
-                    mensaje=contenido
-                )
-                print(f"[📦 Respuesta WhatsApp]: {respuesta_envio}")
-                estado = "enviado" if "messages" in respuesta_envio else "error"
-
-            elif tipo == "email":
-                print(f"[📧 Enviando Email a {user_destinatario.email}] ...")
-                if not user_destinatario.email:
-                    print("[⚠️ ERROR] El usuario no tiene email registrado.")
-                    resultados.append({
-                        "login": login_destinatario,
-                        "success": False,
-                        "mensaje": f"El usuario {login_destinatario} no tiene email registrado."
-                    })
-                    continue
-
-                enviar_mail(
-                    destinatario=user_destinatario.email,
-                    asunto=asunto or "(sin asunto)",
-                    cuerpo=contenido
-                )
-                print("[✅ Email enviado correctamente]")
-                estado = "enviado"
-
-            # 🔹 Registrar en DB
-            print(f"[🗄 Registrando en base de datos]: estado={estado}")
-            nuevo_mensaje = Mensajeria(
-                tipo=tipo,
-                login_emisor=login_emisor,
-                login_destinatario=login_destinatario,
-                destinatario_texto=f"{user_destinatario.nombre} {user_destinatario.apellido}",
-                asunto=asunto,
-                contenido=contenido,
-                estado=estado,
-                mensaje_externo_id=respuesta_envio.get("messages", [{}])[0].get("id") if isinstance(respuesta_envio, dict) else None,
-                data_json=respuesta_envio
+            enviar_mail(
+                destinatario = user.email,
+                asunto = asunto or "(Sin asunto)",
+                cuerpo = contenido
             )
-            db.add(nuevo_mensaje)
+
+            nuevo = Mensajeria(
+                tipo = "email",
+                login_emisor = login_emisor,
+                login_destinatario = login_destinatario,
+                destinatario_texto = f"{user.nombre} {user.apellido}",
+                asunto = asunto,
+                contenido = contenido,
+                estado = "enviado"
+            )
+
+            db.add(nuevo)
 
             resultados.append({
                 "login": login_destinatario,
-                "success": estado == "enviado",
-                "mensaje": f"Mensaje {tipo} {'enviado' if estado == 'enviado' else 'no enviado'}."
+                "success": True,
+                "mensaje": "Email enviado"
             })
-            print(f"[✅ Resultado agregado]: {resultados[-1]}")
 
         except Exception as e:
-            print(f"[❌ ERROR EXCEPCIÓN]: {str(e)}")
             resultados.append({
                 "login": login_destinatario,
                 "success": False,
-                "mensaje": f"Error al enviar: {str(e)}"
+                "mensaje": str(e)
             })
 
-    print("------------------------------------------------------")
-    print("[💾 Commit en base de datos...]")
     db.commit()
 
-    # =====================================================
-    # 🔍 Determinar color general del mensaje
-    # =====================================================
-    total = len(resultados)
     enviados = sum(1 for r in resultados if r["success"])
-    no_enviados = total - enviados
+    total = len(resultados)
 
-    print(f"[📊 Totales] enviados={enviados}, no_enviados={no_enviados}, total={total}")
-
-    if enviados == 0:
-        tipo_mensaje = "rojo"        # Ninguno se envió
-    elif enviados < total:
-        tipo_mensaje = "naranja"     # Algunos fallaron
-    else:
-        tipo_mensaje = "verde"       # Todos enviados
-
-    print(f"[🎨 Tipo mensaje general]: {tipo_mensaje}")
-
-    resumen = "<br>".join([
-        f"{r['login']}: {r['mensaje']}" for r in resultados
-    ])
-
-    print("[📄 Resumen final]:")
-    for r in resultados:
-        print(f"  - {r['login']}: {r['mensaje']}")
-
-    print("[✅ FIN envío de mensajes]")
-    print("======================================================\n")
+    tipo_mensaje = "verde" if enviados == total else "naranja" if enviados > 0 else "rojo"
 
     return {
         "success": True,
         "tipo_mensaje": tipo_mensaje,
-        "mensaje": resumen,
+        "mensaje": "<br>".join([f"{r['login']}: {r['mensaje']}" for r in resultados]),
         "tiempo_mensaje": 5,
         "next_page": "actual"
     }
+
 
 
 
@@ -609,3 +644,59 @@ def actualizar_estado_mensaje(
         "success": True,
         "mensaje": f"Estado actualizado a '{nuevo_estado}'."
     }
+
+
+
+@notificaciones_router.get("/webhook/whatsapp")
+def verificar_webhook(
+    hub_mode: str = Query(None, alias="hub.mode"),
+    hub_challenge: str = Query(None, alias="hub.challenge"),
+    hub_verify_token: str = Query(None, alias="hub.verify_token")
+):
+    VERIFY_TOKEN = "rua_whatsapp_webhook_2025"
+
+    if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
+        return int(hub_challenge)
+    else:
+        raise HTTPException(status_code=403, detail="Webhook no autorizado")
+
+
+
+
+@notificaciones_router.post("/webhook/whatsapp")
+def recibir_estado_whatsapp(data: dict, db: Session = Depends(get_db)):
+
+    try:
+        entry = data.get("entry", [])
+        changes = entry[0].get("changes", [])
+        value = changes[0].get("value", {})
+
+        statuses = value.get("statuses", [])
+
+        for status in statuses:
+            mensaje_id_externo = status.get("id")
+            estado_wp = status.get("status")
+
+            # Mapear estados WhatsApp -> sistema interno
+            mapeo = {
+                "sent": "enviado",
+                "delivered": "entregado",
+                "read": "leido",
+                "failed": "error"
+            }
+
+            nuevo_estado = mapeo.get(estado_wp, "error")
+
+            mensaje = db.query(Mensajeria).filter(
+                Mensajeria.mensaje_externo_id == mensaje_id_externo
+            ).first()
+
+            if mensaje:
+                mensaje.estado = nuevo_estado
+                db.commit()
+
+        return {"success": True}
+
+    except Exception as e:
+        print("❌ Error webhook:", str(e))
+        return {"success": False}

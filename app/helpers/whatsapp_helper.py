@@ -2,6 +2,7 @@ import requests
 import os
 
 from dotenv import load_dotenv
+from typing import Dict
 
 
 # Cargar variables de entorno desde el archivo .env
@@ -17,6 +18,152 @@ if not WHATSAPP_ACCESS_TOKEN:
 WHATSAPP_API_URL = "https://graph.facebook.com/v22.0"
 PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")  # configurá esto en tu entorno
 ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")        # configurá esto en tu entorno
+
+if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
+    raise RuntimeError("Faltan variables WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID")
+
+
+
+# ==========================================================
+# ✅ FUNCIÓN BASE - ENVÍO DE PLANTILLA
+# ==========================================================
+def _enviar_template_whatsapp(
+    destinatario: str,
+    template_name: str,
+    parametros: list,
+    language_code: str = "es"
+) -> Dict:
+
+    url = f"{WHATSAPP_API_URL}/{PHONE_NUMBER_ID}/messages"
+
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": destinatario,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": { "code": language_code },
+            "components": [
+                {
+                    "type": "body",
+                    "parameters": [
+                        { "type": "text", "text": p } for p in parametros
+                    ]
+                }
+            ]
+        }
+    }
+
+    print("\n📤 PAYLOAD WHATSAPP:")
+    print(payload)
+
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        print("📥 RESPUESTA META:", response.text)
+        return response.json()
+    except Exception as e:
+        return { "error": str(e) }
+
+
+
+# ==========================================================
+# 📢 PLANTILLA RUA - NOTIFICACIÓN GENERAL
+# Template: rua_notificacion_v1
+# Variables:
+# {{1}} = Nombre
+# {{2}} = Mensaje
+# ==========================================================
+def enviar_whatsapp_rua_notificacion(
+    destinatario: str,
+    nombre: str,
+    mensaje: str
+) -> Dict:
+
+    return _enviar_template_whatsapp(
+        destinatario = destinatario,
+        template_name = "rua_notificacion_v1",
+        parametros = [
+            nombre,
+            mensaje
+        ]
+    )
+
+
+
+# ==========================================================
+# ✅ EJEMPLO: RECORDATORIO CITA
+# Template: rua_recordatorio_cita_v1
+# {{1}} Nombre
+# {{2}} Fecha
+# {{3}} Hora
+# ==========================================================
+def enviar_whatsapp_rua_recordatorio_cita(
+    destinatario: str,
+    nombre: str,
+    fecha: str,
+    hora: str
+) -> Dict:
+
+    return _enviar_template_whatsapp(
+        destinatario = destinatario,
+        template_name = "rua_recordatorio_cita_v1",
+        parametros = [
+            nombre,
+            fecha,
+            hora
+        ]
+    )
+
+
+
+
+
+
+
+def enviar_whatsapp_texto(destinatario: str, mensaje: str) -> dict:
+
+    url = f"{WHATSAPP_API_URL}/{PHONE_NUMBER_ID}/messages"
+
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": destinatario,
+        "type": "template",
+        "template": {
+            "name": "jaspers_market_plain_text_v1",
+            "language": { "code": "en_US" },
+            "components": [
+                {
+                    "type": "body",
+                    "parameters": [
+                        { "type": "text", "text": mensaje }
+                    ]
+                }
+            ]
+        }
+    }
+
+    print("📤 Payload enviado a Meta:")
+    print(payload)
+
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        print("📥 Respuesta Meta:", response.text)
+        return response.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+
 
 # ACCESS_TOKEN = "EAAX8UPrP70sBO0nOuasaKei8kWFnXkANHEYQeCqlMG1ly3SnZCgqxmlICbYizCiS6M7UzwSj6ZB0KdRzrYvPXJNUDJs3CO1W2VlU4xHYiVDWEZCTIk1tPVTAy7KYEVzlmsDSBLZAfyW4DAkpo70rrkWivSQ9vGSZAvRyiZCefhcL4AZA2vkWazOGeZC6mNUXEHqXmM6qoUcPJrZBB12gpZA2IgVVi3"
 
