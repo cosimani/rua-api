@@ -4501,7 +4501,6 @@ def notificar_pretenso_mensaje(
 
 
 
-
 @users_router.post("/observacion/{login}/registrar", response_model=dict,
     dependencies=[Depends(verify_api_key),
                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
