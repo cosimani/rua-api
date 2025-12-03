@@ -903,6 +903,9 @@ def enviar_mail(destinatario: str, asunto: str, cuerpo: str):
         raise
 
 
+
+
+
 def enviar_mail_multiples(
     destinatarios: List[str],
     asunto: str,

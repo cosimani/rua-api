@@ -31,6 +31,150 @@ notificaciones_router = APIRouter()
 
 
 
+
+
+def plantilla_simple(nombre_destinatario: str, mensaje_html: str):
+    return f"""
+    <html>
+      <body style="margin:0;padding:0;background-color:#f8f9fa;">
+        <table cellpadding="0" cellspacing="0" width="100%" style="background:#f8f9fa;padding:20px;">
+          <tr><td align="center">
+            <table cellpadding="0" cellspacing="0" width="600" style="
+                  background:#ffffff;
+                  border-radius:10px;
+                  padding:30px;
+                  font-family:'Segoe UI', Tahoma, sans-serif;
+                  color:#343a40;
+                  box-shadow:0 0 10px rgba(0,0,0,0.1);
+                ">
+
+              <tr>
+                <td style="font-size:22px;color:#007bff;">
+                  <strong>Hola {nombre_destinatario},</strong>
+                </td>
+              </tr>
+
+              <tr>
+                <td style="padding-top:20px;font-size:17px;line-height:1.6;">
+                  {mensaje_html}
+                </td>
+              </tr>
+
+              <tr>
+                <td style="
+                    padding-top:30px;
+                    font-size:13px;
+                    color:#888;
+                    text-align:center;
+                    border-top:1px solid #e5e5e5;
+                    padding-top:25px;
+                ">
+                  Este mensaje fue enviado desde el Sistema RUA.<br>
+                  Registro Único de Adopciones de Córdoba<br>
+                  Por favor no responda este correo.
+                </td>
+              </tr>
+
+            </table>
+          </td></tr>
+        </table>
+      </body>
+    </html>
+    """
+
+
+def plantilla_con_boton(nombre_destinatario: str, mensaje_html: str, boton_texto: str, boton_url: str):
+    return f"""
+    <html>
+      <body style="margin:0;padding:0;background-color:#f8f9fa;">
+        <table cellpadding="0" cellspacing="0" width="100%" style="background:#f8f9fa;padding:20px;">
+          <tr><td align="center">
+            <table cellpadding="0" cellspacing="0" width="600" style="
+                  background:#ffffff;
+                  border-radius:10px;
+                  padding:30px;
+                  font-family:'Segoe UI', Tahoma, sans-serif;
+                  color:#343a40;
+                  box-shadow:0 0 10px rgba(0,0,0,0.1);
+                ">
+
+              <tr>
+                <td style="font-size:22px;color:#007bff;">
+                  <strong>Hola {nombre_destinatario},</strong>
+                </td>
+              </tr>
+
+              <tr>
+                <td style="padding-top:20px;font-size:17px;line-height:1.6;">
+                  {mensaje_html}
+                </td>
+              </tr>
+
+              <!-- BOTÓN -->
+              <tr>
+                <td align="center" style="padding:26px 0;">
+                  <a href="{boton_url}" target="_blank"
+                    style="
+                      display:inline-block;
+                      padding:14px 28px;
+                      font-size:17px;
+                      color:#ffffff;
+                      background:#0d6efd;
+                      text-decoration:none;
+                      border-radius:8px;
+                      font-weight:600;
+                    ">
+                    {boton_texto}
+                  </a>
+                </td>
+              </tr>
+
+              <!-- FOOTER -->
+              <tr>
+                <td style="
+                    padding-top:30px;
+                    font-size:13px;
+                    color:#888;
+                    text-align:center;
+                    border-top:1px solid #e5e5e5;
+                    padding-top:25px;
+                ">
+                  Este mensaje fue enviado desde el Sistema RUA.<br>
+                  Registro Único de Adopciones de Córdoba<br>
+                  Por favor no responda este correo.
+                </td>
+              </tr>
+
+            </table>
+          </td></tr>
+        </table>
+      </body>
+    </html>
+    """
+
+
+def renderizar_plantilla_email(tipo: str, nombre_destinatario: str, mensaje_html: str, extra: dict = None):
+
+    if tipo == "simple":
+        return plantilla_simple(nombre_destinatario, mensaje_html)
+
+    if tipo == "con_boton":
+        if not extra or "boton_texto" not in extra or "boton_url" not in extra:
+            raise ValueError("Faltan parámetros para plantilla con botón")
+        return plantilla_con_boton(
+            nombre_destinatario,
+            mensaje_html,
+            boton_texto=extra["boton_texto"],
+            boton_url=extra["boton_url"]
+        )
+
+    raise ValueError(f"Plantilla desconocida: {tipo}")
+
+
+
+
+
+
 @notificaciones_router.post("/notificaciones", response_model = dict, 
                    dependencies = [Depends(verify_api_key),
                                    Depends(require_roles(["supervision", "supervisora", "profesional", "adoptante"]))])
@@ -504,21 +648,44 @@ def enviar_email(
     for login_destinatario in destinatarios:
 
         try:
+
             user = db.query(User).filter_by(login = login_destinatario).first()
 
-            if not user or not user.email:
+            if not user or not user.mail:
                 resultados.append({
                     "login": login_destinatario,
                     "success": False,
-                    "mensaje": "Usuario sin email"
+                    "mensaje": "Usuario sin mail"
                 })
                 continue
 
-            enviar_mail(
-                destinatario = user.email,
-                asunto = asunto or "(Sin asunto)",
-                cuerpo = contenido
+
+            html = renderizar_plantilla_email(
+                tipo="simple",
+                nombre_destinatario=f"{user.nombre} {user.apellido}",
+                mensaje_html=contenido
             )
+
+            # Este es un ejemplo para enviar un baotón para una acción específica
+            # html = renderizar_plantilla_email(
+            #     tipo="con_boton",
+            #     nombre_destinatario=f"{user.nombre} {user.apellido}",
+            #     mensaje_html=contenido,
+            #     extra={
+            #         "boton_texto": "Revisar documentación",
+            #         "boton_url": f"https://rua.justiciacordoba.gob.ar/revision/{login_destinatario}"
+            #     }
+            # )
+
+
+
+            enviar_mail(
+                destinatario=user.mail,
+                asunto=asunto or "(Sin asunto)",
+                cuerpo=html
+            )
+
+            
 
             nuevo = Mensajeria(
                 tipo = "email",
