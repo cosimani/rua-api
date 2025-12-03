@@ -375,15 +375,13 @@ def listar_notificaciones_comunes_del_proyecto(
 
 
 @notificaciones_router.post("/mensajeria/whatsapp", response_model = dict,
-    dependencies = [
-        Depends(verify_api_key),
-        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))
-    ])
+    dependencies = [Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def enviar_whatsapp(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
 
     print("\n" + "=" * 80)
     print("🚀 [ENVÍO WHATSAPP]")
@@ -438,7 +436,7 @@ def enviar_whatsapp(
                 login_emisor = login_emisor,
                 login_destinatario = login_destinatario,
                 destinatario_texto = f"{user.nombre} {user.apellido}",
-                contenido = f"Plantilla: {plantilla}",
+                contenido = f"Plantilla: {plantilla} / Parámetros: {parametros}",
                 estado = estado,
                 mensaje_externo_id = mensaje_externo_id,
                 data_json = respuesta_envio
@@ -479,15 +477,13 @@ def enviar_whatsapp(
 
 
 @notificaciones_router.post("/mensajeria/email", response_model = dict,
-    dependencies = [
-        Depends(verify_api_key),
-        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))
-    ])
+    dependencies = [Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def enviar_email(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
 
     print("\n🚀 [ENVÍO EMAIL]")
     print("📨 Payload:", data)
@@ -582,7 +578,9 @@ def listar_mensajes(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db)
-):
+    ):
+
+
     """
     📄 Lista mensajes enviados (paginado y filtrado).
     """
@@ -629,7 +627,7 @@ def actualizar_estado_mensaje(
     mensaje_id: int,
     nuevo_estado: Literal["no_enviado", "enviado", "recibido", "leido", "entregado", "error"] = Body(..., embed=True),
     db: Session = Depends(get_db)
-):
+    ):
     """
     🔄 Actualiza el estado de un mensaje (útil cuando llega confirmación de lectura o error).
     """
@@ -652,7 +650,7 @@ def verificar_webhook(
     hub_mode: str = Query(None, alias="hub.mode"),
     hub_challenge: str = Query(None, alias="hub.challenge"),
     hub_verify_token: str = Query(None, alias="hub.verify_token")
-):
+    ):
     VERIFY_TOKEN = "rua_whatsapp_webhook_2025"
 
     if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:

@@ -41,23 +41,33 @@ def _enviar_template_whatsapp(
         "Content-Type": "application/json"
     }
 
+    # 🔥 Construcción dinámica de componentes según si hay parámetros
+    if len(parametros) > 0:
+        components = [
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": p} for p in parametros
+                ]
+            }
+        ]
+    else:
+        # 🔥 Plantilla sin parámetros: NO mandar components
+        components = []
+
     payload = {
         "messaging_product": "whatsapp",
         "to": destinatario,
         "type": "template",
         "template": {
             "name": template_name,
-            "language": { "code": language_code },
-            "components": [
-                {
-                    "type": "body",
-                    "parameters": [
-                        { "type": "text", "text": p } for p in parametros
-                    ]
-                }
-            ]
+            "language": {"code": language_code},
         }
     }
+
+    # Agregar components solo si hay parámetros
+    if components:
+        payload["template"]["components"] = components
 
     print("\n📤 PAYLOAD WHATSAPP:")
     print(payload)
@@ -67,7 +77,7 @@ def _enviar_template_whatsapp(
         print("📥 RESPUESTA META:", response.text)
         return response.json()
     except Exception as e:
-        return { "error": str(e) }
+        return {"error": str(e)}
 
 
 
