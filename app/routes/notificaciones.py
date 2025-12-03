@@ -19,6 +19,8 @@ from security.security import get_current_user, require_roles, verify_api_key
 
 from helpers.utils import enviar_mail, get_setting_value
 from helpers.whatsapp_helper import enviar_whatsapp, enviar_whatsapp_texto, _enviar_template_whatsapp
+from helpers.mensajeria_utils import registrar_mensaje
+
 
 
 from helpers.notificaciones_utils import crear_notificacion_individual, crear_notificacion_masiva_por_rol, \
@@ -518,8 +520,9 @@ def listar_notificaciones_comunes_del_proyecto(
 
 
 
-@notificaciones_router.post("/mensajeria/whatsapp", response_model = dict,
-    dependencies = [Depends(verify_api_key),
+
+@notificaciones_router.post("/mensajeria/whatsapp", response_model=dict,
+    dependencies=[Depends(verify_api_key),
         Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def enviar_whatsapp(
     data: dict = Body(...),
@@ -547,7 +550,7 @@ def enviar_whatsapp(
     for login_destinatario in destinatarios:
 
         try:
-            user = db.query(User).filter_by(login = login_destinatario).first()
+            user = db.query(User).filter_by(login=login_destinatario).first()
 
             if not user or not user.celular:
                 resultados.append({
@@ -563,30 +566,31 @@ def enviar_whatsapp(
 
             print(f"📲 Enviando a {numero} - Plantilla: {plantilla}")
 
+            # ---- Enviar WhatsApp ----
             respuesta_envio = _enviar_template_whatsapp(
-                destinatario = numero,
-                template_name = plantilla,
-                parametros = parametros
+                destinatario=numero,
+                template_name=plantilla,
+                parametros=parametros
             )
 
             estado = "enviado" if "messages" in respuesta_envio else "error"
-
             mensaje_externo_id = None
+
             if "messages" in respuesta_envio:
                 mensaje_externo_id = respuesta_envio["messages"][0].get("id")
 
-            nuevo = Mensajeria(
-                tipo = "whatsapp",
-                login_emisor = login_emisor,
-                login_destinatario = login_destinatario,
-                destinatario_texto = f"{user.nombre} {user.apellido}",
-                contenido = f"Plantilla: {plantilla} / Parámetros: {parametros}",
-                estado = estado,
-                mensaje_externo_id = mensaje_externo_id,
-                data_json = respuesta_envio
+            # ---- Registrar mensaje con tu función ----
+            registrar_mensaje(
+                db,
+                tipo="whatsapp",
+                login_emisor=login_emisor,
+                login_destinatario=login_destinatario,
+                destinatario_texto=f"{user.nombre} {user.apellido}",
+                contenido=f"Plantilla: {plantilla} / Parámetros: {parametros}",
+                estado=estado,
+                mensaje_externo_id=mensaje_externo_id,
+                data_json=respuesta_envio
             )
-
-            db.add(nuevo)
 
             resultados.append({
                 "login": login_destinatario,
@@ -601,6 +605,7 @@ def enviar_whatsapp(
                 "mensaje": str(e)
             })
 
+    # 🔥 commit final
     db.commit()
 
     enviados = sum(1 for r in resultados if r["success"])
@@ -620,8 +625,8 @@ def enviar_whatsapp(
 
 
 
-@notificaciones_router.post("/mensajeria/email", response_model = dict,
-    dependencies = [Depends(verify_api_key),
+@notificaciones_router.post("/mensajeria/email", response_model=dict,
+    dependencies=[Depends(verify_api_key),
         Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def enviar_email(
     data: dict = Body(...),
@@ -648,8 +653,7 @@ def enviar_email(
     for login_destinatario in destinatarios:
 
         try:
-
-            user = db.query(User).filter_by(login = login_destinatario).first()
+            user = db.query(User).filter_by(login=login_destinatario).first()
 
             if not user or not user.mail:
                 resultados.append({
@@ -659,7 +663,7 @@ def enviar_email(
                 })
                 continue
 
-
+            # ---- Render plantilla HTML ----
             html = renderizar_plantilla_email(
                 tipo="simple",
                 nombre_destinatario=f"{user.nombre} {user.apellido}",
@@ -678,26 +682,24 @@ def enviar_email(
             # )
 
 
-
+            # ---- Enviar correo ----
             enviar_mail(
                 destinatario=user.mail,
                 asunto=asunto or "(Sin asunto)",
                 cuerpo=html
             )
 
-            
-
-            nuevo = Mensajeria(
-                tipo = "email",
-                login_emisor = login_emisor,
-                login_destinatario = login_destinatario,
-                destinatario_texto = f"{user.nombre} {user.apellido}",
-                asunto = asunto,
-                contenido = contenido,
-                estado = "enviado"
+            # ---- Registrar mensaje ----
+            registrar_mensaje(
+                db,
+                tipo="email",
+                login_emisor=login_emisor,
+                login_destinatario=login_destinatario,
+                destinatario_texto=f"{user.nombre} {user.apellido}",
+                asunto=asunto,
+                contenido=contenido,
+                estado="enviado"
             )
-
-            db.add(nuevo)
 
             resultados.append({
                 "login": login_destinatario,
@@ -712,6 +714,7 @@ def enviar_email(
                 "mensaje": str(e)
             })
 
+    # 🔥 commit final
     db.commit()
 
     enviados = sum(1 for r in resultados if r["success"])
@@ -731,57 +734,85 @@ def enviar_email(
 
 
 
-
-# ==========================================================
-#  📋 Listar mensajes
-# ==========================================================
 @notificaciones_router.get("/mensajeria/listado", response_model=dict,
-    dependencies=[Depends(verify_api_key), 
-    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
-def listar_mensajes(
-    tipo: Optional[Literal["whatsapp", "email"]] = Query(None),
-    estado: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=200),
-    db: Session = Depends(get_db)
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def listar_mensajeria(
+    page: int = 1,
+    limit: int = 20,
+
+    search: Optional[str] = None,
+    tipo: Optional[str] = None,
+    estado: Optional[str] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
     ):
 
 
-    """
-    📄 Lista mensajes enviados (paginado y filtrado).
-    """
     query = db.query(Mensajeria)
 
-    if tipo:
+    # FILTRO POR TIPO
+    if tipo in ["whatsapp", "email"]:
         query = query.filter(Mensajeria.tipo == tipo)
+
+    # FILTRO POR ESTADO
     if estado:
         query = query.filter(Mensajeria.estado == estado)
+
+    # FILTRO POR BUSCADOR
     if search:
-        search_like = f"%{search}%"
-        query = query.filter(Mensajeria.destinatario_texto.like(search_like) | Mensajeria.asunto.like(search_like))
+        like = f"%{search}%"
+        query = query.filter(
+            (Mensajeria.destinatario_texto.ilike(like)) |
+            (Mensajeria.asunto.ilike(like)) |
+            (Mensajeria.contenido.ilike(like))
+        )
 
-    total = query.count()
-    mensajes = query.order_by(Mensajeria.fecha_envio.desc()).offset((page - 1) * limit).limit(limit).all()
+    # FILTRO POR FECHAS
+    if fecha_desde:
+        query = query.filter(Mensajeria.fecha_envio >= fecha_desde)
 
-    data = []
-    for m in mensajes:
-        data.append({
-            "mensaje_id": m.mensaje_id,
-            "fecha_envio": m.fecha_envio.strftime("%Y-%m-%d %H:%M"),
+    if fecha_hasta:
+        query = query.filter(Mensajeria.fecha_envio <= fecha_hasta)
+
+    # PAGINACIÓN
+    total_records = query.count()
+    total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
+
+    mensajes = (
+        query.order_by(Mensajeria.fecha_envio.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+
+    mensajes_list = [
+        {
+            "id": m.mensaje_id,
+            "fecha_envio": m.fecha_envio,
             "tipo": m.tipo,
             "destinatario": m.destinatario_texto,
             "asunto": m.asunto,
             "contenido": m.contenido,
-            "estado": m.estado
-        })
+            "estado": m.estado,
+        }
+        for m in mensajes
+    ]
 
     return {
         "page": page,
         "limit": limit,
-        "total": total,
-        "mensajes": data
+        "total_pages": total_pages,
+        "total_records": total_records,
+        "mensajes": mensajes_list
     }
+
+
+
+
 
 
 # ==========================================================

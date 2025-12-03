@@ -12,6 +12,7 @@ from helpers.moodle import existe_mail_en_moodle, existe_dni_en_moodle, crear_us
     actualizar_clave_en_moodle, is_curso_aprobado
 
 from helpers.notificaciones_utils import crear_notificacion_masiva_por_rol, crear_notificacion_individual
+from helpers.mensajeria_utils import registrar_mensaje
 
 import base64
 from fastapi import BackgroundTasks
@@ -2203,7 +2204,8 @@ def crear_observacion_pretenso(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     Registra una nueva observación para un pretenso (usuario).
     Puede incluir una acción para cambiar el estado de documentación.
@@ -2296,7 +2298,6 @@ def crear_observacion_pretenso(
 
 
 
-
 @users_router.post("/notificacion/{login}", response_model=dict,
                    dependencies=[Depends(verify_api_key),
                                  Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
@@ -2305,7 +2306,8 @@ def notificacion_a_pretenso(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     Registra una nueva observación para un pretenso (usuario).
     Puede incluir una acción para cambiar el estado de documentación.
@@ -2347,6 +2349,7 @@ def notificacion_a_pretenso(
     if not grupo_observador or grupo_observador.description not in ["supervision", "supervisora", "profesional", "administrador"]:
         raise HTTPException(status_code = 400, detail = "El observador no tiene permiso para registrar observaciones.")
 
+
     try:
         # ✅ Guardar la observación
         nueva_obs = ObservacionesPretensos(
@@ -2364,6 +2367,7 @@ def notificacion_a_pretenso(
             evento_fecha = datetime.now()
         )
         db.add(nuevo_evento)
+
 
         # ✅ Si viene una acción válida, actualizar el estado
         if accion in ["aprobar_documentacion", "solicitar_actualizacion"]:
@@ -2388,9 +2392,13 @@ def notificacion_a_pretenso(
 
         db.commit()
 
+
         # Enviar mail si tiene correo
         usuario_destino = db.query(User).filter(User.login == login).first()
         if usuario_destino and usuario_destino.mail:
+
+            email_enviado = False
+
             try:
 
                 cuerpo_html = f"""
@@ -2458,16 +2466,42 @@ def notificacion_a_pretenso(
                     asunto = "Nueva observación en tu perfil",
                     cuerpo = cuerpo_html
                 )
-
+                email_enviado = True
 
             except Exception as e:
-                print(f"⚠️ Error al enviar el correo: {str(e)}")
+                print(f"⚠️ Error al enviar correo: {str(e)}")
+
+            # --------------------------------------------------------------------
+            # Registrar mensaje interno SIEMPRE (haya o no mail)
+            # Este bloque tiene commit y rollback propio
+            # --------------------------------------------------------------------
+            try:
+                registrar_mensaje(
+                    db=db,
+                    tipo="email",
+                    login_emisor=login_que_observo,
+                    login_destinatario=login,
+                    destinatario_texto=f"{usuario_destino.nombre} {usuario_destino.apellido}",
+                    asunto="Nueva observación en tu perfil",
+                    contenido=observacion,
+                    estado="enviado" if email_enviado else "no_enviado"
+                )
+
+                db.commit()  # commit SOLO del mensaje interno
+
+            except Exception as e:
+                db.rollback()  # rollback SOLO de mensajería
+                print(f"⚠️ Error al registrar el mensaje interno: {str(e)}")
+                
 
         return {"message": "Observación registrada correctamente"}
 
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code = 500, detail = f"Error al guardar observación: {str(e)}")
+
+
+
 
 
 
@@ -2483,7 +2517,8 @@ def listar_observaciones_de_pretenso(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     Devuelve un listado paginado de observaciones asociadas a un pretenso identificado por su `login`.
 
@@ -2580,7 +2615,8 @@ def listar_eventos_login(
     current_user: dict = Depends(get_current_user),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100)
-):
+    ):
+
     """
     Devuelve un listado paginado de eventos (detalle y fecha) para un usuario identificado por su `login`.
 
@@ -2645,7 +2681,8 @@ def listar_observaciones_login(
     current_user: dict = Depends(get_current_user),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100)
-):
+    ):
+
     """
     Devuelve un listado paginado de observaciones asociadas a un login de pretenso.
 
@@ -2716,255 +2753,6 @@ def listar_observaciones_login(
 
 
 
-# @users_router.put("/usuario/actualizar", response_model = dict, 
-#                   dependencies=[Depends(verify_api_key),
-#                                 Depends(require_roles(["administrador", "supervision", "supervisora"]))])
-# def actualizar_usuario_total(
-#     datos: dict = Body(...),
-#     db: Session = Depends(get_db),
-#     current_user: dict = Depends(get_current_user)
-# ):
-#     """
-#     🔄 Actualiza los datos de un usuario en Moodle y en la base local (tabla `sec_users`).
-
-#     ✅ Solo se realiza la actualización si al menos uno de los datos (DNI, email, nombre o apellido) cambió.
-
-#     📥 Entrada esperada (JSON):
-#     ```json
-#     {
-#         "mail_old": "actual@correo.com",
-#         "dni": "nuevoDNI",
-#         "mail": "nuevo@correo.com",
-#         "nombre": "Nuevo Nombre",
-#         "apellido": "Nuevo Apellido"
-#     }
-#     ```
-
-#     ⚠️ Se lanza un error si no se encuentra el usuario en `sec_users` por el correo anterior,
-#     si no existe en Moodle, o si el nuevo DNI ya está en uso en Moodle.
-#     """
-#     try:
-
-#         required_keys = ["mail_old", "dni", "mail", "nombre", "apellido"]
-#         for key in required_keys:
-#             if key not in datos:
-#                 return {
-#                     "success": False,
-#                     "tipo_mensaje": "amarillo",
-#                     "mensaje": f"Falta el campo requerido: {key}",
-#                     "tiempo_mensaje": 5,
-#                     "next_page": "actual"
-#                 }
-
-#         # 🚨 Verificar que el mail_old esté presente y sea válido
-#         if not datos["mail_old"] or not validar_correo(datos["mail_old"]):
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "amarillo",
-#                 "mensaje": (
-#                     "El usuario que intenta modificar no tiene un correo electrónico válido registrado "
-#                     "en el sistema. Comuníquese con el soporte técnico para solucionarlo."
-#                 ),
-#                 "tiempo_mensaje": 7,
-#                 "next_page": "actual"
-#             }
-
-#         dni_supervisora = current_user["user"]["login"]
-
-#         user = db.query(User).filter(User.mail == datos["mail_old"]).first()
-
-#         if not user:
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "amarillo",
-#                 "mensaje": "Usuario no encontrado en la base local.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-#         # 🚨 Verificar que el usuario tenga un mail válido en base local
-#         if not user.mail or not validar_correo(user.mail):
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "amarillo",
-#                 "mensaje": (
-#                     "El usuario que intenta modificar no tiene un correo electrónico válido registrado "
-#                     "en la base local. Comuníquese con el soporte técnico para solucionarlo."
-#                 ),
-#                 "tiempo_mensaje": 7,
-#                 "next_page": "actual"
-#             }
-
-
-
-
-
-
-#         # required_keys = ["mail_old", "dni", "mail", "nombre", "apellido"]
-#         # for key in required_keys:
-#         #     if key not in datos:
-#         #         return {
-#         #             "success": False,
-#         #             "tipo_mensaje": "amarillo",
-#         #             "mensaje": f"Falta el campo requerido: {key}",
-#         #             "tiempo_mensaje": 5,
-#         #             "next_page": "actual"
-#         #         }
-
-#         # dni_supervisora = current_user["user"]["login"]
-
-#         # user = db.query(User).filter(User.mail == datos["mail_old"]).first()
-
-#         # if not user:
-#         #     return {
-#         #         "success": False,
-#         #         "tipo_mensaje": "amarillo",
-#         #         "mensaje": "Usuario no encontrado en la base local.",
-#         #         "tiempo_mensaje": 5,
-#         #         "next_page": "actual"
-#         #     }
-
-
-#         if not existe_mail_en_moodle(datos["mail_old"], db):
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "amarillo",
-#                 "mensaje": "Usuario no encontrado en Moodle.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-#         # Verificar que el nuevo DNI no esté ya en uso por otro usuario en Moodle
-#         if user.login != datos["dni"] and existe_dni_en_moodle(datos["dni"], db):
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "amarillo",
-#                 "mensaje": "El nuevo DNI ya está en uso en Moodle. No se puede actualizar.",
-#                 "tiempo_mensaje": 6,
-#                 "next_page": "actual"
-#             }
-
-
-#         # 🧹 Limpieza y normalización
-#         mail_old  = (datos["mail_old"] or "").strip().lower()
-
-#         nuevo_dni = normalizar_y_validar_dni(datos["dni"])
-#         if not nuevo_dni:
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "amarillo",
-#                 "mensaje": "El DNI ingresado no es válido.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-#         nuevo_mail = (datos["mail"] or "").strip().lower()
-#         nuevo_nombre = capitalizar_nombre((datos["nombre"] or "").strip())
-#         nuevo_apellido = capitalizar_nombre((datos["apellido"] or "").strip())
-
-#         if not validar_correo(nuevo_mail):
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "amarillo",
-#                 "mensaje": "El nuevo correo electrónico no tiene un formato válido.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-
-#         hubo_cambio = (
-#             user.login    != nuevo_dni or
-#             user.mail     != nuevo_mail or
-#             user.nombre   != nuevo_nombre or
-#             user.apellido != nuevo_apellido
-#         )
-
-
-#         if not hubo_cambio:
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "amarillo",
-#                 "mensaje": "No se detectaron cambios. No se realizó ninguna actualización.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-#         # Actualización en Moodle
-#         resultado_moodle = actualizar_usuario_en_moodle(
-#             mail_old = mail_old,
-#             dni      = nuevo_dni,
-#             mail     = nuevo_mail,
-#             nombre   = nuevo_nombre,
-#             apellido = nuevo_apellido,
-#             db       = db
-#         )
-
-#         # 🧠 Guardamos el DNI original antes de sobrescribirlo
-#         dni_original = user.login
-
-#         # Actualización en base local
-#         user.login    = nuevo_dni
-#         user.mail     = nuevo_mail
-#         user.nombre   = nuevo_nombre
-#         user.apellido = nuevo_apellido
-
-#         # 👉 Asegura que los cambios estén aplicados antes de continuar
-#         db.flush()
-
-#         # 🔄 Si el usuario estaba como login_2 en algún proyecto, actualizamos
-#         proyectos_afectados = db.query(Proyecto).filter(Proyecto.login_2 == dni_original).all()
-#         for proyecto in proyectos_afectados:
-#             proyecto.login_2 = nuevo_dni
-
-
-#         evento = RuaEvento(
-#             login = datos["dni"],
-#             evento_detalle = (
-#                 f"📝 Datos personales críticos actualizados por supervisión {current_user['user'].get('nombre', '')} "
-#                 f"{current_user['user'].get('apellido', '')}. "
-#                 "Se sincronizó con Moodle."
-#             ),
-#             evento_fecha = datetime.now()
-#         )
-#         db.add(evento)
-
-#         db.commit()
-
-#         return {
-#             "success": True,
-#             "tipo_mensaje": "verde",
-#             "mensaje": "Datos actualizados correctamente en Moodle y RUA.",
-#             "tiempo_mensaje": 5,
-#             "next_page": "menu_adoptantes/datosPersonales"
-#         }
-
-#     except SQLAlchemyError as e:
-#         db.rollback()
-#         return {
-#             "success": False,
-#             "tipo_mensaje": "rojo",
-#             "mensaje": f"Error al actualizar en base local: {str(e)}",
-#             "tiempo_mensaje": 6,
-#             "next_page": "actual"
-#         }
-#     except HTTPException as e:
-#         return {
-#             "success": False,
-#             "tipo_mensaje": "rojo",
-#             "mensaje": f"Error HTTP: {str(e.detail)}",
-#             "tiempo_mensaje": 6,
-#             "next_page": "actual"
-#         }
-#     except Exception as e:
-#         return {
-#             "success": False,
-#             "tipo_mensaje": "rojo",
-#             "mensaje": f"Error general al actualizar: {str(e)}",
-#             "tiempo_mensaje": 6,
-#             "next_page": "actual"
-#         }
-
-
 
 @users_router.put("/usuario/actualizar", response_model = dict,
                   dependencies = [Depends(verify_api_key),
@@ -2973,7 +2761,9 @@ def actualizar_usuario_total(
     datos: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
+
     """
     🔄 Actualiza los datos de un usuario en Moodle y en la base local (tabla `sec_users`).
 
@@ -3183,7 +2973,8 @@ def cambiar_clave_usuario(
     datos: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     🔐 Permite al usuario autenticado cambiar su clave, sincronizando con Moodle y la base local.
 
@@ -3651,7 +3442,8 @@ def obtener_timeline_usuario(
     login: str,
     nivel: Literal["hitos", "notificaciones", "observaciones", "eventos"] = Query("hitos"),
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     📅 Devuelve una línea de tiempo del usuario con distintos niveles de detalle.
     - hitos: solo los momentos clave (curso, DDJJ, proyecto, estados).
@@ -3787,7 +3579,8 @@ def obtener_timeline_usuario(
 def get_estado_usuario(
     login: str,
     db: Session = Depends(get_db)
-):
+    ):
+
     """
     Devuelve el mensaje de portada y tipo_mensaje según el estado del usuario y su proyecto.
     """
@@ -4257,7 +4050,8 @@ def get_estado_usuario(
 def obtener_mis_datos_personales(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     Devuelve los datos personales editables del usuario autenticado.
     """
@@ -4291,7 +4085,8 @@ def actualizar_mis_datos_personales(
     payload: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     🔐 Requiere autenticación y API Key
 
@@ -4384,7 +4179,8 @@ def notificar_pretenso_mensaje(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     📢 Envía una notificación completa a un pretenso:
     - Crea una notificación individual
@@ -4501,6 +4297,9 @@ def notificar_pretenso_mensaje(
 
         # Enviar correo si hay mail
         if user_destino.mail:
+
+            email_enviado = False
+
             try:
                 if accion == "solicitar_actualizacion_doc":
                     cuerpo = f"""
@@ -4651,14 +4450,35 @@ def notificar_pretenso_mensaje(
                     asunto="Notificación del Sistema RUA",
                     cuerpo=cuerpo
                 )
+
+                email_enviado = True
+
+                
             except Exception as e:
-                return {
-                    "success": False,
-                    "tipo_mensaje": "naranja",
-                    "mensaje": f"⚠️ Error al enviar correo: {str(e)}",
-                    "tiempo_mensaje": 5,
-                    "next_page": "actual"
-                }
+                print(f"⚠️ Error al enviar correo: {str(e)}")
+                email_enviado = False
+                
+    
+            # --------------------------------------------------------------------
+            # 📌 Registrar mensaje interno SIEMPRE, independientemente del mail
+            # --------------------------------------------------------------------
+            try:
+                registrar_mensaje(
+                    db=db,
+                    tipo="email",
+                    login_emisor=login_que_observa,
+                    login_destinatario=login_destinatario,
+                    destinatario_texto=f"{user_destino.nombre} {user_destino.apellido}",
+                    asunto="Notificación del Sistema RUA",
+                    contenido=mensaje_texto_plano,
+                    estado="enviado" if email_enviado else "no_enviado"
+                )
+
+                db.commit()
+
+            except Exception as e:
+                db.rollback()
+                print(f"⚠️ Error al registrar mensaje interno: {str(e)}")
 
 
         return {

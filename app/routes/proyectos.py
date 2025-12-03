@@ -28,6 +28,8 @@ from models.users import User, Group, UserGroup
 from database.config import get_db
 from helpers.utils import get_user_name_by_login, construir_subregistro_string, parse_date, generar_codigo_para_link, \
     enviar_mail, enviar_mail_multiples, get_setting_value, edad_como_texto, check_consecutive_numbers
+from helpers.mensajeria_utils import registrar_mensaje
+
 from models.eventos_y_configs import RuaEvento, UsuarioNotificadoRatificacion
 
 from security.security import get_current_user, verify_api_key, require_roles
