@@ -24,9 +24,74 @@ if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
 
 
 
-# ==========================================================
-# ✅ FUNCIÓN BASE - ENVÍO DE PLANTILLA
-# ==========================================================
+# # ==========================================================
+# # ✅ FUNCIÓN BASE - ENVÍO DE PLANTILLA
+# # ==========================================================
+# def _enviar_template_whatsapp(
+#     destinatario: str,
+#     template_name: str,
+#     parametros: list,
+#     language_code: str = "es"
+#     ) -> Dict:
+
+#     url = f"{WHATSAPP_API_URL}/{PHONE_NUMBER_ID}/messages"
+
+#     headers = {
+#         "Authorization": f"Bearer {ACCESS_TOKEN}",
+#         "Content-Type": "application/json"
+#     }
+
+#     # 🔥 Construcción dinámica de componentes según si hay parámetros
+#     if len(parametros) > 0:
+#         components = [
+#             {
+#                 "type": "body",
+#                 "parameters": [
+#                     {"type": "text", "text": p} for p in parametros
+#                 ]
+#             }
+#         ]
+#     else:
+#         # 🔥 Plantilla sin parámetros: NO mandar components
+#         components = []
+
+#     # -----------------------------------------
+#     # 🔒 MODO WHATSAPP SOLO A CÉSAR
+#     # -----------------------------------------
+#     whatsapp_solo_a_cesar = os.getenv("WHATSAPP_SOLO_A_CESAR", "Y").strip().upper()
+
+#     # Si NO existe → por defecto enviamos a César
+#     enviar_a_cesar = whatsapp_solo_a_cesar != "N"
+
+#     destino_final = "5493512613442" if enviar_a_cesar else destinatario
+
+
+#     payload = {
+#         "messaging_product": "whatsapp",
+#         "to": destinatario,
+#         "type": "template",
+#         "template": {
+#             "name": template_name,
+#             "language": {"code": language_code},
+#         }
+#     }
+
+#     # Agregar components solo si hay parámetros
+#     if components:
+#         payload["template"]["components"] = components
+
+#     print("\n📤 PAYLOAD WHATSAPP:")
+#     print(payload)
+
+#     try:
+#         response = requests.post(url, headers=headers, json=payload)
+#         print("📥 RESPUESTA META:", response.text)
+#         return response.json()
+#     except Exception as e:
+#         return {"error": str(e)}
+
+
+
 def _enviar_template_whatsapp(
     destinatario: str,
     template_name: str,
@@ -41,7 +106,15 @@ def _enviar_template_whatsapp(
         "Content-Type": "application/json"
     }
 
-    # 🔥 Construcción dinámica de componentes según si hay parámetros
+    # ---------------------------------------------------
+    # 🔒 WHATSAPP SOLO A CÉSAR (default = Y)
+    # ---------------------------------------------------
+    whatsapp_solo_a_cesar = os.getenv("WHATSAPP_SOLO_A_CESAR", "Y").strip().upper()
+    enviar_a_cesar = whatsapp_solo_a_cesar != "N"  # True si falta la variable o tiene Y
+    
+    destino_final = "5493512613442" if enviar_a_cesar else destinatario
+
+    # 🔥 Construcción dinámica de components según si hay parámetros
     if len(parametros) > 0:
         components = [
             {
@@ -52,12 +125,11 @@ def _enviar_template_whatsapp(
             }
         ]
     else:
-        # 🔥 Plantilla sin parámetros: NO mandar components
         components = []
 
     payload = {
         "messaging_product": "whatsapp",
-        "to": destinatario,
+        "to": destino_final,   # ← usamos destino_final
         "type": "template",
         "template": {
             "name": template_name,
@@ -65,7 +137,6 @@ def _enviar_template_whatsapp(
         }
     }
 
-    # Agregar components solo si hay parámetros
     if components:
         payload["template"]["components"] = components
 
@@ -75,9 +146,17 @@ def _enviar_template_whatsapp(
     try:
         response = requests.post(url, headers=headers, json=payload)
         print("📥 RESPUESTA META:", response.text)
-        return response.json()
+
+        resultado = response.json()
+        resultado["_meta"] = {
+            "enviado_a": destino_final,
+            "redirigido_a_cesar": enviar_a_cesar
+        }
+        return resultado
+
     except Exception as e:
         return {"error": str(e)}
+
 
 
 

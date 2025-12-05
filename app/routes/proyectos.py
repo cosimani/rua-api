@@ -27,7 +27,8 @@ from bs4 import BeautifulSoup
 from models.users import User, Group, UserGroup 
 from database.config import get_db
 from helpers.utils import get_user_name_by_login, construir_subregistro_string, parse_date, generar_codigo_para_link, \
-    enviar_mail, enviar_mail_multiples, get_setting_value, edad_como_texto, check_consecutive_numbers
+    enviar_mail, enviar_mail_multiples, get_setting_value, edad_como_texto, check_consecutive_numbers, \
+    get_notificacion_settings
 from helpers.mensajeria_utils import registrar_mensaje
 
 from models.eventos_y_configs import RuaEvento, UsuarioNotificadoRatificacion
@@ -6887,9 +6888,201 @@ def crear_proyecto_completo(
 
 
 
+# @proyectos_router.post("/notificacion/proyecto/mensaje", response_model=dict,
+#                       dependencies=[Depends(verify_api_key),
+#                                     Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+# def notificar_proyecto_mensaje(
+#     data: dict = Body(...),
+#     db: Session = Depends(get_db),
+#     current_user: dict = Depends(get_current_user)
+#     ):
+
+#     """
+#     📢 Envía una notificación completa a los pretensos vinculados a un proyecto:
+#     - Crea notificaciones individuales
+#     - Registra observaciones internas
+#     - Cambia estado de proyecto si corresponde
+#     - Envía correos electrónicos a los pretensos
+
+#     ### Ejemplo del JSON esperado:
+#     ```json
+#     {
+#         "proyecto_id": 123,
+#         "mensaje": "Recordá subir el certificado de salud.",
+#         "link": "/menu_adoptantes/documentacion",
+#         "data_json": { "accion": "solicitar_actualizacion_doc" },
+#         "tipo_mensaje": "naranja"
+#     }
+#     """
+#     proyecto_id = data.get("proyecto_id")
+#     mensaje = data.get("mensaje")
+#     link = data.get("link")
+#     data_json = data.get("data_json") or {}
+#     tipo_mensaje = data.get("tipo_mensaje", "naranja")
+#     login_que_observa = current_user["user"]["login"]
+#     accion = data_json.get("accion")  # puede ser None, "solicitar_actualizacion_doc", "aprobar_documentacion"
+
+#     if not all([proyecto_id, mensaje, link]):
+#         return {
+#             "success": False,
+#             "tipo_mensaje": "naranja",
+#             "mensaje": "Faltan campos requeridos: proyecto_id, mensaje o link.",
+#             "tiempo_mensaje": 5,
+#             "next_page": "actual"
+#         }
+
+#     try:
+#         proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+#         if not proyecto:
+#             return {
+#                 "success": False,
+#                 "tipo_mensaje": "rojo",
+#                 "mensaje": "El proyecto no existe.",
+#                 "tiempo_mensaje": 5,
+#                 "next_page": "actual"
+#             }
+
+#         logins_destinatarios = [proyecto.login_1]
+#         if proyecto.login_2:
+#             logins_destinatarios.append(proyecto.login_2)
+
+#         nuevo_estado = None
+#         if accion == "solicitar_actualizacion_doc":
+#             nuevo_estado = "actualizando"
+#         elif accion == "aprobar_documentacion":
+#             nuevo_estado = "aprobado"
+
+#         for login in logins_destinatarios:
+#             user = db.query(User).filter(User.login == login).first()
+#             if not user:
+#                 continue
+
+#             # Extraer texto plano del mensaje HTML para guardar en base
+#             mensaje_texto_plano = BeautifulSoup(mensaje, "lxml").get_text(separator=" ", strip=True)
+
+#             if not mensaje_texto_plano:
+#                 return {
+#                     "success": False,
+#                     "tipo_mensaje": "naranja",
+#                     "mensaje": "El mensaje debe tener contenido con información.",
+#                     "tiempo_mensaje": 5,
+#                     "next_page": "actual"
+#                 }
+
+
+#             # Crear notificación individual
+#             resultado = crear_notificacion_individual(
+#                 db=db,
+#                 login_destinatario=login,
+#                 mensaje=mensaje_texto_plano,
+#                 link=link,
+#                 data_json=data_json,
+#                 tipo_mensaje=tipo_mensaje,
+#                 enviar_por_whatsapp=False,
+#                 login_que_notifico=login_que_observa,
+#             )
+#             if not resultado["success"]:
+#                 raise Exception(resultado["mensaje"])
+
+#             # Registrar evento
+#             evento_detalle = f"Notificación a {login} desde proyecto {proyecto_id}: {mensaje_texto_plano[:150]}"
+#             if nuevo_estado:
+#                 evento_detalle += f" | Estado actualizado: '{nuevo_estado}'"
+
+#             db.add(RuaEvento(
+#                 login=login,
+#                 evento_detalle=evento_detalle,
+#                 evento_fecha=datetime.now()
+#             ))
+
+#             # Enviar correo si tiene mail
+#             if user.mail:
+#                 try:
+                   
+#                     cuerpo = f"""
+#                     <html>
+#                       <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+#                         <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+#                           <tr>
+#                             <td align="center">
+#                               <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+#                                 <tr>
+#                                   <td style="font-size: 24px; color: #007bff;">
+#                                       <strong>¡Hola {user.nombre}!</strong>
+#                                   </td>
+#                                 </tr>
+#                                 <tr>
+#                                   <td style="padding-top: 20px; font-size: 17px;">
+#                                     <p>Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+#                                     <p>Te informamos que recibiste la siguiente notificación en la plataforma:</p>
+#                                   </td>
+#                                 </tr>
+#                                 <tr>
+#                                   <td style="padding-top: 20px; font-size: 16px;">
+#                                     <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
+#                                         {mensaje}
+#                                     </div>
+#                                   </td>
+#                                 </tr>
+#                                 <tr>
+#                                   <td style="padding-top: 30px; font-size: 17px;">
+#                                     <p>¡Saludos!</p>
+#                                   </td>
+#                                 </tr>
+#                               </table>
+#                             </td>
+#                           </tr>
+#                         </table>
+#                       </body>
+#                     </html>
+#                     """
+
+
+#                     enviar_mail(
+#                         destinatario=user.mail,
+#                         asunto="Notificación del Sistema RUA",
+#                         cuerpo=cuerpo
+#                     )
+#                 except Exception as e:
+#                     db.rollback()
+#                     return {
+#                         "success": False,
+#                         "tipo_mensaje": "naranja",
+#                         "mensaje": f"⚠️ Error al enviar correo a {user.nombre}: {str(e)}",
+#                         "tiempo_mensaje": 5,
+#                         "next_page": "actual"
+#                     }
+
+#         # Aplicar cambio de estado si corresponde
+#         if nuevo_estado:
+#             proyecto.doc_proyecto_estado = nuevo_estado
+
+#         db.commit()
+
+#         return {
+#             "success": True,
+#             "tipo_mensaje": "verde",
+#             "mensaje": "✅ Notificación enviada correctamente a los pretensos.",
+#             "tiempo_mensaje": 5,
+#             "next_page": "actual"
+#         }
+
+#     except Exception as e:
+#         db.rollback()
+#         return {
+#             "success": False,
+#             "tipo_mensaje": "rojo",
+#             "mensaje": f"❌ Error al procesar la notificación: {str(e)}",
+#             "tiempo_mensaje": 6,
+#             "next_page": "actual"
+#         }
+
+
+
+
 @proyectos_router.post("/notificacion/proyecto/mensaje", response_model=dict,
-                      dependencies=[Depends(verify_api_key),
-                                    Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+    dependencies=[ Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
 def notificar_proyecto_mensaje(
     data: dict = Body(...),
     db: Session = Depends(get_db),
@@ -6898,28 +7091,20 @@ def notificar_proyecto_mensaje(
 
     """
     📢 Envía una notificación completa a los pretensos vinculados a un proyecto:
-    - Crea notificaciones individuales
-    - Registra observaciones internas
-    - Cambia estado de proyecto si corresponde
-    - Envía correos electrónicos a los pretensos
-
-    ### Ejemplo del JSON esperado:
-    ```json
-    {
-        "proyecto_id": 123,
-        "mensaje": "Recordá subir el certificado de salud.",
-        "link": "/menu_adoptantes/documentacion",
-        "data_json": { "accion": "solicitar_actualizacion_doc" },
-        "tipo_mensaje": "naranja"
-    }
+    - Notificación interna
+    - Registro menajería email/whatsapp
+    - Envío real según settings
+    - Cambio de estado si corresponde
     """
+
     proyecto_id = data.get("proyecto_id")
     mensaje = data.get("mensaje")
     link = data.get("link")
     data_json = data.get("data_json") or {}
     tipo_mensaje = data.get("tipo_mensaje", "naranja")
+
     login_que_observa = current_user["user"]["login"]
-    accion = data_json.get("accion")  # puede ser None, "solicitar_actualizacion_doc", "aprobar_documentacion"
+    accion = data_json.get("accion")  # puede ser None
 
     if not all([proyecto_id, mensaje, link]):
         return {
@@ -6941,35 +7126,48 @@ def notificar_proyecto_mensaje(
                 "next_page": "actual"
             }
 
+        # ------------- RESPONSABLES (1 o 2 pretensos) -------------
         logins_destinatarios = [proyecto.login_1]
         if proyecto.login_2:
             logins_destinatarios.append(proyecto.login_2)
 
+        # ------------- BASE PARA CONFIG SEGÚN ACCIÓN -------------
+        if accion in ["solicitar_actualizacion_doc", "aprobar_documentacion"]:
+            base_setting = "doc_proyecto"
+        else:
+            base_setting = "notif_pretenso_proyecto"
+
+        canales = get_notificacion_settings(db, base_setting)
+        enviar_email_flag = canales.get("email", False)
+        enviar_whatsapp_flag = canales.get("whatsapp", False)
+
+        # ------------- ESTADO DEL PROYECTO -------------
         nuevo_estado = None
         if accion == "solicitar_actualizacion_doc":
             nuevo_estado = "actualizando"
         elif accion == "aprobar_documentacion":
             nuevo_estado = "aprobado"
 
+        mensaje_texto_plano = BeautifulSoup(mensaje, "lxml").get_text(separator=" ", strip=True)
+        if not mensaje_texto_plano:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "El mensaje debe tener contenido con información.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+
+        # ===========================================================
+        #            📩 ENVIAR A CADA PRETENSO DEL PROYECTO
+        # ===========================================================
         for login in logins_destinatarios:
             user = db.query(User).filter(User.login == login).first()
             if not user:
                 continue
 
-            # Extraer texto plano del mensaje HTML para guardar en base
-            mensaje_texto_plano = BeautifulSoup(mensaje, "lxml").get_text(separator=" ", strip=True)
-
-            if not mensaje_texto_plano:
-                return {
-                    "success": False,
-                    "tipo_mensaje": "naranja",
-                    "mensaje": "El mensaje debe tener contenido con información.",
-                    "tiempo_mensaje": 5,
-                    "next_page": "actual"
-                }
-
-
-            # Crear notificación individual
+            # Crear notificación interna RUA
             resultado = crear_notificacion_individual(
                 db=db,
                 login_destinatario=login,
@@ -6978,15 +7176,16 @@ def notificar_proyecto_mensaje(
                 data_json=data_json,
                 tipo_mensaje=tipo_mensaje,
                 enviar_por_whatsapp=False,
-                login_que_notifico=login_que_observa,
+                login_que_notifico=login_que_observa
             )
             if not resultado["success"]:
                 raise Exception(resultado["mensaje"])
 
+
             # Registrar evento
-            evento_detalle = f"Notificación a {login} desde proyecto {proyecto_id}: {mensaje_texto_plano[:150]}"
+            evento_detalle = f"Notificación enviada a {login} por proyecto {proyecto_id}: {mensaje_texto_plano[:150]}"
             if nuevo_estado:
-                evento_detalle += f" | Estado actualizado: '{nuevo_estado}'"
+                evento_detalle += f" | Estado documentación: '{nuevo_estado}'"
 
             db.add(RuaEvento(
                 login=login,
@@ -6994,10 +7193,15 @@ def notificar_proyecto_mensaje(
                 evento_fecha=datetime.now()
             ))
 
-            # Enviar correo si tiene mail
-            if user.mail:
+
+            # ---------------------------------------------------------
+            # 📧 EMAIL
+            # ---------------------------------------------------------
+            email_enviado = False
+            
+            if enviar_email_flag and user.mail:
                 try:
-                   
+
                     cuerpo = f"""
                     <html>
                       <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
@@ -7036,23 +7240,95 @@ def notificar_proyecto_mensaje(
                     </html>
                     """
 
-
                     enviar_mail(
                         destinatario=user.mail,
                         asunto="Notificación del Sistema RUA",
                         cuerpo=cuerpo
                     )
-                except Exception as e:
-                    db.rollback()
-                    return {
-                        "success": False,
-                        "tipo_mensaje": "naranja",
-                        "mensaje": f"⚠️ Error al enviar correo a {user.nombre}: {str(e)}",
-                        "tiempo_mensaje": 5,
-                        "next_page": "actual"
-                    }
+                    email_enviado = True
 
-        # Aplicar cambio de estado si corresponde
+                except Exception as e:
+                    print("⚠ Error enviando email:", str(e))
+                    email_enviado = False
+
+                # Registrar en Mensajeria
+                try:
+                    registrar_mensaje(
+                        db=db,
+                        tipo="email",
+                        login_emisor=login_que_observa,
+                        login_destinatario=login,
+                        destinatario_texto=f"{user.nombre} {user.apellido}",
+                        asunto="Notificación del Sistema RUA",
+                        contenido=mensaje_texto_plano,
+                        estado="enviado" if email_enviado else "no_enviado"
+                    )
+                except Exception as e:
+                    print("⚠ Error registrando mensaje email:", str(e))
+
+
+
+            # ---------------------------------------------------------
+            # 📲 WHATSAPP
+            # ---------------------------------------------------------
+            whatsapp_enviado = False
+
+            if enviar_whatsapp_flag:
+
+                if not user.celular:
+                    registrar_mensaje(
+                        db=db,
+                        tipo="whatsapp",
+                        login_emisor=login_que_observa,
+                        login_destinatario=login,
+                        destinatario_texto=f"{user.nombre} {user.apellido}",
+                        contenido=mensaje_texto_plano,
+                        estado="no_enviado",
+                        data_json="No hay número de celular"
+                    )
+                else:
+                    try:
+                        numero = user.celular.replace("+","").replace(" ","").replace("-","")
+                        if not numero.startswith("54"):
+                            numero = "54" + numero
+
+                        respuesta = enviar_whatsapp_rua_notificacion(
+                            destinatario=numero,
+                            nombre=user.nombre,
+                            mensaje=mensaje_texto_plano
+                        )
+
+                        whatsapp_enviado = "messages" in respuesta
+                        mensaje_externo_id = (
+                            respuesta["messages"][0].get("id") if whatsapp_enviado else None
+                        )
+
+                        registrar_mensaje(
+                            db=db,
+                            tipo="whatsapp",
+                            login_emisor=login_que_observa,
+                            login_destinatario=login,
+                            destinatario_texto=f"{user.nombre} {user.apellido}",
+                            contenido=mensaje_texto_plano,
+                            estado="enviado" if whatsapp_enviado else "error",
+                            mensaje_externo_id=mensaje_externo_id,
+                            data_json=respuesta
+                        )
+
+                    except Exception as e:
+                        registrar_mensaje(
+                            db=db,
+                            tipo="whatsapp",
+                            login_emisor=login_que_observa,
+                            login_destinatario=login,
+                            destinatario_texto=f"{user.nombre} {user.apellido}",
+                            contenido=mensaje_texto_plano,
+                            estado="error",
+                            data_json=str(e)
+                        )
+
+
+        # -------- CAMBIO DE ESTADO DEL PROYECTO -------
         if nuevo_estado:
             proyecto.doc_proyecto_estado = nuevo_estado
 
@@ -7061,8 +7337,8 @@ def notificar_proyecto_mensaje(
         return {
             "success": True,
             "tipo_mensaje": "verde",
-            "mensaje": "✅ Notificación enviada correctamente a los pretensos.",
-            "tiempo_mensaje": 5,
+            "mensaje": "Notificación enviada correctamente.",
+            "tiempo_mensaje": 4,
             "next_page": "actual"
         }
 
@@ -7071,12 +7347,10 @@ def notificar_proyecto_mensaje(
         return {
             "success": False,
             "tipo_mensaje": "rojo",
-            "mensaje": f"❌ Error al procesar la notificación: {str(e)}",
+            "mensaje": f"Error procesando notificación: {str(e)}",
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
-
-
 
 
     
