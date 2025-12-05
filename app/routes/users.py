@@ -5,7 +5,7 @@ from math import ceil
 from database.config import SessionLocal
 from helpers.utils import check_consecutive_numbers, get_user_name_by_login, \
         build_subregistro_string, parse_date, calculate_age, validar_correo, generar_codigo_para_link, \
-        normalizar_y_validar_dni, capitalizar_nombre, normalizar_celular, verificar_recaptcha \
+        normalizar_y_validar_dni, capitalizar_nombre, normalizar_celular, verificar_recaptcha, \
         get_notificacion_settings
 
 from helpers.moodle import existe_mail_en_moodle, existe_dni_en_moodle, crear_usuario_en_moodle, get_idcurso, \
@@ -4238,6 +4238,20 @@ def notificar_pretenso_mensaje(
 
     try:
 
+        # Determinar base de configuración
+        if accion in ["solicitar_actualizacion_doc", "aprobar_documentacion"]:
+            base_setting = "doc_personal"
+        elif accion == "ratificar_proyecto":
+            base_setting = "ratificacion"
+        else:
+            base_setting = "notif_pretenso"
+
+        # Obtener configuración de qué enviar
+        canales = get_notificacion_settings(db, base_setting)
+        enviar_email_flag = canales.get("email", False)
+        enviar_whatsapp_flag = canales.get("whatsapp", False)
+
+
         # Extraer texto plano del mensaje HTML para guardar en base
         mensaje_texto_plano = BeautifulSoup(mensaje, "lxml").get_text(separator=" ", strip=True)
 
@@ -4287,10 +4301,10 @@ def notificar_pretenso_mensaje(
 
         db.commit()
 
-        # Enviar correo si hay mail
-        if user_destino.mail:
+        email_enviado = False
 
-            email_enviado = False
+        # Enviar correo si hay mail
+        if enviar_email_flag and user_destino.mail:
 
             try:
                 if accion == "solicitar_actualizacion_doc":
@@ -4436,7 +4450,6 @@ def notificar_pretenso_mensaje(
                     """
                 
 
-
                 enviar_mail(
                     destinatario=user_destino.mail,
                     asunto="Notificación del Sistema RUA",
@@ -4444,7 +4457,6 @@ def notificar_pretenso_mensaje(
                 )
 
                 email_enviado = True
-
                 
             except Exception as e:
                 print(f"⚠️ Error al enviar correo: {str(e)}")
@@ -4456,29 +4468,92 @@ def notificar_pretenso_mensaje(
             # --------------------------------------------------------------------
             try:
 
-                MAX_LENGTH = 4500  # Mantiene margen más que suficiente sin llegar a 65k
-
-                if len(mensaje_texto_plano) > MAX_LENGTH:
-                    contenido_guardar = mensaje_texto_plano[:MAX_LENGTH] + " [...]"
-                else:
-                    contenido_guardar = mensaje_texto_plano
-
                 registrar_mensaje(
-                    db=db,
-                    tipo="email",
-                    login_emisor=login_que_observa,
-                    login_destinatario=login_destinatario,
-                    destinatario_texto=f"{user_destino.nombre} {user_destino.apellido}",
-                    asunto="Notificación del Sistema RUA",
-                    contenido=contenido_guardar,
-                    estado="enviado" if email_enviado else "no_enviado"
+                    db = db,
+                    tipo = "email",
+                    login_emisor = login_que_observa,
+                    login_destinatario = login_destinatario,
+                    destinatario_texto = f"{user_destino.nombre} {user_destino.apellido}",
+                    asunto = "Notificación del Sistema RUA",
+                    contenido = mensaje_texto_plano,
+                    estado = "enviado" if email_enviado else "no_enviado"
                 )
 
-                db.commit()
 
             except Exception as e:
                 db.rollback()
                 print(f"⚠️ Error al registrar mensaje interno: {str(e)}")
+
+
+        # -----------------------------
+        # 📲 ENVÍO WHATSAPP SI APLICA
+        # -----------------------------
+        whatsapp_enviado = False
+
+        # -----------------------------
+        # 📲 ENVÍO WHATSAPP SI APLICA
+        # -----------------------------
+        if enviar_whatsapp_flag:
+
+            # Caso donde el usuario NO tiene celular cargado
+            if not user_destino.celular:
+                registrar_mensaje(
+                    db=db,
+                    tipo="whatsapp",
+                    login_emisor=login_que_observa,
+                    login_destinatario=login_destinatario,
+                    destinatario_texto=f"{user_destino.nombre} {user_destino.apellido}",
+                    contenido=mensaje_texto_plano,
+                    estado="no_enviado",
+                    data_json="No hay número de celular cargado"
+                )
+
+            else:
+                try:
+                    numero = user_destino.celular.replace("+", "").replace(" ", "").replace("-", "")
+                    if not numero.startswith("54"):
+                        numero = "54" + numero
+
+                    respuesta_whatsapp = enviar_whatsapp_rua_notificacion(
+                        destinatario=numero,
+                        nombre=user_destino.nombre,
+                        mensaje=mensaje_texto_plano
+                    )
+
+                    whatsapp_enviado = "messages" in respuesta_whatsapp
+                    mensaje_externo_id = (
+                        respuesta_whatsapp["messages"][0].get("id")
+                        if whatsapp_enviado else None
+                    )
+
+                    registrar_mensaje(
+                        db=db,
+                        tipo="whatsapp",
+                        login_emisor=login_que_observa,
+                        login_destinatario=login_destinatario,
+                        destinatario_texto=f"{user_destino.nombre} {user_destino.apellido}",
+                        contenido=mensaje_texto_plano,
+                        estado="enviado" if whatsapp_enviado else "error",
+                        mensaje_externo_id=mensaje_externo_id,
+                        data_json=respuesta_whatsapp
+                    )
+
+                except Exception as e:
+                    print("⚠ Error WhatsApp:", str(e))
+                    registrar_mensaje(
+                        db=db,
+                        tipo="whatsapp",
+                        login_emisor=login_que_observa,
+                        login_destinatario=login_destinatario,
+                        destinatario_texto=f"{user_destino.nombre} {user_destino.apellido}",
+                        contenido=mensaje_texto_plano,
+                        estado="error",
+                        data_json=str(e)
+                    )
+
+        # Commit final para Email + WhatsApp
+        db.commit()
+
 
 
         return {

@@ -11,14 +11,26 @@ def registrar_mensaje(
     destinatario_texto: str,
     asunto: str = None,
     contenido: str = None,
-    estado: str = "enviado",       # "enviado", "error", etc.
+    estado: str = "enviado",       # enviado | error | no_enviado
     mensaje_externo_id: str = None,
     data_json: dict = None
 ):
     """
-    Registra un mensaje en la tabla Mensajeria SIN hacer commit.
-    El commit debe hacerlo el endpoint que llama a esta función.
+    Registra un mensaje en la tabla Mensajeria SIN commit.
+    El control de commit y transacción lo hace el endpoint.
     """
+
+    # Normalizar longitud
+    MAX_LENGTH = 4500
+    if contenido and len(contenido) > MAX_LENGTH:
+        contenido = contenido[:MAX_LENGTH] + " [...]"
+
+    # Normalizar data_json si viene como string
+    if data_json and not isinstance(data_json, dict):
+        try:
+            data_json = json.loads(data_json)
+        except:
+            data_json = {"raw": str(data_json)}
 
     registro = Mensajeria(
         tipo = tipo,
@@ -34,4 +46,4 @@ def registrar_mensaje(
     )
 
     db.add(registro)
-    return registro  # opcional, por si querés acceder al ID luego
+    return registro
