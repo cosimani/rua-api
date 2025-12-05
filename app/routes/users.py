@@ -5,7 +5,8 @@ from math import ceil
 from database.config import SessionLocal
 from helpers.utils import check_consecutive_numbers, get_user_name_by_login, \
         build_subregistro_string, parse_date, calculate_age, validar_correo, generar_codigo_para_link, \
-        normalizar_y_validar_dni, capitalizar_nombre, normalizar_celular, verificar_recaptcha
+        normalizar_y_validar_dni, capitalizar_nombre, normalizar_celular, verificar_recaptcha \
+        get_notificacion_settings
 
 from helpers.moodle import existe_mail_en_moodle, existe_dni_en_moodle, crear_usuario_en_moodle, get_idcurso, \
     enrolar_usuario, get_idusuario_by_mail, eliminar_usuario_en_moodle, actualizar_usuario_en_moodle, \
@@ -2503,11 +2504,6 @@ def notificacion_a_pretenso(
 
 
 
-
-
-
-
-
 @users_router.get("/observacion/{login}/listado", response_model=dict,
                   dependencies=[Depends(verify_api_key),
                                 Depends(require_roles(["administrador", "supervision", "supervisora", "profesional", "adoptante", "coordinadora"]))])
@@ -2962,8 +2958,6 @@ def actualizar_usuario_total(
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
-
-
 
 
 
@@ -3430,8 +3424,6 @@ def reenviar_mail_activacion(login: str, db: Session = Depends(get_db)):
             "tiempo_mensaje": 8,
             "next_page": "actual",
         }
-
-
 
 
 
@@ -4463,6 +4455,14 @@ def notificar_pretenso_mensaje(
             # 📌 Registrar mensaje interno SIEMPRE, independientemente del mail
             # --------------------------------------------------------------------
             try:
+
+                MAX_LENGTH = 4500  # Mantiene margen más que suficiente sin llegar a 65k
+
+                if len(mensaje_texto_plano) > MAX_LENGTH:
+                    contenido_guardar = mensaje_texto_plano[:MAX_LENGTH] + " [...]"
+                else:
+                    contenido_guardar = mensaje_texto_plano
+
                 registrar_mensaje(
                     db=db,
                     tipo="email",
@@ -4470,7 +4470,7 @@ def notificar_pretenso_mensaje(
                     login_destinatario=login_destinatario,
                     destinatario_texto=f"{user_destino.nombre} {user_destino.apellido}",
                     asunto="Notificación del Sistema RUA",
-                    contenido=mensaje_texto_plano,
+                    contenido=contenido_guardar,
                     estado="enviado" if email_enviado else "no_enviado"
                 )
 
@@ -4509,7 +4509,8 @@ def registrar_observacion_directa(
     data: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     Registra una observación interna para un pretenso, sin enviar mail ni modificar el estado documental.
     """
@@ -4601,7 +4602,8 @@ def darse_de_baja_del_sistema(
     login: str,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
-):
+    ):
+
     """
     Permite dar de baja a un usuario del sistema RUA.
     
@@ -4687,7 +4689,8 @@ def darse_de_baja_del_sistema(
 def descargar_documentos_usuario(
     login: str,
     db: Session = Depends(get_db)
-):
+    ):
+
     user = db.query(User).filter(User.login == login).first()
     if not user:
         return JSONResponse(
@@ -4910,7 +4913,8 @@ def descargar_documentos_usuario(
                    dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador"])) ], )
 def notificar_usuario_inactivo(
   db: Session = Depends(get_db),
-):
+    ):
+
     # fechas de referencia
     hoy = datetime.now()
     hace_180 = hoy - timedelta(days=180)
@@ -5200,7 +5204,8 @@ def procesar_envio_masivo(lineas: List[str]):
 async def notificar_desde_txt(
     background_tasks: BackgroundTasks,  # 👈 primero los que no tienen valor por defecto
     archivo: UploadFile = File(...),
-):
+    ):
+
     if not archivo.filename.lower().endswith(".txt"):
         raise HTTPException(status_code=400, detail="El archivo debe tener extensión .txt")
 
@@ -5489,7 +5494,8 @@ def procesar_envio_masivo_postulantes_desde_csv(contenido_csv: str):
 async def notificar_desde_csv_postulantes(
     background_tasks: BackgroundTasks,
     archivo: UploadFile = File(...),
-):
+    ):
+
     if not archivo.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="El archivo debe tener extensión .csv")
 

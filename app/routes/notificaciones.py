@@ -4,6 +4,7 @@ from typing import Literal, Optional, List
 
 from models.users import User, Group, UserGroup 
 from models.proyecto import Proyecto
+from models.eventos_y_configs import SecSettings
 
 from models.notif_y_observaciones import NotificacionesRUA, Mensajeria
 
@@ -14,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import func
 
 from models.eventos_y_configs import RuaEvento
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from security.security import get_current_user, require_roles, verify_api_key
 
 from helpers.utils import enviar_mail, get_setting_value
@@ -25,6 +26,8 @@ from helpers.mensajeria_utils import registrar_mensaje
 
 from helpers.notificaciones_utils import crear_notificacion_individual, crear_notificacion_masiva_por_rol, \
     marcar_notificaciones_como_vistas, obtener_notificaciones_para_usuario
+
+
 
 
 
@@ -896,3 +899,157 @@ def recibir_estado_whatsapp(data: dict, db: Session = Depends(get_db)):
     except Exception as e:
         print("❌ Error webhook:", str(e))
         return {"success": False}
+
+
+
+
+
+
+
+
+@notificaciones_router.get("/config/mensajeria", response_model=dict,
+    dependencies=[ Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def get_config_mensajeria(db: Session = Depends(get_db)):
+
+    # FECHAS
+    now = datetime.now()
+    primer_dia_mes = datetime(now.year, now.month, 1)
+
+    # Primer día del mes anterior
+    if now.month == 1:
+        primer_dia_mes_anterior = datetime(now.year - 1, 12, 1)
+    else:
+        primer_dia_mes_anterior = datetime(now.year, now.month - 1, 1)
+
+
+    # CONFIG — crear faltantes
+    config_keys = [
+        "activacion",
+        "recuperacion",
+        "doc_personal",
+        "doc_proyecto",
+        "proyecto_viable",
+        "ratificacion",
+        "fecha_entrevista",
+        "postulacion_conv",
+        "reunion_grupal",
+        "notif_pretenso",
+        "notif_pretenso_proyecto",
+    ]
+
+    config = {}
+
+    for base in config_keys:
+        for canal_prefix in ["whatsapp_", "email_"]:
+            key_name = canal_prefix + base
+            setting = db.query(SecSettings).filter_by(set_name=key_name).first()
+
+            if not setting:
+                default = "N"
+                setting = SecSettings(set_name=key_name, set_value=default)
+                db.add(setting)
+                config[key_name] = False
+            else:
+                config[key_name] = setting.set_value == "Y"
+
+
+    # Garantizar whatsapp_costo_unitario
+    costo_setting = db.query(SecSettings).filter_by(set_name="whatsapp_costo_unitario").first()
+    if not costo_setting:
+        costo_setting = SecSettings(set_name="whatsapp_costo_unitario", set_value="0")
+        db.add(costo_setting)
+        costo_unitario = 0.0
+    else:
+        try:
+            costo_unitario = float(costo_setting.set_value)
+        except:
+            costo_unitario = 0.0
+            costo_setting.set_value = "0"
+
+    db.commit()
+
+    # === Estadísticas WhatsApp ===
+    total_whatsapp = db.query(Mensajeria).filter(
+        Mensajeria.tipo == "whatsapp",
+        Mensajeria.estado.notin_(["error", "no_enviado"])).count()
+
+    mes_actual_whatsapp = db.query(Mensajeria).filter(
+        Mensajeria.tipo == "whatsapp",
+        Mensajeria.estado.notin_(["error", "no_enviado"]),
+        Mensajeria.fecha_envio >= primer_dia_mes
+    ).count()
+
+    mes_anterior_whatsapp = db.query(Mensajeria).filter(
+        Mensajeria.tipo == "whatsapp",
+        Mensajeria.estado.notin_(["error", "no_enviado"]),    
+        Mensajeria.fecha_envio >= primer_dia_mes_anterior,
+        Mensajeria.fecha_envio < primer_dia_mes
+    ).count()
+
+    costo_mes_actual = mes_actual_whatsapp * costo_unitario
+    costo_mes_anterior = mes_anterior_whatsapp * costo_unitario
+
+    # mails totales
+    mails_enviados = db.query(Mensajeria).filter(
+        Mensajeria.tipo == "email",
+        Mensajeria.estado.notin_(["error", "no_enviado"])).count()
+
+    stats = {
+        "mails": mails_enviados,
+        "whatsapp_total": total_whatsapp,
+        "whatsapp_mes": mes_actual_whatsapp,
+        "costo_mes_actual": costo_mes_actual,
+        "costo_mes_anterior": costo_mes_anterior,
+        "costo_mensaje": costo_unitario
+    }
+
+    return {"config": config, "stats": stats}
+
+
+
+
+
+@notificaciones_router.post("/config/mensajeria/save", response_model=dict,
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))
+    ])
+def save_config_mensajeria(
+    data: dict = Body(...),
+    db: Session = Depends(get_db)
+    ):
+
+    key = data.get("key")
+    value = data.get("value")
+
+    if not key:
+        return {"success": False, "mensaje": "Key requerida"}
+
+    setting = db.query(SecSettings).filter_by(set_name=key).first()
+
+    # Caso especial: el costo unitario
+    if key == "whatsapp_costo_unitario":
+        val_str = str(value if value is not None else "0")
+
+        if not setting:
+            setting = SecSettings(set_name=key, set_value=val_str)
+            db.add(setting)
+        else:
+            setting.set_value = val_str
+
+        db.commit()
+        return {"success": True, "mensaje": "Costo actualizado"}
+
+    # Valores booleanos -> guardar Y o N
+    set_val = "Y" if value else "N"
+
+    if not setting:
+        setting = SecSettings(set_name=key, set_value=set_val)
+        db.add(setting)
+    else:
+        setting.set_value = set_val
+
+    db.commit()
+
+    return {"success": True, "mensaje": "Configuración guardada"}

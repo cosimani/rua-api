@@ -32,7 +32,7 @@ def _enviar_template_whatsapp(
     template_name: str,
     parametros: list,
     language_code: str = "es"
-) -> Dict:
+    ) -> Dict:
 
     url = f"{WHATSAPP_API_URL}/{PHONE_NUMBER_ID}/messages"
 
@@ -92,7 +92,7 @@ def enviar_whatsapp_rua_notificacion(
     destinatario: str,
     nombre: str,
     mensaje: str
-) -> Dict:
+    ) -> Dict:
 
     return _enviar_template_whatsapp(
         destinatario = destinatario,
@@ -117,7 +117,7 @@ def enviar_whatsapp_rua_recordatorio_cita(
     nombre: str,
     fecha: str,
     hora: str
-) -> Dict:
+    ) -> Dict:
 
     return _enviar_template_whatsapp(
         destinatario = destinatario,

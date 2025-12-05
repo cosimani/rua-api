@@ -1292,3 +1292,11 @@ def convertir_booleans_a_string(d: dict) -> dict:
     return convertido
 
 
+
+def get_notificacion_settings(db, base_key: str):
+    config = {}
+    for canal in ["whatsapp_", "email_"]:
+        key = f"{canal}{base_key}"
+        setting = db.query(SecSettings).filter_by(set_name=key).first()
+        config[canal.replace("_", "")] = (setting.set_value == "Y") if setting else False
+    return config
