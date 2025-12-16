@@ -9889,3 +9889,54 @@ def descargar_un_documento_proyecto(
         filename=os.path.basename(fs_path),
         media_type="application/octet-stream"
     )
+
+
+
+
+@proyectos_router.get(
+    "/{proyecto_id}/info-notificaciones",
+    response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))]
+)
+def obtener_info_notificaciones_proyecto(
+    proyecto_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    🔎 Devuelve información para describir qué notificaciones se enviarán
+    al valorar un proyecto (especialmente en convocatorias).
+    """
+
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        return {
+            "success": False,
+            "mensaje": "Proyecto no encontrado"
+        }
+
+    pretensos = []
+    logins = [proyecto.login_1]
+    if proyecto.login_2:
+        logins.append(proyecto.login_2)
+
+    for login in logins:
+        user = db.query(User).filter(User.login == login).first()
+        if not user:
+            continue
+
+        tiene_password = bool(user.clave) and user.active == "Y"
+
+        pretensos.append({
+            "login": user.login,
+            "nombre": f"{user.nombre} {user.apellido or ''}".strip(),
+            "mail": user.mail,
+            "tiene_password": tiene_password
+        })
+
+    return {
+        "success": True,
+        "proyecto_id": proyecto.proyecto_id,
+        "ingreso_por": proyecto.ingreso_por,  # rua | oficio | convocatoria
+        "es_convocatoria": proyecto.ingreso_por == "convocatoria",
+        "pretensos": pretensos
+    }

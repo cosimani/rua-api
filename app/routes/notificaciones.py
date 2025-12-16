@@ -933,7 +933,8 @@ def get_config_mensajeria(db: Session = Depends(get_db)):
         "ratificacion",
         "fecha_entrevista",
         "postulacion_conv",
-        "reunion_grupal",
+        "no_avance_proceso",
+        "usuario_inactivo",
         "notif_pretenso",
         "notif_pretenso_proyecto",
     ]

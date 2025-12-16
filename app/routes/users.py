@@ -38,7 +38,7 @@ from database.config import get_db  # Importá get_db desde config.py
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import case, func, and_, or_, select, union_all, join, literal_column, desc, text, not_
-from sqlalchemy.sql import literal_column
+from sqlalchemy.sql import literal_column, exists
 
 
 from models.eventos_y_configs import RuaEvento, UsuarioNotificadoInactivo, UsuarioNotificadoRatificacion
@@ -4984,184 +4984,11 @@ def descargar_documentos_usuario(
 
 
 
-@users_router.post( "/notificar-inactivos", # response_model=dict, 
-                   dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador"])) ], )
-def notificar_usuario_inactivo(
-  db: Session = Depends(get_db),
-    ):
-
-    # fechas de referencia
-    hoy = datetime.now()
-    hace_180 = hoy - timedelta(days=180)
-    hace_7 = hoy - timedelta(days=7)
-
-    print("📅 Hoy:", hoy)
-    print("📅 Hace 180 días:", hace_180)
-    print("📅 Hace 7 días:", hace_7)
-
-    # subconsulta: logins que tuvieron "inicio de sesión" en los últimos 180 días
-    subq_activos = (
-        db.query(RuaEvento.login)
-          .filter(
-              RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"),
-              RuaEvento.evento_fecha >= hace_180
-          )
-          .distinct()
-          .subquery()
-    )
-
-    # para evitar el “Illegal mix of collations” al comparar login
-    login_0900 = User.login.collate('utf8mb4_0900_ai_ci')
-
-    # buscamos el primer usuario operativo inactivo y que no haya recibido aviso en los últimos 7 días
-    usuario = (
-        db.query(User)
-          .outerjoin(
-              UsuarioNotificadoInactivo,
-              login_0900 == UsuarioNotificadoInactivo.login
-          )
-          .filter(User.operativo == 'Y')
-          .filter(~login_0900.in_(subq_activos))
-          .filter(
-              or_(
-                  UsuarioNotificadoInactivo.mail_enviado_1 == None,
-                  and_(
-                      UsuarioNotificadoInactivo.dado_de_baja == None,
-                      func.greatest(
-                          func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
-                          func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
-                          func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
-                          func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
-                      ) <= hace_7
-                  )
-              )
-          )
-          .order_by(User.fecha_alta.asc())
-          .limit(1)
-          .first()
-    )
-
-    if not usuario or not usuario.mail:
-        print("❌ No se encontró ningún usuario inactivo para notificar.")
-        raise HTTPException(status_code=404, detail="No hay usuarios inactivos pendientes de notificar.")
-
-    print(f"👤 Usuario inactivo encontrado: {usuario.login} - {usuario.mail}")
-
-    # obtener o crear registro de notificaciones
-    notificacion = (
-        db.query(UsuarioNotificadoInactivo)
-          .filter(UsuarioNotificadoInactivo.login == usuario.login)
-          .first()
-    )
-
-    if not notificacion:
-        # Primer aviso
-        notificacion = UsuarioNotificadoInactivo(
-            login=usuario.login,
-            mail_enviado_1=hoy
-        )
-        db.add(notificacion)
-        nro_envio = 1
-
-    elif notificacion.mail_enviado_2 is None:
-        # Segundo aviso
-        notificacion.mail_enviado_2 = hoy
-        nro_envio = 2
-
-    elif notificacion.mail_enviado_3 is None:
-        # Tercer aviso
-        notificacion.mail_enviado_3 = hoy
-        nro_envio = 3
-
-    elif notificacion.mail_enviado_4 is None:
-        # Cuarto aviso
-        notificacion.mail_enviado_4 = hoy
-        nro_envio = 4
-
-    else:
-        # 🔴 Quinto llamado: ya recibió los 4 avisos -> se desactiva
-        usuario.operativo = 'N'
-        notificacion.dado_de_baja = hoy
-        evento_baja = RuaEvento(
-            login=usuario.login,
-            evento_detalle="Usuario dado de baja por inactividad prolongada.",
-            evento_fecha=hoy
-        )
-        db.add(evento_baja)
-        db.commit()
-        return {"message": f"Usuario {usuario.login} dado de baja por inactividad."}
-
-
-    # enviamos el mail
-    try:
-        cuerpo_html = f"""
-        <html>
-          <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-            <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-              <tr>
-                <td align="center">
-                  <table cellpadding="0" cellspacing="0" width="600"
-                    style="background-color: #ffffff; border-radius: 10px; padding: 30px;
-                          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40;
-                          box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-                    <tr>
-                      <td style="font-size: 20px; color: #007bff;">
-                        <strong>{nro_envio}° aviso:</strong>
-                      </td>
-                    </tr>
-
-                    <tr>
-                      <td style="padding-top: 20px; font-size: 17px;">
-                        <p>¡Hola, <strong>{usuario.nombre}</strong>! Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
-                        <p>Te contactamos porque hace más de 6 meses que no hay actividad en tu cuenta.</p>
-                        <p>¿Necesitás ayuda con los pasos para continuar con tu inscripción? Comunicate con nosotros al siguiente correo: <a href="mailto:registroadopcion@justiciacordoba.gob.ar">registroadopcion@justiciacordoba.gob.ar</a> o al teléfono: (0351) 44 81 000 - interno: 13181.</p>
-                        <p><strong>¡Te invitamos a que ingreses al sistema para conservar tu cuenta y continuar con el proceso de inscripción!</strong></p>
-                        <p><em>Luego del cuarto aviso se desactivará automáticamente tu cuenta.</em></p>
-                      </td>
-                    </tr>
-
-                    <tr>
-                      <td align="center" style="padding: 30px 0;">
-                        <a href="https://rua.justiciacordoba.gob.ar/login/" target="_blank"
-                          style="display: inline-block; padding: 12px 24px; background-color: #007bff;
-                                  color: #ffffff; border-radius: 8px; text-decoration: none;
-                                  font-weight: bold; font-size: 16px;">
-                          Ir al sistema RUA
-                        </a>
-                      </td>
-                    </tr>
-          
-                    <tr>
-                      <td style="font-size: 17px; padding-top: 20px;">
-                        ¡Muchas gracias!
-                      </td>
-                    </tr>
-                  </table>
-                </td>
-              </tr>
-            </table>
-          </body>
-        </html>
-        """
-      
-        enviar_mail(
-            destinatario=usuario.mail,
-            asunto="Aviso por inactividad - Sistema RUA",
-            cuerpo=cuerpo_html
-        )
-
-        db.commit()
-        return {"message": f"Notificación enviada a {usuario.login} (envío #{nro_envio})."}
-
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500,
-                            detail=f"Error al enviar mail: {str(e)}")
-
-
 
 
 def procesar_envio_masivo(lineas: List[str]):
+    # Procesa el envío masivo de mails para reconfirmar flexibilidad adoptiva
+    # Se usa en el endpoint /usuarios/notificar-desde-txt
     db = SessionLocal()
     try:
         resultados = {"total": 0, "mails_enviados": 0, "errores": []}
@@ -5272,14 +5099,14 @@ def procesar_envio_masivo(lineas: List[str]):
 
 
 
-
-
 @users_router.post( "/usuarios/notificar-desde-txt", response_model=dict, 
                    dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador"])) ], )
 async def notificar_desde_txt(
     background_tasks: BackgroundTasks,  # 👈 primero los que no tienen valor por defecto
     archivo: UploadFile = File(...),
     ):
+    # Endpoint para notificar usuarios desde un archivo .txt para 
+    # la flexibilidad adoptiva. Usa la función procesar_envio_masivo en segundo plano.
 
     if not archivo.filename.lower().endswith(".txt"):
         raise HTTPException(status_code=400, detail="El archivo debe tener extensión .txt")
@@ -5298,8 +5125,6 @@ async def notificar_desde_txt(
         "mensaje": f"Se está procesando el envío de {len(lineas)} correos en segundo plano.",
         "errores": []
     }
-
-
 
 
 
@@ -5431,59 +5256,6 @@ def procesar_envio_masivo_postulantes_desde_csv(contenido_csv: str):
                     link_final = f"{protocolo}://{host_con_puerto}{endpoint}?user={login_base64}"
                     asunto = "Consulta por disponibilidad adoptiva"
 
-                    # cuerpo_html = f"""
-                    # <html>
-                    #   <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-                    #     <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-                    #       <tr>
-                    #         <td align="center">
-                    #           <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: Arial, sans-serif; color: #333333; box-shadow: 0 0 10px rgba(0,0,0,0.05);">
-                    #             <tr>
-                    #               <td style="font-size: 18px; padding-bottom: 20px;">
-                    #                 ¡Hola! nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.
-                    #               </td>
-                    #             </tr>
-                    #             <tr>
-                    #               <td style="font-size: 16px; padding-bottom: 10px; line-height: 1.6;">
-                    #                 Te contactamos porque te has postulado a una convocatoria pública de adopción. Queremos saber 
-                    #                 si tienes interés en ser consultado/a para búsquedas específicas de niñas, niños o adolescentes 
-                    #                 en situación de adoptabilidad.
-
-                    #                 <br />
-
-                    #                 Además, nos gustaría que nos indiques en qué subregistros estarías disponible para 
-                    #                 ser considerado/a en futuras convocatorias o búsquedas.
-                    #               </td>
-                    #             </tr>
-                    #             <tr>
-                    #               <td style="font-size: 16px; padding: 10px 0;">
-                    #                 Te invitamos a completar el siguiente formulario, donde podrás registrar tu disponibilidad:
-                    #               </td>
-                    #             </tr>
-                    #             <tr>
-                    #               <td align="center" style="padding: 20px 0;">
-                    #                 <a href="{link_final}"
-                    #                     style="display: inline-block; padding: 12px 24px; font-size: 16px;
-                    #                           color: #ffffff; background-color: #0d6efd; text-decoration: none;
-                    #                           border-radius: 6px; font-weight: bold;"
-                    #                     target="_blank">
-                    #                   Ir al formulario
-                    #                 </a>
-                    #               </td>
-                    #             </tr>
-                    #             <tr>
-                    #               <td style="font-size: 16px; padding-top: 10px;">
-                    #                 ¡Muchas gracias!
-                    #               </td>
-                    #             </tr>
-                    #           </table>
-                    #         </td>
-                    #       </tr>
-                    #     </table>
-                    #   </body>
-                    # </html>
-                    # """
-
                     cuerpo_html = f"""
                     <html>
                       <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
@@ -5561,9 +5333,6 @@ def procesar_envio_masivo_postulantes_desde_csv(contenido_csv: str):
 
 
 
-
-
-
 @users_router.post("/usuarios/notificar-desde-csv-postulantes", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))], )
 async def notificar_desde_csv_postulantes(
@@ -5600,4 +5369,243 @@ async def notificar_desde_csv_postulantes(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al iniciar el procesamiento: {e}")
+
+
+
+
+
+
+
+@users_router.post( "/notificar-inactivos", # response_model=dict, 
+                   dependencies=[ Depends(verify_api_key), Depends(require_roles(["administrador"])) ], )
+def notificar_usuario_inactivo(db: Session = Depends(get_db) ):
+
+    # fechas de referencia
+    hoy = datetime.now()
+    hace_180 = hoy - timedelta(days=180)
+    hace_7 = hoy - timedelta(days=7)
+
+    estados_admitidos = ["inicial_cargando", "actualizando", "aprobado"]
+    correo_regex = r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
+
+    print("📅 Hoy:", hoy)
+    print("📅 Hace 180 días:", hace_180)
+    print("📅 Hace 7 días:", hace_7)
+
+    # subconsulta: logins que tuvieron "inicio de sesión" en los últimos 180 días
+    subq_activos = (
+        db.query(RuaEvento.login)
+          .filter(
+              RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"),
+              RuaEvento.evento_fecha >= hace_180
+          )
+          .distinct()
+          .subquery()
+    )
+
+    # para evitar el “Illegal mix of collations” al comparar login
+    login_0900 = User.login.collate('utf8mb4_0900_ai_ci')
+
+    proyectos_existentes = (
+        db.query(Proyecto.proyecto_id)
+          .filter(or_(Proyecto.login_1 == User.login, Proyecto.login_2 == User.login))
+          .exists()
+    )
+
+    ultima_notificacion = func.greatest(
+        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
+        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
+        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
+        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min)
+    )
+
+    # buscamos el primer usuario operativo inactivo y candidato real
+    usuario = (
+        db.query(User)
+          .outerjoin(
+              UsuarioNotificadoInactivo,
+              login_0900 == UsuarioNotificadoInactivo.login
+          )
+          # 🔹 Condiciones base
+          .filter(User.operativo == 'Y')
+          .filter(User.doc_adoptante_estado.in_(estados_admitidos))
+          .filter(User.clave != None)
+          .filter(func.length(func.trim(User.clave)) > 0)
+          .filter(User.mail != None)
+          .filter(func.length(func.trim(User.mail)) > 0)
+          .filter(User.mail.op('regexp')(correo_regex))
+
+          # 🔹 No ingresó en últimos 180 días
+          .filter(~login_0900.in_(subq_activos))
+
+          # 🔹 No tiene proyectos
+          .filter(
+              ~db.query(Proyecto.proyecto_id)
+                .filter(or_(
+                    Proyecto.login_1 == User.login,
+                    Proyecto.login_2 == User.login
+                ))
+                .exists()
+          )
+
+          # 🔹 ❌ NUEVO: excluir si tiene postulaciones
+          .filter(
+              ~db.query(Postulacion.postulacion_id)
+                .filter(Postulacion.mail == User.mail)
+                .exists()
+          )
+
+          # 🔹 ❌ NUEVO: excluir si tiene DDJJ
+          .filter(
+              ~db.query(DDJJ.ddjj_id)
+                .filter(DDJJ.login == User.login)
+                .exists()
+          )
+
+          # 🔹 Control de notificaciones previas
+          .filter(
+              or_(
+                  UsuarioNotificadoInactivo.login == None,
+                  and_(
+                      UsuarioNotificadoInactivo.mail_enviado_1 == None,
+                      UsuarioNotificadoInactivo.dado_de_baja == None
+                  ),
+                  and_(
+                      UsuarioNotificadoInactivo.dado_de_baja == None,
+                      ultima_notificacion <= hace_7
+                  )
+              )
+          )
+
+          # 🔹 Prioridad: más antiguos primero
+          .order_by(User.fecha_alta.asc())
+          .limit(1)
+          .first()
+    )
+
+    if not usuario or not usuario.mail:
+        print("❌ No se encontró ningún usuario inactivo para notificar.")
+        raise HTTPException(status_code=404, detail="No hay usuarios inactivos pendientes de notificar.")
+
+    print(f"👤 Usuario inactivo encontrado: {usuario.login} - {usuario.mail}")
+
+    # obtener o crear registro de notificaciones
+    notificacion = (
+        db.query(UsuarioNotificadoInactivo)
+          .filter(UsuarioNotificadoInactivo.login == usuario.login)
+          .first()
+    )
+
+    if not notificacion:
+        # Primer aviso
+        notificacion = UsuarioNotificadoInactivo(
+            login=usuario.login,
+            mail_enviado_1=hoy
+        )
+        db.add(notificacion)
+        nro_envio = 1
+
+    elif notificacion.mail_enviado_2 is None:
+        # Segundo aviso
+        notificacion.mail_enviado_2 = hoy
+        nro_envio = 2
+
+    elif notificacion.mail_enviado_3 is None:
+        # Tercer aviso
+        notificacion.mail_enviado_3 = hoy
+        nro_envio = 3
+
+    elif notificacion.mail_enviado_4 is None:
+        # Cuarto aviso
+        notificacion.mail_enviado_4 = hoy
+        nro_envio = 4
+
+    else:
+        # 🔴 Quinto llamado: ya recibió los 4 avisos -> se desactiva
+        usuario.operativo = 'N'
+        notificacion.dado_de_baja = hoy
+        evento_baja = RuaEvento(
+            login=usuario.login,
+            evento_detalle="Usuario dado de baja por inactividad prolongada.",
+            evento_fecha=hoy
+        )
+        db.add(evento_baja)
+        db.commit()
+        return {"message": f"Usuario {usuario.login} dado de baja por inactividad."}
+
+
+    # enviamos el mail
+    try:
+        cuerpo_html = f"""
+        <html>
+          <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+            <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+              <tr>
+                <td align="center">
+                  <table cellpadding="0" cellspacing="0" width="600"
+                    style="background-color: #ffffff; border-radius: 10px; padding: 30px;
+                          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40;
+                          box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                    <tr>
+                      <td style="font-size: 20px; color: #007bff;">
+                        <strong>{nro_envio}° aviso:</strong>
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td style="padding-top: 20px; font-size: 17px;">
+                        <p>¡Hola, <strong>{usuario.nombre}</strong>! Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+                        <p>Te contactamos porque hace más de 6 meses que no hay actividad en tu cuenta.</p>
+                        <p>¿Necesitás ayuda con los pasos para continuar con tu inscripción? Comunicate con nosotros al siguiente correo: <a href="mailto:registroadopcion@justiciacordoba.gob.ar">registroadopcion@justiciacordoba.gob.ar</a> o al teléfono: (0351) 44 81 000 - interno: 13181.</p>
+                        <p><strong>¡Te invitamos a que ingreses al sistema para conservar tu cuenta y continuar con el proceso de inscripción!</strong></p>
+                        <p><em>Luego del cuarto aviso se desactivará automáticamente tu cuenta.</em></p>
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td align="center" style="padding: 30px 0;">
+                        <a href="https://rua.justiciacordoba.gob.ar/login/" target="_blank"
+                          style="display: inline-block; padding: 12px 24px; background-color: #007bff;
+                                  color: #ffffff; border-radius: 8px; text-decoration: none;
+                                  font-weight: bold; font-size: 16px;">
+                          Ir al sistema RUA
+                        </a>
+                      </td>
+                    </tr>
+          
+                    <tr>
+                      <td style="font-size: 17px; padding-top: 20px;">
+                        ¡Muchas gracias!
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </body>
+        </html>
+        """
+      
+        enviar_mail(
+            destinatario=usuario.mail,
+            asunto="Aviso por inactividad - Sistema RUA",
+            cuerpo=cuerpo_html
+        )
+
+        evento = RuaEvento(
+            login=usuario.login,
+            evento_detalle=f"Envío aviso inactividad #{nro_envio}",
+            evento_fecha=hoy
+        )
+        db.add(evento)
+
+
+        db.commit()
+        return {"message": f"Notificación enviada a {usuario.login} (envío #{nro_envio})."}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500,
+                            detail=f"Error al enviar mail: {str(e)}")
+
 
