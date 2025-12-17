@@ -53,6 +53,7 @@ JOBSTORE_PATH = os.path.join(JOBSTORE_EXPORT_DIR, "_jobs.json")
 
 RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY")
 
+
 async def verificar_recaptcha(token: str, remote_ip: str = "", threshold: float = 0.5) -> bool:
     """
     Verifica el token de reCAPTCHA v3 contra la API de Google.
@@ -75,8 +76,6 @@ async def verificar_recaptcha(token: str, remote_ip: str = "", threshold: float 
 
 
 
-
-
 def _jobstore_load() -> Dict[str, Any]:
     if not os.path.exists(JOBSTORE_PATH):
         return {}
@@ -87,11 +86,13 @@ def _jobstore_load() -> Dict[str, Any]:
         # si se corrompe, empezamos limpio
         return {}
 
+
 def _jobstore_save(data: Dict[str, Any]) -> None:
     tmp = JOBSTORE_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     os.replace(tmp, JOBSTORE_PATH)  # write atomic
+
 
 def jobstore_create_job(kind: str, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     data = _jobstore_load()
@@ -111,6 +112,7 @@ def jobstore_create_job(kind: str, meta: Optional[Dict[str, Any]] = None) -> Dic
     _jobstore_save(data)
     return job
 
+
 def jobstore_update_job(job_id: str, **fields) -> Optional[Dict[str, Any]]:
     data = _jobstore_load()
     job = data.get(job_id)
@@ -122,9 +124,11 @@ def jobstore_update_job(job_id: str, **fields) -> Optional[Dict[str, Any]]:
     _jobstore_save(data)
     return job
 
+
 def jobstore_read_job(job_id: str) -> Optional[Dict[str, Any]]:
     data = _jobstore_load()
     return data.get(job_id)
+
 
 def jobstore_job_exists(job_id: str) -> bool:
     return jobstore_read_job(job_id) is not None
@@ -143,6 +147,7 @@ PROYECTO_ESTADOS = [
     'baja_por_convocatoria','baja_rechazo_invitacion','baja_interrupcion'
 ]
 
+
 NNA_ESTADOS = [
     'sin_ficha_sin_sentencia','con_ficha_sin_sentencia','sin_ficha_con_sentencia',
     'disponible','preparando_carpeta','enviada_a_juzgado','proyecto_seleccionado',
@@ -150,8 +155,10 @@ NNA_ESTADOS = [
     'interrupcion','mayor_sin_adopcion','en_convocatoria','no_disponible'
 ]
 
+
 # Bajas definitivas = unión de estados baja_*
 BAJAS = ('baja_anulacion','baja_caducidad','baja_por_convocatoria','baja_rechazo_invitacion','baja_interrupcion')
+
 
 # ---------------------------
 # Helpers de tiempo (MySQL)
@@ -160,10 +167,12 @@ def _avg_days(diff_expr):
     """Envuelve promedios de diferencias en días para devolver int."""
     return func.round(func.avg(diff_expr), 2)
 
+
 def _days_between(start_col, end_col):
     """TIMESTAMPDIFF(DAY, start, end)"""
     # Nota: text('DAY') es necesario en SQLAlchemy para el primer arg de TIMESTAMPDIFF
     return func.timestampdiff(text("DAY"), start_col, end_col)
+
 
 def _es_adoptante():
     # EXISTS: el usuario pertenece a un grupo cuyo description contiene "adopt"
@@ -175,9 +184,11 @@ def _es_adoptante():
         )
     )
 
+
 def _tiene_clave():
     # clave no nula y no vacía (trim)
     return and_(User.clave.isnot(None), func.length(func.trim(User.clave)) > 0)
+
 
 def _sin_clave():
     # clave nula o vacía (por si la columna acepta strings vacíos)
@@ -673,6 +684,7 @@ def _estadisticas_nna(db: Session) -> dict:
         "nna_con_proj_adop_def_estado_distinto": nna_con_proj_adop_def_estado_distinto,
     }
 
+
 # ---------------------------
 # BLOQUE DDJJ
 # ---------------------------
@@ -707,6 +719,7 @@ def _estadisticas_ddjj(db: Session) -> dict:
         "acepta_enfermedad": acepta_enfermedad,
         "acepta_grupo_hermanos": acepta_hermanos,
     }
+
 
 # ---------------------------
 # BLOQUE TIEMPOS (proyectos)
@@ -753,6 +766,7 @@ def _tiempos_proyectos(db: Session) -> dict:
         "promedio_dias_total_por_proyecto": float(total_promedio),
     }
 
+
 # ---------------------------
 # BLOQUE TIEMPOS (pretensos)
 # ---------------------------
@@ -793,6 +807,7 @@ def _tiempos_pretensos(db: Session) -> dict:
         "promedio_dias_ddjj_a_solicitud_revision": float(avg_ddjj_a_rev),
         "promedio_dias_revision_a_aprobado": float(avg_rev_a_aprob),
     }
+
 
 # ---------------------------
 # BLOQUE TIEMPOS (ratificación)
@@ -853,11 +868,6 @@ def calcular_estadisticas_generales(db: Session) -> dict:
 
 
 
-
-
-
-
-
 def get_setting_value(db: Session, setting_name: str) -> str:
     """
     Obtiene el valor de una configuración desde la tabla sec_settings.
@@ -901,8 +911,6 @@ def enviar_mail(destinatario: str, asunto: str, cuerpo: str):
     except Exception as e:
         print(f"❌ Error al enviar el correo: {e}")
         raise
-
-
 
 
 
@@ -952,9 +960,6 @@ def enviar_mail_multiples(
 
 
 
-
-
-
 class EstadisticasPDF(FPDF):
     def header(self):
         self.set_font("Arial", "B", 12)
@@ -998,7 +1003,6 @@ class EstadisticasPDF(FPDF):
         self.set_font("Arial", "I", 8)
         self.set_text_color(100, 100, 100)
         self.cell(0, 10, "Informe generado automáticamente - RUA", 0, 0, "C")
-
 
 
 

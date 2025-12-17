@@ -14,7 +14,8 @@ def registrar_mensaje(
     estado: str = "enviado",       # enviado | error | no_enviado
     mensaje_externo_id: str = None,
     data_json: dict = None
-):
+    ):
+    
     """
     Registra un mensaje en la tabla Mensajeria SIN commit.
     El control de commit y transacción lo hace el endpoint.

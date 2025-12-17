@@ -23,6 +23,7 @@ import io
 from models.users import User, Group, UserGroup 
 
 from models.proyecto import Proyecto, ProyectoHistorialEstado, AgendaEntrevistas
+from models.convocatorias import Postulacion
 from models.notif_y_observaciones import ObservacionesPretensos, NotificacionesRUA
 from models.ddjj import DDJJ
 import hashlib
@@ -41,7 +42,8 @@ from sqlalchemy import case, func, and_, or_, select, union_all, join, literal_c
 from sqlalchemy.sql import literal_column, exists
 
 
-from models.eventos_y_configs import RuaEvento, UsuarioNotificadoInactivo, UsuarioNotificadoRatificacion
+from models.eventos_y_configs import RuaEvento, UsuarioNotificadoInactivo, UsuarioNotificadoRatificacion, UsuarioNotificadoDemoraDocs
+
 from datetime import date, datetime
 from security.security import get_current_user, require_roles, verify_api_key, get_password_hash
 import os
@@ -1490,53 +1492,6 @@ async def create_user(
                 "tiempo_mensaje": 10,
                 "next_page": "actual"
             }
-
-
-
-    # if group_description == "adoptante":
-    #     try:
-    #         if existe_mail_en_moodle(mail, db):
-    #             return {
-    #                 "tipo_mensaje": "naranja",
-    #                 "mensaje": (
-    #                     "<p>Ya existe un usuario con ese mail en nuestro sistema de capacitación (Moodle).</p>"
-    #                     "<p>Por favor, comunicarse con personal del RUA.</p>"
-    #                 ),
-    #                 "tiempo_mensaje": 5,
-    #                 "next_page": "actual"
-    #             }
-
-    #         if existe_dni_en_moodle(dni, db):
-    #             return {
-    #                 "tipo_mensaje": "naranja",
-    #                 "mensaje": (
-    #                     "<p>Ya existe un usuario con ese DNI en nuestro sistema de capacitación (Moodle).</p>"
-    #                     "<p>Por favor, comunicarse con personal del RUA.</p>"
-    #                 ),
-    #                 "tiempo_mensaje": 5,
-    #                 "next_page": "actual"
-    #             }
-
-    #         retorno = crear_usuario_en_moodle(dni, clave, nombre, apellido, mail, db)
-    #         print('crear_usuario_en_moodle', retorno)
-
-    #         id_curso = get_idcurso(db)
-    #         id_usuario = get_idusuario_by_mail(mail, db)
-
-    #         retorno = enrolar_usuario(id_curso, id_usuario, db)
-    #         print('enrolar_usuario', retorno)
-
-    #     except HTTPException as e:
-    #         return {
-    #             "tipo_mensaje": "rojo",
-    #             "mensaje": (
-    #                 "<p>No se pudo completar el registro en el sistema de capacitación (Moodle).</p>"
-    #                 f"<p>Detalle técnico: {e.detail}</p>"
-    #                 "<p>Por favor, intente más tarde o comuníquese con personal del RUA.</p>"
-    #             ),
-    #             "tiempo_mensaje": 10,
-    #             "next_page": "actual"
-    #         }
 
 
     # Generar código de activación aleatorio
@@ -5392,25 +5347,9 @@ def notificar_usuario_inactivo(db: Session = Depends(get_db) ):
     print("📅 Hace 180 días:", hace_180)
     print("📅 Hace 7 días:", hace_7)
 
-    # subconsulta: logins que tuvieron "inicio de sesión" en los últimos 180 días
-    subq_activos = (
-        db.query(RuaEvento.login)
-          .filter(
-              RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"),
-              RuaEvento.evento_fecha >= hace_180
-          )
-          .distinct()
-          .subquery()
-    )
 
     # para evitar el “Illegal mix of collations” al comparar login
     login_0900 = User.login.collate('utf8mb4_0900_ai_ci')
-
-    proyectos_existentes = (
-        db.query(Proyecto.proyecto_id)
-          .filter(or_(Proyecto.login_1 == User.login, Proyecto.login_2 == User.login))
-          .exists()
-    )
 
     ultima_notificacion = func.greatest(
         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
@@ -5436,7 +5375,15 @@ def notificar_usuario_inactivo(db: Session = Depends(get_db) ):
           .filter(User.mail.op('regexp')(correo_regex))
 
           # 🔹 No ingresó en últimos 180 días
-          .filter(~login_0900.in_(subq_activos))
+          .filter(
+              ~db.query(RuaEvento.evento_id)
+                .filter(
+                    RuaEvento.login == User.login,
+                    RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"),
+                    RuaEvento.evento_fecha >= hace_180
+                )
+                .exists()
+          )
 
           # 🔹 No tiene proyectos
           .filter(
@@ -5448,10 +5395,15 @@ def notificar_usuario_inactivo(db: Session = Depends(get_db) ):
                 .exists()
           )
 
-          # 🔹 ❌ NUEVO: excluir si tiene postulaciones
+          # 🔹 ❌ Excluir si tiene postulaciones (como titular o cónyuge)
           .filter(
               ~db.query(Postulacion.postulacion_id)
-                .filter(Postulacion.mail == User.mail)
+                .filter(
+                    or_(
+                        Postulacion.dni == User.login,
+                        Postulacion.conyuge_dni == User.login
+                    )
+                )
                 .exists()
           )
 
@@ -5556,7 +5508,9 @@ def notificar_usuario_inactivo(db: Session = Depends(get_db) ):
                       <td style="padding-top: 20px; font-size: 17px;">
                         <p>¡Hola, <strong>{usuario.nombre}</strong>! Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
                         <p>Te contactamos porque hace más de 6 meses que no hay actividad en tu cuenta.</p>
-                        <p>¿Necesitás ayuda con los pasos para continuar con tu inscripción? Comunicate con nosotros al siguiente correo: <a href="mailto:registroadopcion@justiciacordoba.gob.ar">registroadopcion@justiciacordoba.gob.ar</a> o al teléfono: (0351) 44 81 000 - interno: 13181.</p>
+                        <p>¿Necesitás ayuda con los pasos para continuar con tu inscripción? Comunicate con nosotros al siguiente correo: <br>
+                        <a href="mailto:registroadopcion@justiciacordoba.gob.ar">registroadopcion@justiciacordoba.gob.ar</a> <br>
+                        o al teléfono: (0351) 44 81 000 - interno: 13181.</p>
                         <p><strong>¡Te invitamos a que ingreses al sistema para conservar tu cuenta y continuar con el proceso de inscripción!</strong></p>
                         <p><em>Luego del cuarto aviso se desactivará automáticamente tu cuenta.</em></p>
                       </td>
@@ -5586,11 +5540,37 @@ def notificar_usuario_inactivo(db: Session = Depends(get_db) ):
         </html>
         """
       
-        enviar_mail(
-            destinatario=usuario.mail,
+        email_enviado = False
+
+        try:
+            enviar_mail(
+                destinatario=usuario.mail,
+                asunto="Aviso por inactividad - Sistema RUA",
+                cuerpo=cuerpo_html
+            )
+            email_enviado = True
+
+        except Exception as e:
+            email_enviado = False
+            print("⚠ Error enviando email inactividad:", str(e))
+
+        registrar_mensaje(
+            db=db,
+            tipo="email",
+            login_emisor=None,  # envío automático del sistema
+            login_destinatario=usuario.login,
+            destinatario_texto=f"{usuario.nombre} {usuario.apellido} <{usuario.mail}>",
             asunto="Aviso por inactividad - Sistema RUA",
-            cuerpo=cuerpo_html
+            contenido=BeautifulSoup(cuerpo_html, "lxml").get_text(" ", strip=True),
+            estado="enviado" if email_enviado else "error",
+            data_json={
+                "tipo_aviso": "inactividad",
+                "nro_envio": nro_envio,
+                "endpoint": "/notificar-inactivos"
+            }
         )
+
+
 
         evento = RuaEvento(
             login=usuario.login,
@@ -5607,5 +5587,430 @@ def notificar_usuario_inactivo(db: Session = Depends(get_db) ):
         db.rollback()
         raise HTTPException(status_code=500,
                             detail=f"Error al enviar mail: {str(e)}")
+
+
+
+
+
+def obtener_usuario_inactivo_candidato(db: Session) -> Optional[User]:
+    hoy = datetime.now()
+    hace_180 = hoy - timedelta(days=180)
+    hace_7 = hoy - timedelta(days=7)
+
+    login_0900 = User.login.collate('utf8mb4_0900_ai_ci')
+
+    ultima_notificacion = func.greatest(
+        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
+        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
+        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
+        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min)
+    )
+
+    return (
+        db.query(User)
+        .outerjoin(UsuarioNotificadoInactivo, login_0900 == UsuarioNotificadoInactivo.login)
+        .filter(User.operativo == 'Y')
+        .filter(User.doc_adoptante_estado.in_(["inicial_cargando", "actualizando", "aprobado"]))
+        .filter(User.clave.isnot(None))
+        .filter(func.length(func.trim(User.clave)) > 0)
+        .filter(User.mail.isnot(None))
+        .filter(func.length(func.trim(User.mail)) > 0)
+        .filter(User.mail.op("regexp")(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"))
+        .filter(~db.query(RuaEvento.evento_id).filter(
+            RuaEvento.login == User.login,
+            RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"),
+            RuaEvento.evento_fecha >= hace_180
+        ).exists())
+        .filter(~db.query(Proyecto.proyecto_id).filter(
+            or_(Proyecto.login_1 == User.login, Proyecto.login_2 == User.login)
+        ).exists())
+        .filter(~db.query(Postulacion.postulacion_id).filter(
+            or_(Postulacion.dni == User.login, Postulacion.conyuge_dni == User.login)
+        ).exists())
+        .filter(~db.query(DDJJ.ddjj_id).filter(DDJJ.login == User.login).exists())
+        .filter(
+            or_(
+                UsuarioNotificadoInactivo.login.is_(None),
+                and_(UsuarioNotificadoInactivo.mail_enviado_1.is_(None),
+                     UsuarioNotificadoInactivo.dado_de_baja.is_(None)),
+                and_(UsuarioNotificadoInactivo.dado_de_baja.is_(None),
+                     ultima_notificacion <= hace_7)
+            )
+        )
+        .order_by(User.fecha_alta.asc())
+        .first()
+    )
+
+
+
+def enviar_notificacion_inactividad_individual(db: Session, usuario: User) -> dict:
+    hoy = datetime.now()
+
+    try:
+        notificacion = (
+            db.query(UsuarioNotificadoInactivo)
+            .filter(UsuarioNotificadoInactivo.login == usuario.login)
+            .first()
+        )
+
+        if not notificacion:
+            notificacion = UsuarioNotificadoInactivo(login=usuario.login, mail_enviado_1=hoy)
+            db.add(notificacion)
+            nro_envio = 1
+        elif notificacion.mail_enviado_2 is None:
+            notificacion.mail_enviado_2 = hoy
+            nro_envio = 2
+        elif notificacion.mail_enviado_3 is None:
+            notificacion.mail_enviado_3 = hoy
+            nro_envio = 3
+        elif notificacion.mail_enviado_4 is None:
+            notificacion.mail_enviado_4 = hoy
+            nro_envio = 4
+        else:
+            usuario.operativo = 'N'
+            notificacion.dado_de_baja = hoy
+            db.add(RuaEvento(
+                login=usuario.login,
+                evento_detalle="Usuario dado de baja por inactividad prolongada.",
+                evento_fecha=hoy
+            ))
+            db.commit()
+            return {"success": True, "accion": "baja"}
+
+        enviar_mail(
+            destinatario=usuario.mail,
+            asunto="Aviso por inactividad - Sistema RUA",
+            cuerpo = f"""
+            <html>
+              <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
+                  <tr>
+                    <td align="center">
+                      <table cellpadding="0" cellspacing="0" width="600"
+                        style="background-color: #ffffff; border-radius: 10px; padding: 30px;
+                              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40;
+                              box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                        <tr>
+                          <td style="font-size: 20px; color: #007bff;">
+                            <strong>{nro_envio}° aviso:</strong>
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td style="padding-top: 20px; font-size: 17px;">
+                            <p>¡Hola, <strong>{usuario.nombre}</strong>! Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+                            <p>Te contactamos porque hace más de 6 meses que no hay actividad en tu cuenta.</p>
+                            <p>¿Necesitás ayuda con los pasos para continuar con tu inscripción? Comunicate con nosotros al siguiente correo: <br>
+                            <a href="mailto:registroadopcion@justiciacordoba.gob.ar">registroadopcion@justiciacordoba.gob.ar</a> <br>
+                            o al teléfono: (0351) 44 81 000 - interno: 13181.</p>
+                            <p><strong>¡Te invitamos a que ingreses al sistema para conservar tu cuenta y continuar con el proceso de inscripción!</strong></p>
+                            <p><em>Luego del cuarto aviso se desactivará automáticamente tu cuenta.</em></p>
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td align="center" style="padding: 30px 0;">
+                            <a href="https://rua.justiciacordoba.gob.ar/login/" target="_blank"
+                              style="display: inline-block; padding: 12px 24px; background-color: #007bff;
+                                      color: #ffffff; border-radius: 8px; text-decoration: none;
+                                      font-weight: bold; font-size: 16px;">
+                              Ir al sistema RUA
+                            </a>
+                          </td>
+                        </tr>
+              
+                        <tr>
+                          <td style="font-size: 17px; padding-top: 20px;">
+                            ¡Muchas gracias!
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+              </body>
+            </html>
+            """
+        )
+
+        registrar_mensaje(
+            db=db,
+            tipo="email",
+            login_emisor=None,
+            login_destinatario=usuario.login,
+            destinatario_texto=f"{usuario.nombre} {usuario.apellido} <{usuario.mail}>",
+            asunto="Aviso por inactividad - Sistema RUA",
+            contenido="Aviso automático por inactividad",
+            estado="enviado",
+            data_json={"tipo_aviso": "inactividad", "nro_envio": nro_envio}
+        )
+
+        db.add(RuaEvento(
+            login=usuario.login,
+            evento_detalle=f"Envío aviso inactividad #{nro_envio}",
+            evento_fecha=hoy
+        ))
+
+        db.commit()
+        return {"success": True, "accion": "mail", "nro_envio": nro_envio}
+
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
+
+
+
+def procesar_notificacion_inactivos_masiva(limite_envios: int):
+    db = SessionLocal()
+    enviados = 0
+
+    try:
+        for _ in range(limite_envios):
+            
+            usuario = obtener_usuario_inactivo_candidato(db)
+
+            if not usuario:
+                break
+
+            # 🔒 lock pesimista para evitar doble procesamiento concurrente
+            db.refresh(usuario, with_for_update=True)
+
+            resultado = enviar_notificacion_inactividad_individual(db, usuario)
+
+            if resultado.get("accion") == "mail":
+                enviados += 1
+
+            time.sleep(2)
+
+        print(f"[FINAL] Envíos realizados: {enviados}/{limite_envios}")
+
+    finally:
+        db.close()
+
+
+
+@users_router.post("/notificar-inactivos-masivo",
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))], )
+def notificar_usuarios_inactivos_masivo(
+    background_tasks: BackgroundTasks,
+    limite_envios: int = 100,   # 👈 default seguro
+    ):
+
+    if limite_envios <= 0:
+        raise HTTPException(status_code=400, detail="El límite debe ser mayor a 0")
+
+    if limite_envios > 1000:
+        raise HTTPException(
+            status_code=400,
+            detail="El límite máximo permitido por ejecución es 1000 envíos"
+        )
+
+    background_tasks.add_task(
+        procesar_notificacion_inactivos_masiva,
+        limite_envios
+    )
+
+    return {
+        "tipo_mensaje": "verde",
+        "mensaje": f"Se inició el procesamiento de hasta {limite_envios} notificaciones por inactividad.",
+        "limite_envios": limite_envios
+    }
+
+
+
+
+
+
+def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
+    hoy = datetime.now()
+    hace_90 = hoy - timedelta(days=90)
+    hace_7 = hoy - timedelta(days=7)
+
+    login_0900 = User.login.collate("utf8mb4_0900_ai_ci")
+
+    ultima_notificacion = func.greatest(
+        func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_1, datetime.min),
+        func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_2, datetime.min),
+        func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_3, datetime.min),
+    )
+
+    docs_todos_vacios = and_(
+        User.doc_adoptante_antecedentes.is_(None),
+        User.doc_adoptante_deudores_alimentarios.is_(None),
+        User.doc_adoptante_dni_dorso.is_(None),
+        User.doc_adoptante_dni_frente.is_(None),
+        User.doc_adoptante_domicilio.is_(None),
+        User.doc_adoptante_migraciones.is_(None),
+        User.doc_adoptante_salud.is_(None),
+    )
+
+    docs_alguno_cargado = or_(
+        User.doc_adoptante_antecedentes.isnot(None),
+        User.doc_adoptante_deudores_alimentarios.isnot(None),
+        User.doc_adoptante_dni_dorso.isnot(None),
+        User.doc_adoptante_dni_frente.isnot(None),
+        User.doc_adoptante_domicilio.isnot(None),
+        User.doc_adoptante_migraciones.isnot(None),
+        User.doc_adoptante_salud.isnot(None),
+    )
+
+    ultimo_ingreso = (
+        db.query(func.max(RuaEvento.evento_fecha))
+        .filter(
+            RuaEvento.login == User.login,
+            RuaEvento.evento_detalle.ilike("%Ingreso exitoso%")
+        )
+        .correlate(User)
+        .scalar_subquery()
+    )
+
+    fecha_base_inactividad = func.coalesce(ultimo_ingreso, User.fecha_alta)
+
+    return (
+        db.query(User)
+        .outerjoin(
+            UsuarioNotificadoDemoraDocs,
+            login_0900 == UsuarioNotificadoDemoraDocs.login
+        )
+        .filter(User.operativo == "Y")
+        .filter(User.active == "Y")
+        .filter(User.doc_adoptante_ddjj_firmada == "Y")
+        .filter(fecha_base_inactividad <= hace_90)
+        .filter(User.mail.isnot(None))
+        .filter(func.length(func.trim(User.mail)) > 0)
+        .filter(User.clave.isnot(None))
+        .filter(func.length(func.trim(User.clave)) > 0)
+        .filter(
+            or_(
+                docs_todos_vacios,
+                and_(docs_alguno_cargado, User.doc_adoptante_estado != "pedido_revision"),
+            )
+        )
+        .filter(
+            or_(
+                UsuarioNotificadoDemoraDocs.login.is_(None),
+                and_(
+                    UsuarioNotificadoDemoraDocs.dado_de_baja.is_(None),
+                    ultima_notificacion <= hace_7
+                )
+            )
+        )
+        .order_by(fecha_base_inactividad.asc())
+        .first()
+    )
+
+
+
+def enviar_notificacion_demora_docs_individual(db: Session, usuario: User) -> dict:
+    hoy = datetime.now()
+
+    notificacion = (
+        db.query(UsuarioNotificadoDemoraDocs)
+        .filter(UsuarioNotificadoDemoraDocs.login == usuario.login)
+        .first()
+    )
+
+    if not notificacion:
+        notificacion = UsuarioNotificadoDemoraDocs(login=usuario.login, mail_enviado_1=hoy)
+        nro_envio = 1
+        db.add(notificacion)
+    elif notificacion.mail_enviado_2 is None:
+        notificacion.mail_enviado_2 = hoy
+        nro_envio = 2
+    elif notificacion.mail_enviado_3 is None:
+        notificacion.mail_enviado_3 = hoy
+        nro_envio = 3
+    else:
+        return {"success": False, "accion": "limite_alcanzado"}
+
+    enviar_mail(
+        destinatario=usuario.mail,
+        asunto="Aviso por demora en el proceso de inscripción - Sistema RUA",
+        cuerpo=f"""
+        <p>¡Hola, <strong>{usuario.nombre}</strong>! Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
+
+        <p>
+        Te contactamos porque registramos que no avanzaste con la carga de tu documentación personal.
+        </p>
+
+        <p>
+        ¿Necesitás ayuda con los pasos para continuar con tu inscripción?
+        Comunicate con nosotros al siguiente correo:
+        <a href="mailto:registroadopcion@justiciacordoba.gob.ar">
+        registroadopcion@justiciacordoba.gob.ar
+        </a>
+        o al teléfono: (0351) 44 81 000 – interno: 13181.
+        </p>
+
+        <p>
+        <strong>¡Te invitamos a que ingreses al sistema para continuar con el proceso de inscripción!</strong><br>
+        <a href="https://rua.justiciacordoba.gob.ar/login/">
+        https://rua.justiciacordoba.gob.ar/login/
+        </a>
+        </p>
+
+        <p>
+        ¡Muchas gracias por querer formar parte del Registro Único de Adopciones de Córdoba!
+        </p>
+
+        """
+    )
+
+    db.add(RuaEvento(
+        login=usuario.login,
+        evento_detalle=f"Envío aviso demora documentación #{nro_envio}",
+        evento_fecha=hoy
+    ))
+
+    db.commit()
+    return {"success": True, "accion": "mail", "nro_envio": nro_envio}
+
+
+
+def procesar_notificacion_demora_docs_masiva(limite_envios: int):
+    db = SessionLocal()
+    enviados = 0
+
+    try:
+        for _ in range(limite_envios):
+            usuario = obtener_usuario_demora_docs_candidato(db)
+            if not usuario:
+                break
+
+            db.refresh(usuario, with_for_update=True)
+
+            resultado = enviar_notificacion_demora_docs_individual(db, usuario)
+            if resultado.get("accion") == "mail":
+                enviados += 1
+
+            time.sleep(2)
+
+        print(f"[DEMORA DOCS] Envíos realizados: {enviados}/{limite_envios}")
+    finally:
+        db.close()
+
+
+
+@users_router.post("/notificar-demora-documentacion-masivo",
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))], )
+def notificar_demora_documentacion_masivo(
+    background_tasks: BackgroundTasks,
+    limite_envios: int = 100,
+    ):
+
+    if limite_envios <= 0 or limite_envios > 1000:
+        raise HTTPException(status_code=400, detail="Límite inválido")
+
+    background_tasks.add_task(
+        procesar_notificacion_demora_docs_masiva,
+        limite_envios
+    )
+
+    return {
+        "tipo_mensaje": "verde",
+        "mensaje": f"Se inició el envío de avisos por demora en documentación (máx {limite_envios})."
+    }
+
+
 
 

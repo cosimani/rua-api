@@ -18,7 +18,7 @@ def crear_notificacion_individual(
     tipo_mensaje: str = None,
     enviar_por_whatsapp: bool = False,
     login_que_notifico: str = None  # 👈 nuevo parámetro
-) -> Dict[str, Any]:
+    ) -> Dict[str, Any]:
     """
     Crea una única notificación para un usuario.
     Si enviar_por_whatsapp=True y el usuario tiene número, también envía WhatsApp.
@@ -54,7 +54,7 @@ def crear_notificacion_masiva_por_rol(
     data_json: str = None,
     tipo_mensaje: str = None,
     login_que_notifico: str = None  # 👈 nuevo parámetro
-) -> Dict[str, Any]:
+    ) -> Dict[str, Any]:
     """
     Crea notificaciones para todos los usuarios de un rol.
     Devuelve la cantidad. Realiza commit.
@@ -93,7 +93,7 @@ def marcar_notificaciones_como_vistas(
     login: str,
     notificacion_id: int,
     roles: List[str]
-) -> Dict[str, Any]:
+    ) -> Dict[str, Any]:
     """
     Marca como vista una notificación o grupo de notificaciones.
     No realiza commit.
@@ -132,7 +132,7 @@ def obtener_notificaciones_para_usuario(
     filtro: str,
     page: int,
     limit: int
-) -> Dict[str, Any]:
+    ) -> Dict[str, Any]:
     """
     Devuelve listado paginado de notificaciones para un usuario.
     Incluye cantidad total y no vistas.
@@ -192,63 +192,3 @@ def obtener_notificaciones_para_usuario(
         return {"success": False, "mensaje": f"Error al obtener notificaciones: {str(e)}"}
 
 
-
-
-# def obtener_notificaciones_para_usuario(
-#     db: Session,
-#     login: str,
-#     filtro: str,
-#     page: int,
-#     limit: int
-# ) -> Dict[str, Any]:
-#     """
-#     Devuelve listado paginado de notificaciones para un usuario.
-#     Incluye cantidad total y no vistas.
-#     """
-#     try:
-#         query_base = db.query(NotificacionesRUA).filter(
-#             NotificacionesRUA.login_destinatario == login
-#         )
-
-#         if filtro == "vistas":
-#             query_base = query_base.filter(NotificacionesRUA.vista == True)
-#         elif filtro == "no_vistas":
-#             query_base = query_base.filter(NotificacionesRUA.vista == False)
-
-#         total = query_base.count()
-
-#         no_vistas = db.query(func.count(NotificacionesRUA.notificacion_id)).filter(
-#             NotificacionesRUA.login_destinatario == login,
-#             NotificacionesRUA.vista == False
-#         ).scalar()
-
-#         if filtro == "todas":
-#             query_base = query_base.order_by(NotificacionesRUA.vista.asc(), NotificacionesRUA.fecha_creacion.desc())
-#         else:
-#             query_base = query_base.order_by(NotificacionesRUA.fecha_creacion.desc())
-
-#         notificaciones = query_base.offset((page - 1) * limit).limit(limit).all()
-
-#         resultado = [
-#             {
-#                 "notificacion_id": n.notificacion_id,
-#                 "fecha": n.fecha_creacion.strftime("%Y-%m-%d %H:%M"),
-#                 "mensaje": n.mensaje,
-#                 "link": n.link,
-#                 "data_json": n.data_json,
-#                 "tipo_mensaje": n.tipo_mensaje,
-#                 "vista": n.vista
-#             }
-#             for n in notificaciones
-#         ]
-
-#         return {
-#             "page": page,
-#             "limit": limit,
-#             "total": total,
-#             "no_vistas": no_vistas,
-#             "notificaciones": resultado
-#         }
-
-#     except SQLAlchemyError as e:
-#         return {"success": False, "mensaje": f"Error al obtener notificaciones: {str(e)}"}

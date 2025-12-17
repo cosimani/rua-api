@@ -43,6 +43,29 @@ class UsuarioNotificadoInactivo(Base):
     user = relationship("User", backref="notificacion_inactividad")
 
 
+
+
+class UsuarioNotificadoDemoraDocs(Base):
+    __tablename__ = "usuarios_notificados_demora_docs"
+
+    login = Column(
+        String(190),
+        ForeignKey("sec_users.login", ondelete="CASCADE", onupdate="CASCADE"),
+        primary_key=True,
+        nullable=False
+    )
+
+    mail_enviado_1 = Column(DateTime)
+    mail_enviado_2 = Column(DateTime)
+    mail_enviado_3 = Column(DateTime)
+    dado_de_baja   = Column(DateTime)
+
+    user = relationship("User", backref="notificacion_demora_docs")
+
+
+
+
+
 class UsuarioNotificadoRatificacion(Base):
     __tablename__ = "usuarios_notificados_ratificacion"
 
@@ -57,3 +80,6 @@ class UsuarioNotificadoRatificacion(Base):
 
     user = relationship("User", backref="notificaciones_ratificacion")
     proyecto = relationship("Proyecto", backref="notificaciones_ratificacion")
+
+
+
