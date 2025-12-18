@@ -5842,12 +5842,35 @@ def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
         .filter(func.length(func.trim(User.mail)) > 0)
         .filter(User.clave.isnot(None))
         .filter(func.length(func.trim(User.clave)) > 0)
+
+        # 🚫 EXCLUSIONES CRÍTICAS
+        .filter(
+            ~db.query(Proyecto.proyecto_id)
+            .filter(
+                or_(
+                    Proyecto.login_1 == User.login,
+                    Proyecto.login_2 == User.login
+                )
+            )
+            .exists()
+        )
+        .filter(
+            ~db.query(Postulacion.postulacion_id)
+            .filter(
+                or_(
+                    Postulacion.dni == User.login,
+                    Postulacion.conyuge_dni == User.login
+                )
+            )
+            .exists()
+        )
         .filter(
             or_(
-                docs_todos_vacios,
-                and_(docs_alguno_cargado, User.doc_adoptante_estado != "pedido_revision"),
+                User.doc_adoptante_estado.is_(None),
+                User.doc_adoptante_estado.notin_(["pedido_revision", "aprobado"])
             )
         )
+
         .filter(
             or_(
                 UsuarioNotificadoDemoraDocs.login.is_(None),
@@ -5857,6 +5880,8 @@ def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
                 )
             )
         )
+        
+
         .order_by(fecha_base_inactividad.asc())
         .first()
     )
@@ -6006,7 +6031,6 @@ def enviar_notificacion_demora_docs_individual(db: Session, usuario: User) -> di
 
 
 
-
 def procesar_notificacion_demora_docs_masiva(limite_envios: int):
     db = SessionLocal()
     enviados = 0
@@ -6081,6 +6105,19 @@ def descargar_csv_usuarios_demora_docs(
         .subquery()
     )
 
+    sub_proyectos = (
+        db.query(func.coalesce(Proyecto.login_1, Proyecto.login_2).label("login"))
+        .distinct()
+        .subquery()
+    )
+
+    sub_postulaciones = (
+        db.query(Postulacion.dni.label("login"))
+        .union(db.query(Postulacion.conyuge_dni.label("login")))
+        .subquery()
+    )
+
+
     rows = (
         db.query(
             User.login,
@@ -6095,6 +6132,9 @@ def descargar_csv_usuarios_demora_docs(
             User.doc_adoptante_ddjj_firmada,
 
             case((DDJJ.login.isnot(None), "SI"), else_="NO").label("existe_ddjj"),
+            case((sub_proyectos.c.login.isnot(None), "SI"), else_="NO").label("tiene_proyecto"),
+            case((sub_postulaciones.c.login.isnot(None), "SI"), else_="NO").label("tiene_postulacion"),
+
 
             sub_ingresos.c.fecha_primer_ingreso,
             sub_ingresos.c.fecha_ultimo_ingreso,
@@ -6116,6 +6156,8 @@ def descargar_csv_usuarios_demora_docs(
         .outerjoin(sub_ingresos, sub_ingresos.c.login == login)
         .outerjoin(DDJJ, DDJJ.login == login)
         .outerjoin(UsuarioNotificadoDemoraDocs, UsuarioNotificadoDemoraDocs.login == login)
+        .outerjoin(sub_proyectos, sub_proyectos.c.login == login)
+        .outerjoin(sub_postulaciones, sub_postulaciones.c.login == login)
         .filter(User.operativo == "Y")
         .filter(User.active == "Y")
         .filter(User.doc_adoptante_ddjj_firmada == "Y")
@@ -6140,6 +6182,32 @@ def descargar_csv_usuarios_demora_docs(
                 ) <= hace_7,
             )
         )
+                # 🚫 EXCLUSIONES CRÍTICAS (IGUAL QUE EL ENVÍO)
+        .filter(
+            ~db.query(Proyecto.proyecto_id)
+            .filter(
+                or_(
+                    Proyecto.login_1 == login,
+                    Proyecto.login_2 == login
+                )
+            )
+            .exists()
+        )
+        .filter(
+            ~db.query(Postulacion.postulacion_id)
+            .filter(
+                or_(
+                    Postulacion.dni == login,
+                    Postulacion.conyuge_dni == login
+                )
+            )
+            .exists()
+        )
+        .filter(
+            User.doc_adoptante_estado.notin_(["pedido_revision", "aprobado"])
+        )
+
+
         .order_by("fecha_base_inactividad")
         .limit(limite_envios)
         .all()
