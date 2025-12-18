@@ -5370,10 +5370,19 @@ def obtener_usuario_inactivo_candidato(db: Session) -> Optional[User]:
         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min)
     )
 
+    sub_adoptantes = (
+        db.query(UserGroup.login)
+        .join(Group, Group.group_id == UserGroup.group_id)
+        .filter(func.lower(Group.description) == "adoptante")
+        .subquery()
+    )
+
+
     return (
         db.query(User)
         .outerjoin(UsuarioNotificadoInactivo, login_0900 == UsuarioNotificadoInactivo.login)
-        .filter(User.operativo == 'Y')
+        .filter(User.login.in_(sub_adoptantes))
+        .filter(User.operativo == "Y")
         .filter(User.doc_adoptante_estado.in_(["inicial_cargando", "actualizando", "aprobado"]))
         .filter(User.clave.isnot(None))
         .filter(func.length(func.trim(User.clave)) > 0)
@@ -5632,6 +5641,14 @@ def descargar_csv_usuarios_inactivos(
         .subquery()
     )
 
+    sub_adoptantes = (
+        db.query(UserGroup.login)
+        .join(Group, Group.group_id == UserGroup.group_id)
+        .filter(func.lower(Group.description) == "adoptante")
+        .subquery()
+    )
+
+
     # ─────────────────────────────────────────────
     # Subqueries informativas (solo para columnas)
     # ─────────────────────────────────────────────
@@ -5708,6 +5725,7 @@ def descargar_csv_usuarios_inactivos(
         .outerjoin(sub_ddjj, sub_ddjj.c.login == login)
 
         # ───── Filtros base ─────
+        .filter(User.login.in_(sub_adoptantes))
         .filter(User.operativo == "Y")
         .filter(User.doc_adoptante_estado.in_(["inicial_cargando", "actualizando", "aprobado"]))
         .filter(User.clave.isnot(None))
@@ -5784,6 +5802,14 @@ def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
         func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_3, datetime.min),
     )
 
+    sub_adoptantes = (
+        db.query(UserGroup.login)
+        .join(Group, Group.group_id == UserGroup.group_id)
+        .filter(func.lower(Group.description) == "adoptante")
+        .subquery()
+    )
+
+
     docs_todos_vacios = and_(
         User.doc_adoptante_antecedentes.is_(None),
         User.doc_adoptante_deudores_alimentarios.is_(None),
@@ -5822,6 +5848,7 @@ def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
             UsuarioNotificadoDemoraDocs,
             login_0900 == UsuarioNotificadoDemoraDocs.login
         )
+        .filter(User.login.in_(sub_adoptantes))
         .filter(User.operativo == "Y")
         .filter(User.active == "Y")
         .filter(User.doc_adoptante_ddjj_firmada == "Y")
@@ -6093,6 +6120,14 @@ def descargar_csv_usuarios_demora_docs(
 
     login = User.login.collate("utf8mb4_0900_ai_ci")
 
+    sub_adoptantes = (
+        db.query(UserGroup.login)
+        .join(Group, Group.group_id == UserGroup.group_id)
+        .filter(func.lower(Group.description) == "adoptante")
+        .subquery()
+    )
+
+
     sub_ingresos = (
         db.query(
             RuaEvento.login.label("login"),
@@ -6158,6 +6193,7 @@ def descargar_csv_usuarios_demora_docs(
         .outerjoin(UsuarioNotificadoDemoraDocs, UsuarioNotificadoDemoraDocs.login == login)
         .outerjoin(sub_proyectos, sub_proyectos.c.login == login)
         .outerjoin(sub_postulaciones, sub_postulaciones.c.login == login)
+        .filter(User.login.in_(sub_adoptantes))
         .filter(User.operativo == "Y")
         .filter(User.active == "Y")
         .filter(User.doc_adoptante_ddjj_firmada == "Y")
