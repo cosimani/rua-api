@@ -5812,10 +5812,22 @@ def descargar_csv_usuarios_inactivos(
         .filter(
             or_(
                 sub_ultimo_ingreso.c.fecha_ultimo_ingreso.is_(None),
-                ultima_notificacion.is_(None),
-                sub_ultimo_ingreso.c.fecha_ultimo_ingreso <= ultima_notificacion
+                func.greatest(
+                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
+                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
+                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
+                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
+                ).is_(None),
+                sub_ultimo_ingreso.c.fecha_ultimo_ingreso
+                <= func.greatest(
+                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
+                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
+                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
+                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
+                )
             )
         )
+
 
 
         .order_by(User.fecha_alta.asc())
