@@ -5356,84 +5356,319 @@ async def notificar_desde_csv_postulantes(
 
 
 
-def obtener_usuario_inactivo_candidato(db: Session) -> Optional[User]:
+def query_usuarios_inactivos_base(db: Session):
     hoy = datetime.now()
     hace_180 = hoy - timedelta(days=180)
     hace_7 = hoy - timedelta(days=7)
 
-    login_0900 = User.login.collate('utf8mb4_0900_ai_ci')
+    # 🔒 login canónico
+    login_0900 = User.login.collate("utf8mb4_0900_ai_ci")
 
     ultima_notificacion = func.greatest(
         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
-        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min)
+        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
     )
 
+    # Adoptantes (forzamos collation)
     sub_adoptantes = (
-        db.query(UserGroup.login)
+        db.query(UserGroup.login.collate("utf8mb4_0900_ai_ci").label("login"))
         .join(Group, Group.group_id == UserGroup.group_id)
         .filter(func.lower(Group.description) == "adoptante")
         .subquery()
     )
 
+    # Último ingreso
     sub_ultimo_ingreso = (
         db.query(
-            RuaEvento.login.label("login"),
-            func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso")
+            RuaEvento.login.collate("utf8mb4_0900_ai_ci").label("login"),
+            func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso"),
         )
         .filter(RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"))
         .group_by(RuaEvento.login)
         .subquery()
     )
 
-
-
+    # 🔒 QUERY CANÓNICA (NO devuelve User entero)
     return (
-        db.query(User)
-        .outerjoin(UsuarioNotificadoInactivo, login_0900 == UsuarioNotificadoInactivo.login)
-        .outerjoin(sub_ultimo_ingreso, sub_ultimo_ingreso.c.login == User.login)
+        db.query(
+            login_0900.label("login"),
+            User.nombre,
+            User.apellido,
+            User.mail,
+            User.fecha_alta,
+        )
 
-        .filter(User.login.in_(sub_adoptantes))
+        .outerjoin(
+            UsuarioNotificadoInactivo,
+            UsuarioNotificadoInactivo.login.collate("utf8mb4_0900_ai_ci") == login_0900,
+        )
+        .outerjoin(
+            sub_ultimo_ingreso,
+            sub_ultimo_ingreso.c.login == login_0900,
+        )
+
+        # Filtros base
+        .filter(login_0900.in_(db.query(sub_adoptantes.c.login)))
         .filter(User.operativo == "Y")
         .filter(User.doc_adoptante_estado.in_(["inicial_cargando", "actualizando", "aprobado"]))
         .filter(User.clave.isnot(None))
         .filter(func.length(func.trim(User.clave)) > 0)
         .filter(User.mail.isnot(None))
         .filter(func.length(func.trim(User.mail)) > 0)
-        .filter(User.mail.op("regexp")(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"))
-        .filter(~db.query(RuaEvento.evento_id).filter(
-            RuaEvento.login == User.login,
-            RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"),
-            RuaEvento.evento_fecha >= hace_180
-        ).exists())
-        .filter(~db.query(Proyecto.proyecto_id).filter(
-            or_(Proyecto.login_1 == User.login, Proyecto.login_2 == User.login)
-        ).exists())
-        .filter(~db.query(Postulacion.postulacion_id).filter(
-            or_(Postulacion.dni == User.login, Postulacion.conyuge_dni == User.login)
-        ).exists())
-        .filter(~db.query(DDJJ.ddjj_id).filter(DDJJ.login == User.login).exists())
+
+        # No ingresó en 180 días
+        .filter(
+            ~db.query(RuaEvento.evento_id)
+            .filter(
+                RuaEvento.login.collate("utf8mb4_0900_ai_ci") == login_0900,
+                RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"),
+                RuaEvento.evento_fecha >= hace_180,
+            )
+            .exists()
+        )
+
+        # Exclusiones
+        .filter(
+            ~db.query(Proyecto.proyecto_id)
+            .filter(
+                or_(
+                    Proyecto.login_1.collate("utf8mb4_0900_ai_ci") == login_0900,
+                    Proyecto.login_2.collate("utf8mb4_0900_ai_ci") == login_0900,
+                )
+            )
+            .exists()
+        )
+        .filter(
+            ~db.query(Postulacion.postulacion_id)
+            .filter(
+                or_(
+                    Postulacion.dni.collate("utf8mb4_0900_ai_ci") == login_0900,
+                    Postulacion.conyuge_dni.collate("utf8mb4_0900_ai_ci") == login_0900,
+                )
+            )
+            .exists()
+        )
+        .filter(
+            ~db.query(DDJJ.ddjj_id)
+            .filter(DDJJ.login.collate("utf8mb4_0900_ai_ci") == login_0900)
+            .exists()
+        )
+
+        # Control notificaciones
         .filter(
             or_(
                 UsuarioNotificadoInactivo.login.is_(None),
-                and_(UsuarioNotificadoInactivo.mail_enviado_1.is_(None),
-                     UsuarioNotificadoInactivo.dado_de_baja.is_(None)),
-                and_(UsuarioNotificadoInactivo.dado_de_baja.is_(None),
-                     ultima_notificacion <= hace_7)
-            )
-        )
-        .filter(
-            or_(
-                sub_ultimo_ingreso.c.fecha_ultimo_ingreso.is_(None),
-                ultima_notificacion.is_(None),
-                sub_ultimo_ingreso.c.fecha_ultimo_ingreso <= ultima_notificacion
+                and_(
+                    sub_ultimo_ingreso.c.fecha_ultimo_ingreso.is_(None),
+                    ultima_notificacion <= hace_7,
+                ),
+                and_(
+                    sub_ultimo_ingreso.c.fecha_ultimo_ingreso <= ultima_notificacion,
+                    ultima_notificacion <= hace_7,
+                ),
             )
         )
 
-        .order_by(User.fecha_alta.asc())
-        .first()
+        # 🔒 ORDEN CANÓNICO
+        .order_by(User.fecha_alta.asc(), login_0900.asc())
     )
+
+
+# @users_router.get("/usuarios/inactivos/csv",
+#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],)
+# def descargar_csv_usuarios_inactivos(
+#     limite_envios: int = 100,
+#     db: Session = Depends(get_db),
+#     ):
+
+#     rows = (
+#         query_usuarios_inactivos_base(db)
+#         .limit(limite_envios)
+#         .all()
+#     )
+
+#     if not rows:
+#         raise HTTPException(status_code=404, detail="No hay usuarios para exportar")
+
+#     data = [
+#         {
+#             "login": u.login,
+#             "nombre": u.nombre,
+#             "apellido": u.apellido,
+#             "mail": u.mail,
+#             "fecha_alta": u.fecha_alta,
+#         }
+#         for u in rows
+#     ]
+
+#     return generar_csv_response(data, "usuarios_inactivos_preview.csv")
+
+
+@users_router.get(
+    "/usuarios/inactivos/csv",
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],
+)
+def descargar_csv_usuarios_inactivos(
+    limite_envios: int = 100,
+    db: Session = Depends(get_db),
+    ):
+
+    if limite_envios <= 0 or limite_envios > 2000:
+        raise HTTPException(status_code=400, detail="Límite inválido")
+
+    base = query_usuarios_inactivos_base(db).subquery()
+
+    sub_ingresos = (
+        db.query(
+            RuaEvento.login.collate("utf8mb4_0900_ai_ci").label("login"),
+            func.min(RuaEvento.evento_fecha).label("fecha_primer_ingreso"),
+            func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso"),
+            func.count().label("cantidad_ingresos"),
+        )
+        .filter(RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"))
+        .group_by(RuaEvento.login)
+        .subquery()
+    )
+
+    rows = (
+        db.query(
+            base.c.login,
+            base.c.nombre,
+            base.c.apellido,
+            base.c.mail,
+            base.c.fecha_alta,
+
+            User.active.label("cuenta_activa"),
+            User.operativo.label("estado_operativo"),
+            User.doc_adoptante_estado,
+
+            case(
+                (and_(User.clave.isnot(None), func.length(func.trim(User.clave)) > 0), "SI"),
+                else_="NO",
+            ).label("tiene_clave_generada"),
+
+            sub_ingresos.c.fecha_primer_ingreso,
+            sub_ingresos.c.fecha_ultimo_ingreso,
+            func.coalesce(sub_ingresos.c.cantidad_ingresos, 0).label("cantidad_ingresos"),
+
+            case(
+                (UsuarioNotificadoInactivo.login.isnot(None), "SI"),
+                else_="NO",
+            ).label("tiene_registro_notificacion"),
+
+            UsuarioNotificadoInactivo.mail_enviado_1,
+            UsuarioNotificadoInactivo.mail_enviado_2,
+            UsuarioNotificadoInactivo.mail_enviado_3,
+            UsuarioNotificadoInactivo.mail_enviado_4,
+
+            func.greatest(
+                func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
+                func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
+                func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
+                func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
+            ).label("ultima_notificacion"),
+
+        )
+        .join(User, User.login.collate("utf8mb4_0900_ai_ci") == base.c.login)
+        .outerjoin(sub_ingresos, sub_ingresos.c.login == base.c.login)
+        .outerjoin(
+            UsuarioNotificadoInactivo,
+            UsuarioNotificadoInactivo.login.collate("utf8mb4_0900_ai_ci") == base.c.login,
+        )
+        .limit(limite_envios)
+        .all()
+    )
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No hay usuarios para exportar")
+
+    return generar_csv_response(
+        [dict(r._mapping) for r in rows],
+        "usuarios_inactivos_preview.csv",
+    )
+
+
+
+# def obtener_usuario_inactivo_candidato(db: Session) -> Optional[User]:
+#     hoy = datetime.now()
+#     hace_180 = hoy - timedelta(days=180)
+#     hace_7 = hoy - timedelta(days=7)
+
+#     login_0900 = User.login.collate('utf8mb4_0900_ai_ci')
+
+#     ultima_notificacion = func.greatest(
+#         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
+#         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
+#         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
+#         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min)
+#     )
+
+#     sub_adoptantes = (
+#         db.query(UserGroup.login)
+#         .join(Group, Group.group_id == UserGroup.group_id)
+#         .filter(func.lower(Group.description) == "adoptante")
+#         .subquery()
+#     )
+
+#     sub_ultimo_ingreso = (
+#         db.query(
+#             RuaEvento.login.label("login"),
+#             func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso")
+#         )
+#         .filter(RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"))
+#         .group_by(RuaEvento.login)
+#         .subquery()
+#     )
+
+
+
+#     return (
+#         db.query(User)
+#         .outerjoin(UsuarioNotificadoInactivo, login_0900 == UsuarioNotificadoInactivo.login)
+#         .outerjoin(sub_ultimo_ingreso, sub_ultimo_ingreso.c.login == User.login)
+
+#         .filter(User.login.in_(sub_adoptantes))
+#         .filter(User.operativo == "Y")
+#         .filter(User.doc_adoptante_estado.in_(["inicial_cargando", "actualizando", "aprobado"]))
+#         .filter(User.clave.isnot(None))
+#         .filter(func.length(func.trim(User.clave)) > 0)
+#         .filter(User.mail.isnot(None))
+#         .filter(func.length(func.trim(User.mail)) > 0)
+#         .filter(User.mail.op("regexp")(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"))
+#         .filter(~db.query(RuaEvento.evento_id).filter(
+#             RuaEvento.login == User.login,
+#             RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"),
+#             RuaEvento.evento_fecha >= hace_180
+#         ).exists())
+#         .filter(~db.query(Proyecto.proyecto_id).filter(
+#             or_(Proyecto.login_1 == User.login, Proyecto.login_2 == User.login)
+#         ).exists())
+#         .filter(~db.query(Postulacion.postulacion_id).filter(
+#             or_(Postulacion.dni == User.login, Postulacion.conyuge_dni == User.login)
+#         ).exists())
+#         .filter(~db.query(DDJJ.ddjj_id).filter(DDJJ.login == User.login).exists())
+#         .filter(
+#             or_(
+#                 UsuarioNotificadoInactivo.login.is_(None),
+#                 and_(UsuarioNotificadoInactivo.mail_enviado_1.is_(None),
+#                      UsuarioNotificadoInactivo.dado_de_baja.is_(None)),
+#                 and_(UsuarioNotificadoInactivo.dado_de_baja.is_(None),
+#                      ultima_notificacion <= hace_7)
+#             )
+#         )
+#         .filter(
+#             or_(
+#                 sub_ultimo_ingreso.c.fecha_ultimo_ingreso.is_(None),
+#                 ultima_notificacion.is_(None),
+#                 sub_ultimo_ingreso.c.fecha_ultimo_ingreso <= ultima_notificacion
+#             )
+#         )
+
+#         .order_by(User.fecha_alta.asc())
+#         .first()
+#     )
 
 
 
@@ -5572,29 +5807,55 @@ def enviar_notificacion_inactividad_individual(db: Session, usuario: User) -> di
 
 
 
+# def procesar_notificacion_inactivos_masiva(limite_envios: int):
+#     db = SessionLocal()
+#     enviados = 0
+
+#     try:
+#         for _ in range(limite_envios):
+            
+#             usuario = obtener_usuario_inactivo_candidato(db)
+
+#             if not usuario:
+#                 break
+
+#             # 🔒 lock pesimista para evitar doble procesamiento concurrente
+#             db.refresh(usuario, with_for_update=True)
+
+#             resultado = enviar_notificacion_inactividad_individual(db, usuario)
+
+#             if resultado.get("accion") == "mail":
+#                 enviados += 1
+
+#             time.sleep(2)
+
+#         print(f"[FINAL] Envíos realizados: {enviados}/{limite_envios}")
+
+#     finally:
+#         db.close()
+
+
 def procesar_notificacion_inactivos_masiva(limite_envios: int):
     db = SessionLocal()
-    enviados = 0
 
     try:
-        for _ in range(limite_envios):
-            
-            usuario = obtener_usuario_inactivo_candidato(db)
+        base = query_usuarios_inactivos_base(db).subquery()
 
-            if not usuario:
-                break
+        usuarios = (
+            db.query(User)
+            .join(
+                base,
+                User.login.collate("utf8mb4_0900_ai_ci") == base.c.login,
+            )
+            .order_by(base.c.fecha_alta.asc(), base.c.login.asc())
+            .limit(limite_envios)
+            .with_for_update()
+            .all()
+        )
 
-            # 🔒 lock pesimista para evitar doble procesamiento concurrente
-            db.refresh(usuario, with_for_update=True)
-
-            resultado = enviar_notificacion_inactividad_individual(db, usuario)
-
-            if resultado.get("accion") == "mail":
-                enviados += 1
-
+        for usuario in usuarios:
+            enviar_notificacion_inactividad_individual(db, usuario)
             time.sleep(2)
-
-        print(f"[FINAL] Envíos realizados: {enviados}/{limite_envios}")
 
     finally:
         db.close()
@@ -5631,215 +5892,216 @@ def notificar_usuarios_inactivos_masivo(
 
 
 
-@users_router.get("/usuarios/inactivos/csv",
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],)
-def descargar_csv_usuarios_inactivos(
-    limite_envios: int = 100,
-    db: Session = Depends(get_db),
-    ):
+# @users_router.get("/usuarios/inactivos/csv",
+#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],)
+# def descargar_csv_usuarios_inactivos(
+#     limite_envios: int = 100,
+#     db: Session = Depends(get_db),
+#     ):
 
-    if limite_envios <= 0 or limite_envios > 2000:
-        raise HTTPException(status_code=400, detail="Límite inválido")
+#     if limite_envios <= 0 or limite_envios > 2000:
+#         raise HTTPException(status_code=400, detail="Límite inválido")
 
-    hoy = datetime.now()
-    hace_180 = hoy - timedelta(days=180)
-    hace_7 = hoy - timedelta(days=7)
+#     hoy = datetime.now()
+#     hace_180 = hoy - timedelta(days=180)
+#     hace_7 = hoy - timedelta(days=7)
 
-    login = User.login.collate("utf8mb4_0900_ai_ci")
-
-    # ─────────────────────────────────────────────
-    # Subquery: ingresos al sistema
-    # ─────────────────────────────────────────────
-    sub_ingresos = (
-        db.query(
-            RuaEvento.login.label("login"),
-            func.min(RuaEvento.evento_fecha).label("fecha_primer_ingreso"),
-            func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso"),
-            func.count().label("cantidad_ingresos"),
-        )
-        .filter(RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"))
-        .group_by(RuaEvento.login)
-        .subquery()
-    )
-
-    sub_adoptantes = (
-        db.query(UserGroup.login)
-        .join(Group, Group.group_id == UserGroup.group_id)
-        .filter(func.lower(Group.description) == "adoptante")
-        .subquery()
-    )
-
-    sub_ultimo_ingreso = (
-        db.query(
-            RuaEvento.login.label("login"),
-            func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso")
-        )
-        .filter(RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"))
-        .group_by(RuaEvento.login)
-        .subquery()
-    )
+#     login = User.login.collate("utf8mb4_0900_ai_ci")
 
 
+#     # ─────────────────────────────────────────────
+#     # Subquery: ingresos al sistema
+#     # ─────────────────────────────────────────────
+#     sub_ingresos = (
+#         db.query(
+#             RuaEvento.login.label("login"),
+#             func.min(RuaEvento.evento_fecha).label("fecha_primer_ingreso"),
+#             func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso"),
+#             func.count().label("cantidad_ingresos"),
+#         )
+#         .filter(RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"))
+#         .group_by(RuaEvento.login)
+#         .subquery()
+#     )
 
-    # ─────────────────────────────────────────────
-    # Subqueries informativas (solo para columnas)
-    # ─────────────────────────────────────────────
-    sub_proyectos = (
-        db.query(func.coalesce(Proyecto.login_1, Proyecto.login_2).label("login"))
-        .distinct()
-        .subquery()
-    )
+#     sub_adoptantes = (
+#         db.query(
+#             UserGroup.login.label("login")
+#         )
+#         .join(Group, Group.group_id == UserGroup.group_id)
+#         .filter(func.lower(Group.description) == "adoptante")
+#         .subquery()
+#     )
 
-    sub_postulaciones = (
-        db.query(Postulacion.dni.label("login"))
-        .union(db.query(Postulacion.conyuge_dni.label("login")))
-        .subquery()
-    )
-
-    sub_ddjj = (
-        db.query(DDJJ.login.label("login"))
-        .distinct()
-        .subquery()
-    )
-
-    # ─────────────────────────────────────────────
-    # Query principal (MISMA lógica que el envío)
-    # ─────────────────────────────────────────────
-    rows = (
-        db.query(
-            User.login,
-            User.nombre,
-            User.apellido,
-            User.mail,
-            User.fecha_alta,
-
-            User.active.label("cuenta_activa"),
-            User.operativo.label("estado_operativo"),
-            User.doc_adoptante_estado,
-
-            case(
-                (and_(User.clave.isnot(None), func.length(func.trim(User.clave)) > 0), "SI"),
-                else_="NO",
-            ).label("tiene_clave_generada"),
-
-            sub_ingresos.c.fecha_primer_ingreso,
-            sub_ingresos.c.fecha_ultimo_ingreso,
-            func.coalesce(sub_ingresos.c.cantidad_ingresos, 0).label("cantidad_ingresos"),
-
-            # Flags informativos (SIEMPRE deberían ser NO)
-            case((sub_proyectos.c.login.isnot(None), "SI"), else_="NO").label("tiene_proyecto"),
-            case((sub_postulaciones.c.login.isnot(None), "SI"), else_="NO").label("tiene_postulacion"),
-            case((sub_ddjj.c.login.isnot(None), "SI"), else_="NO").label("tiene_ddjj"),
-
-            case(
-                (UsuarioNotificadoInactivo.login.isnot(None), "SI"),
-                else_="NO",
-            ).label("tiene_registro_notificacion"),
-
-            UsuarioNotificadoInactivo.mail_enviado_1,
-            UsuarioNotificadoInactivo.mail_enviado_2,
-            UsuarioNotificadoInactivo.mail_enviado_3,
-            UsuarioNotificadoInactivo.mail_enviado_4,
-
-            func.greatest(
-                func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
-                func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
-                func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
-                func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
-            ).label("ultima_notificacion"),
-        )
-
-        # ───── Joins ─────
-        .outerjoin(sub_ingresos, sub_ingresos.c.login == login)
-        .outerjoin(UsuarioNotificadoInactivo, UsuarioNotificadoInactivo.login == login)
-        .outerjoin(sub_proyectos, sub_proyectos.c.login == login)
-        .outerjoin(sub_postulaciones, sub_postulaciones.c.login == login)
-        .outerjoin(sub_ddjj, sub_ddjj.c.login == login)
-
-        .outerjoin(sub_ultimo_ingreso, sub_ultimo_ingreso.c.login == User.login)
+#     # ─────────────────────────────────────────────
+#     # Subqueries informativas (solo para columnas)
+#     # ─────────────────────────────────────────────
+#     sub_proyectos = (
+#         db.query(
+#             func.coalesce(
+#                 Proyecto.login_1,
+#                 Proyecto.login_2
+#             ).label("login")
+#         )
+#         .distinct()
+#         .subquery()
+#     )
 
 
-        # ───── Filtros base ─────
-        .filter(User.login.in_(sub_adoptantes))
-        .filter(User.operativo == "Y")
-        .filter(User.doc_adoptante_estado.in_(["inicial_cargando", "actualizando", "aprobado"]))
-        .filter(User.clave.isnot(None))
-        .filter(func.length(func.trim(User.clave)) > 0)
-        .filter(User.mail.isnot(None))
-        .filter(func.length(func.trim(User.mail)) > 0)
+#     sub_postulaciones = (
+#         db.query(Postulacion.dni.label("login"))
+#         .union(
+#             db.query(Postulacion.conyuge_dni.label("login"))
+#         )
+#         .subquery()
+#     )
 
-        # ───── No ingresó en últimos 180 días ─────
-        .filter(
-            ~db.query(RuaEvento.evento_id)
-            .filter(
-                RuaEvento.login == login,
-                RuaEvento.evento_detalle.ilike("%Ingreso exitoso%"),
-                RuaEvento.evento_fecha >= hace_180,
-            )
-            .exists()
-        )
 
-        # ───── EXCLUSIONES CRÍTICAS (IGUAL QUE EL ENVÍO) ─────
-        .filter(
-            ~db.query(Proyecto.proyecto_id)
-            .filter(or_(Proyecto.login_1 == login, Proyecto.login_2 == login))
-            .exists()
-        )
-        .filter(
-            ~db.query(Postulacion.postulacion_id)
-            .filter(or_(Postulacion.dni == login, Postulacion.conyuge_dni == login))
-            .exists()
-        )
-        .filter(
-            ~db.query(DDJJ.ddjj_id)
-            .filter(DDJJ.login == login)
-            .exists()
-        )
+#     sub_ddjj = (
+#         db.query(DDJJ.login.label("login"))
+#         .distinct()
+#         .subquery()
+#     )
 
-        # ───── Control de notificaciones ─────
-        .filter(
-            or_(
-                UsuarioNotificadoInactivo.login.is_(None),
-                func.greatest(
-                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
-                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
-                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
-                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
-                ) <= hace_7,
-            )
-        )
 
-        .filter(
-            or_(
-                sub_ultimo_ingreso.c.fecha_ultimo_ingreso.is_(None),
-                func.greatest(
-                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
-                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
-                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
-                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
-                ).is_(None),
-                sub_ultimo_ingreso.c.fecha_ultimo_ingreso
-                <= func.greatest(
-                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
-                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
-                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
-                    func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
-                )
-            )
-        )
+#     # ─────────────────────────────────────────────
+#     # Query principal (MISMA lógica que el envío)
+#     # ─────────────────────────────────────────────
+#     rows = (
+#         db.query(
+#             User.login,
+#             User.nombre,
+#             User.apellido,
+#             User.mail,
+#             User.fecha_alta,
+
+#             User.active.label("cuenta_activa"),
+#             User.operativo.label("estado_operativo"),
+#             User.doc_adoptante_estado,
+
+#             case(
+#                 (and_(User.clave.isnot(None), func.length(func.trim(User.clave)) > 0), "SI"),
+#                 else_="NO",
+#             ).label("tiene_clave_generada"),
+
+#             sub_ingresos.c.fecha_primer_ingreso,
+#             sub_ingresos.c.fecha_ultimo_ingreso,
+#             func.coalesce(sub_ingresos.c.cantidad_ingresos, 0).label("cantidad_ingresos"),
+
+#             # Flags informativos (SIEMPRE deberían ser NO)
+#             case((sub_proyectos.c.login.isnot(None), "SI"), else_="NO").label("tiene_proyecto"),
+#             case((sub_postulaciones.c.login.isnot(None), "SI"), else_="NO").label("tiene_postulacion"),
+#             case((sub_ddjj.c.login.isnot(None), "SI"), else_="NO").label("tiene_ddjj"),
+
+#             case(
+#                 (UsuarioNotificadoInactivo.login.isnot(None), "SI"),
+#                 else_="NO",
+#             ).label("tiene_registro_notificacion"),
+
+#             UsuarioNotificadoInactivo.mail_enviado_1,
+#             UsuarioNotificadoInactivo.mail_enviado_2,
+#             UsuarioNotificadoInactivo.mail_enviado_3,
+#             UsuarioNotificadoInactivo.mail_enviado_4,
+
+#             func.greatest(
+#                 func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
+#                 func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
+#                 func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
+#                 func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
+#             ).label("ultima_notificacion"),
+            
+#         )
+
+#         # ───── Joins ─────
+
+#         .outerjoin(sub_ingresos, sub_ingresos.c.login == login)
+#         .outerjoin(sub_proyectos, sub_proyectos.c.login == login)
+#         .outerjoin(sub_postulaciones, sub_postulaciones.c.login == login)
+#         .outerjoin(sub_ddjj, sub_ddjj.c.login == login)
+#         .outerjoin(UsuarioNotificadoInactivo, UsuarioNotificadoInactivo.login == login)
+
+
+#         # ───── Filtros base ─────
+#         .filter(User.login.in_(sub_adoptantes))
+#         .filter(User.operativo == "Y")
+#         .filter(User.doc_adoptante_estado.in_(["inicial_cargando", "actualizando", "aprobado"]))
+#         .filter(User.clave.isnot(None))
+#         .filter(func.length(func.trim(User.clave)) > 0)
+#         .filter(User.mail.isnot(None))
+#         .filter(func.length(func.trim(User.mail)) > 0)
+
+#         # ───── No ingresó en últimos 180 días ─────
+#         .filter(
+#             ~db.query(RuaEvento.evento_id)
+#             .filter(
+#                 RuaEvento.login == login,
+#                 RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"),
+#                 RuaEvento.evento_fecha >= hace_180,
+#             )
+#             .exists()
+#         )
+
+
+#         # ───── EXCLUSIONES CRÍTICAS (IGUAL QUE EL ENVÍO) ─────
+#         .filter(
+#             ~db.query(Proyecto.proyecto_id)
+#             .filter(or_(Proyecto.login_1 == login, Proyecto.login_2 == login))
+#             .exists()
+#         )
+#         .filter(
+#             ~db.query(Postulacion.postulacion_id)
+#             .filter(or_(Postulacion.dni == login, Postulacion.conyuge_dni == login))
+#             .exists()
+#         )
+#         .filter(
+#             ~db.query(DDJJ.ddjj_id)
+#             .filter(DDJJ.login == login)
+#             .exists()
+#         )
+
+#         # ───── Control de notificaciones ─────
+      
+#         .filter(
+#             or_(
+#                 UsuarioNotificadoInactivo.login.is_(None),
+
+#                 and_(
+#                     # no ingresó después del aviso
+#                     func.coalesce(sub_ingresos.c.fecha_ultimo_ingreso, datetime.min)
+#                     <= func.greatest(
+#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
+#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
+#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
+#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
+#                     ),
+
+#                     # pasaron al menos 7 días desde el último aviso
+#                     func.greatest(
+#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
+#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
+#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
+#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
+#                     ) <= hace_7
+#                 )
+#             )
+#         )
 
 
 
-        .order_by(User.fecha_alta.asc())
-        .limit(limite_envios)
-        .all()
-    )
+#         .order_by(User.fecha_alta.asc())
+#         .limit(limite_envios)
+#         .all()
+#     )
 
-    if not rows:
-        raise HTTPException(status_code=404, detail="No hay usuarios para exportar")
+#     if not rows:
+#         raise HTTPException(status_code=404, detail="No hay usuarios para exportar")
 
-    data = [dict(r._mapping) for r in rows]
-    return generar_csv_response(data, "usuarios_inactivos_preview.csv")
+#     data = [dict(r._mapping) for r in rows]
+#     return generar_csv_response(data, "usuarios_inactivos_preview.csv")
+
+
+
+
 
 
 
