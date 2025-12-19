@@ -16,13 +16,15 @@ from security.security import get_current_user, require_roles, verify_api_key
 
 from helpers.notificaciones_utils import crear_notificacion_masiva_por_rol, crear_notificacion_individual
 
+from models.eventos_y_configs import RuaEvento, UsuarioNotificadoInactivo, UsuarioNotificadoRatificacion, UsuarioNotificadoDemoraDocs
+
 
 import os
 import re
 from models.users import User, Group, UserGroup 
 from models.ddjj import DDJJ
 from models.proyecto import Proyecto, ProyectoHistorialEstado
-from models.eventos_y_configs import RuaEvento
+
 # from models.eventos_y_configs import LoginIntentoIP
 from sqlalchemy.exc import SQLAlchemyError
 
