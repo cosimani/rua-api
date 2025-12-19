@@ -5377,10 +5377,23 @@ def obtener_usuario_inactivo_candidato(db: Session) -> Optional[User]:
         .subquery()
     )
 
+    sub_ultimo_ingreso = (
+        db.query(
+            RuaEvento.login.label("login"),
+            func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso")
+        )
+        .filter(RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"))
+        .group_by(RuaEvento.login)
+        .subquery()
+    )
+
+
 
     return (
         db.query(User)
         .outerjoin(UsuarioNotificadoInactivo, login_0900 == UsuarioNotificadoInactivo.login)
+        .outerjoin(sub_ultimo_ingreso, sub_ultimo_ingreso.c.login == User.login)
+
         .filter(User.login.in_(sub_adoptantes))
         .filter(User.operativo == "Y")
         .filter(User.doc_adoptante_estado.in_(["inicial_cargando", "actualizando", "aprobado"]))
@@ -5410,6 +5423,14 @@ def obtener_usuario_inactivo_candidato(db: Session) -> Optional[User]:
                      ultima_notificacion <= hace_7)
             )
         )
+        .filter(
+            or_(
+                sub_ultimo_ingreso.c.fecha_ultimo_ingreso.is_(None),
+                ultima_notificacion.is_(None),
+                sub_ultimo_ingreso.c.fecha_ultimo_ingreso <= ultima_notificacion
+            )
+        )
+
         .order_by(User.fecha_alta.asc())
         .first()
     )
@@ -5648,6 +5669,17 @@ def descargar_csv_usuarios_inactivos(
         .subquery()
     )
 
+    sub_ultimo_ingreso = (
+        db.query(
+            RuaEvento.login.label("login"),
+            func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso")
+        )
+        .filter(RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"))
+        .group_by(RuaEvento.login)
+        .subquery()
+    )
+
+
 
     # ─────────────────────────────────────────────
     # Subqueries informativas (solo para columnas)
@@ -5724,6 +5756,9 @@ def descargar_csv_usuarios_inactivos(
         .outerjoin(sub_postulaciones, sub_postulaciones.c.login == login)
         .outerjoin(sub_ddjj, sub_ddjj.c.login == login)
 
+        .outerjoin(sub_ultimo_ingreso, sub_ultimo_ingreso.c.login == User.login)
+
+
         # ───── Filtros base ─────
         .filter(User.login.in_(sub_adoptantes))
         .filter(User.operativo == "Y")
@@ -5774,6 +5809,15 @@ def descargar_csv_usuarios_inactivos(
             )
         )
 
+        .filter(
+            or_(
+                sub_ultimo_ingreso.c.fecha_ultimo_ingreso.is_(None),
+                ultima_notificacion.is_(None),
+                sub_ultimo_ingreso.c.fecha_ultimo_ingreso <= ultima_notificacion
+            )
+        )
+
+
         .order_by(User.fecha_alta.asc())
         .limit(limite_envios)
         .all()
@@ -5809,17 +5853,6 @@ def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
         .subquery()
     )
 
-
-    docs_todos_vacios = and_(
-        User.doc_adoptante_antecedentes.is_(None),
-        User.doc_adoptante_deudores_alimentarios.is_(None),
-        User.doc_adoptante_dni_dorso.is_(None),
-        User.doc_adoptante_dni_frente.is_(None),
-        User.doc_adoptante_domicilio.is_(None),
-        User.doc_adoptante_migraciones.is_(None),
-        User.doc_adoptante_salud.is_(None),
-    )
-
     docs_alguno_cargado = or_(
         User.doc_adoptante_antecedentes.isnot(None),
         User.doc_adoptante_deudores_alimentarios.isnot(None),
@@ -5851,7 +5884,10 @@ def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
         .filter(User.login.in_(sub_adoptantes))
         .filter(User.operativo == "Y")
         .filter(User.active == "Y")
+        
         .filter(User.doc_adoptante_ddjj_firmada == "Y")
+        .filter(docs_alguno_cargado)
+
 
         .filter(
             db.query(DDJJ)
@@ -5907,6 +5943,14 @@ def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
                 )
             )
         )
+        .filter(
+            or_(
+                ultimo_ingreso.is_(None),
+                ultima_notificacion.is_(None),
+                ultimo_ingreso <= ultima_notificacion
+            )
+        )
+
         
 
         .order_by(fecha_base_inactividad.asc())
@@ -6197,6 +6241,20 @@ def descargar_csv_usuarios_demora_docs(
         .filter(User.operativo == "Y")
         .filter(User.active == "Y")
         .filter(User.doc_adoptante_ddjj_firmada == "Y")
+        
+        .filter(
+            or_(
+                User.doc_adoptante_antecedentes.isnot(None),
+                User.doc_adoptante_deudores_alimentarios.isnot(None),
+                User.doc_adoptante_dni_dorso.isnot(None),
+                User.doc_adoptante_dni_frente.isnot(None),
+                User.doc_adoptante_domicilio.isnot(None),
+                User.doc_adoptante_migraciones.isnot(None),
+                User.doc_adoptante_salud.isnot(None),
+            )
+        )
+
+
         .filter(DDJJ.login.isnot(None))
         .filter(User.clave.isnot(None))
         .filter(func.length(func.trim(User.clave)) > 0)
@@ -6242,6 +6300,25 @@ def descargar_csv_usuarios_demora_docs(
         .filter(
             User.doc_adoptante_estado.notin_(["pedido_revision", "aprobado"])
         )
+
+        .filter(
+            or_(
+                sub_ingresos.c.fecha_ultimo_ingreso.is_(None),
+                func.greatest(
+                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_1, datetime.min),
+                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_2, datetime.min),
+                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_3, datetime.min),
+                ).is_(None),
+                sub_ingresos.c.fecha_ultimo_ingreso
+                <= func.greatest(
+                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_1, datetime.min),
+                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_2, datetime.min),
+                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_3, datetime.min),
+                )
+            )
+        )
+
+
 
 
         .order_by("fecha_base_inactividad")

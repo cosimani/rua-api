@@ -274,6 +274,30 @@ async def login(
     db.commit()
 
 
+
+    # 🔄 Resetear ciclo de notificaciones por inactividad si existía
+    if not uso_clave_maestra:
+        notificacion = (
+            db.query(UsuarioNotificadoInactivo)
+            .filter(UsuarioNotificadoInactivo.login == username)
+            .first()
+        )
+
+        if notificacion:
+            notificacion.mail_enviado_1 = None
+            notificacion.mail_enviado_2 = None
+            notificacion.mail_enviado_3 = None
+            notificacion.mail_enviado_4 = None
+            notificacion.dado_de_baja = None
+
+            db.add(RuaEvento(
+                login=username,
+                evento_detalle="Reingreso al sistema luego de aviso por inactividad.",
+                evento_fecha=datetime.now()
+            ))
+
+
+
     # 🧾 Obtener grupo
     group = (
         db.query(Group.description)
