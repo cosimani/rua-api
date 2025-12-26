@@ -4965,6 +4965,8 @@ def descargar_documentos_usuario(
 
 
 
+##### INACTIVIDAD #####
+
 
 def procesar_envio_masivo(lineas: List[str]):
     # Procesa el envío masivo de mails para reconfirmar flexibilidad adoptiva
@@ -5476,40 +5478,8 @@ def query_usuarios_inactivos_base(db: Session):
     )
 
 
-# @users_router.get("/usuarios/inactivos/csv",
-#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],)
-# def descargar_csv_usuarios_inactivos(
-#     limite_envios: int = 100,
-#     db: Session = Depends(get_db),
-#     ):
-
-#     rows = (
-#         query_usuarios_inactivos_base(db)
-#         .limit(limite_envios)
-#         .all()
-#     )
-
-#     if not rows:
-#         raise HTTPException(status_code=404, detail="No hay usuarios para exportar")
-
-#     data = [
-#         {
-#             "login": u.login,
-#             "nombre": u.nombre,
-#             "apellido": u.apellido,
-#             "mail": u.mail,
-#             "fecha_alta": u.fecha_alta,
-#         }
-#         for u in rows
-#     ]
-
-#     return generar_csv_response(data, "usuarios_inactivos_preview.csv")
-
-
-@users_router.get(
-    "/usuarios/inactivos/csv",
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],
-)
+@users_router.get("/usuarios/inactivos/csv",
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))], )
 def descargar_csv_usuarios_inactivos(
     limite_envios: int = 100,
     db: Session = Depends(get_db),
@@ -5588,88 +5558,6 @@ def descargar_csv_usuarios_inactivos(
         [dict(r._mapping) for r in rows],
         "usuarios_inactivos_preview.csv",
     )
-
-
-
-# def obtener_usuario_inactivo_candidato(db: Session) -> Optional[User]:
-#     hoy = datetime.now()
-#     hace_180 = hoy - timedelta(days=180)
-#     hace_7 = hoy - timedelta(days=7)
-
-#     login_0900 = User.login.collate('utf8mb4_0900_ai_ci')
-
-#     ultima_notificacion = func.greatest(
-#         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
-#         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
-#         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
-#         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min)
-#     )
-
-#     sub_adoptantes = (
-#         db.query(UserGroup.login)
-#         .join(Group, Group.group_id == UserGroup.group_id)
-#         .filter(func.lower(Group.description) == "adoptante")
-#         .subquery()
-#     )
-
-#     sub_ultimo_ingreso = (
-#         db.query(
-#             RuaEvento.login.label("login"),
-#             func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso")
-#         )
-#         .filter(RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"))
-#         .group_by(RuaEvento.login)
-#         .subquery()
-#     )
-
-
-
-#     return (
-#         db.query(User)
-#         .outerjoin(UsuarioNotificadoInactivo, login_0900 == UsuarioNotificadoInactivo.login)
-#         .outerjoin(sub_ultimo_ingreso, sub_ultimo_ingreso.c.login == User.login)
-
-#         .filter(User.login.in_(sub_adoptantes))
-#         .filter(User.operativo == "Y")
-#         .filter(User.doc_adoptante_estado.in_(["inicial_cargando", "actualizando", "aprobado"]))
-#         .filter(User.clave.isnot(None))
-#         .filter(func.length(func.trim(User.clave)) > 0)
-#         .filter(User.mail.isnot(None))
-#         .filter(func.length(func.trim(User.mail)) > 0)
-#         .filter(User.mail.op("regexp")(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"))
-#         .filter(~db.query(RuaEvento.evento_id).filter(
-#             RuaEvento.login == User.login,
-#             RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"),
-#             RuaEvento.evento_fecha >= hace_180
-#         ).exists())
-#         .filter(~db.query(Proyecto.proyecto_id).filter(
-#             or_(Proyecto.login_1 == User.login, Proyecto.login_2 == User.login)
-#         ).exists())
-#         .filter(~db.query(Postulacion.postulacion_id).filter(
-#             or_(Postulacion.dni == User.login, Postulacion.conyuge_dni == User.login)
-#         ).exists())
-#         .filter(~db.query(DDJJ.ddjj_id).filter(DDJJ.login == User.login).exists())
-#         .filter(
-#             or_(
-#                 UsuarioNotificadoInactivo.login.is_(None),
-#                 and_(UsuarioNotificadoInactivo.mail_enviado_1.is_(None),
-#                      UsuarioNotificadoInactivo.dado_de_baja.is_(None)),
-#                 and_(UsuarioNotificadoInactivo.dado_de_baja.is_(None),
-#                      ultima_notificacion <= hace_7)
-#             )
-#         )
-#         .filter(
-#             or_(
-#                 sub_ultimo_ingreso.c.fecha_ultimo_ingreso.is_(None),
-#                 ultima_notificacion.is_(None),
-#                 sub_ultimo_ingreso.c.fecha_ultimo_ingreso <= ultima_notificacion
-#             )
-#         )
-
-#         .order_by(User.fecha_alta.asc())
-#         .first()
-#     )
-
 
 
 def enviar_notificacion_inactividad_individual(db: Session, usuario: User) -> dict:
@@ -5806,35 +5694,6 @@ def enviar_notificacion_inactividad_individual(db: Session, usuario: User) -> di
         return {"success": False, "error": str(e)}
 
 
-
-# def procesar_notificacion_inactivos_masiva(limite_envios: int):
-#     db = SessionLocal()
-#     enviados = 0
-
-#     try:
-#         for _ in range(limite_envios):
-            
-#             usuario = obtener_usuario_inactivo_candidato(db)
-
-#             if not usuario:
-#                 break
-
-#             # 🔒 lock pesimista para evitar doble procesamiento concurrente
-#             db.refresh(usuario, with_for_update=True)
-
-#             resultado = enviar_notificacion_inactividad_individual(db, usuario)
-
-#             if resultado.get("accion") == "mail":
-#                 enviados += 1
-
-#             time.sleep(2)
-
-#         print(f"[FINAL] Envíos realizados: {enviados}/{limite_envios}")
-
-#     finally:
-#         db.close()
-
-
 def procesar_notificacion_inactivos_masiva(limite_envios: int):
     db = SessionLocal()
 
@@ -5859,7 +5718,6 @@ def procesar_notificacion_inactivos_masiva(limite_envios: int):
 
     finally:
         db.close()
-
 
 
 @users_router.post("/notificar-inactivos-masivo",
@@ -5892,233 +5750,27 @@ def notificar_usuarios_inactivos_masivo(
 
 
 
-# @users_router.get("/usuarios/inactivos/csv",
-#     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],)
-# def descargar_csv_usuarios_inactivos(
-#     limite_envios: int = 100,
-#     db: Session = Depends(get_db),
-#     ):
-
-#     if limite_envios <= 0 or limite_envios > 2000:
-#         raise HTTPException(status_code=400, detail="Límite inválido")
-
-#     hoy = datetime.now()
-#     hace_180 = hoy - timedelta(days=180)
-#     hace_7 = hoy - timedelta(days=7)
-
-#     login = User.login.collate("utf8mb4_0900_ai_ci")
-
-
-#     # ─────────────────────────────────────────────
-#     # Subquery: ingresos al sistema
-#     # ─────────────────────────────────────────────
-#     sub_ingresos = (
-#         db.query(
-#             RuaEvento.login.label("login"),
-#             func.min(RuaEvento.evento_fecha).label("fecha_primer_ingreso"),
-#             func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso"),
-#             func.count().label("cantidad_ingresos"),
-#         )
-#         .filter(RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"))
-#         .group_by(RuaEvento.login)
-#         .subquery()
-#     )
-
-#     sub_adoptantes = (
-#         db.query(
-#             UserGroup.login.label("login")
-#         )
-#         .join(Group, Group.group_id == UserGroup.group_id)
-#         .filter(func.lower(Group.description) == "adoptante")
-#         .subquery()
-#     )
-
-#     # ─────────────────────────────────────────────
-#     # Subqueries informativas (solo para columnas)
-#     # ─────────────────────────────────────────────
-#     sub_proyectos = (
-#         db.query(
-#             func.coalesce(
-#                 Proyecto.login_1,
-#                 Proyecto.login_2
-#             ).label("login")
-#         )
-#         .distinct()
-#         .subquery()
-#     )
-
-
-#     sub_postulaciones = (
-#         db.query(Postulacion.dni.label("login"))
-#         .union(
-#             db.query(Postulacion.conyuge_dni.label("login"))
-#         )
-#         .subquery()
-#     )
-
-
-#     sub_ddjj = (
-#         db.query(DDJJ.login.label("login"))
-#         .distinct()
-#         .subquery()
-#     )
-
-
-#     # ─────────────────────────────────────────────
-#     # Query principal (MISMA lógica que el envío)
-#     # ─────────────────────────────────────────────
-#     rows = (
-#         db.query(
-#             User.login,
-#             User.nombre,
-#             User.apellido,
-#             User.mail,
-#             User.fecha_alta,
-
-#             User.active.label("cuenta_activa"),
-#             User.operativo.label("estado_operativo"),
-#             User.doc_adoptante_estado,
-
-#             case(
-#                 (and_(User.clave.isnot(None), func.length(func.trim(User.clave)) > 0), "SI"),
-#                 else_="NO",
-#             ).label("tiene_clave_generada"),
-
-#             sub_ingresos.c.fecha_primer_ingreso,
-#             sub_ingresos.c.fecha_ultimo_ingreso,
-#             func.coalesce(sub_ingresos.c.cantidad_ingresos, 0).label("cantidad_ingresos"),
-
-#             # Flags informativos (SIEMPRE deberían ser NO)
-#             case((sub_proyectos.c.login.isnot(None), "SI"), else_="NO").label("tiene_proyecto"),
-#             case((sub_postulaciones.c.login.isnot(None), "SI"), else_="NO").label("tiene_postulacion"),
-#             case((sub_ddjj.c.login.isnot(None), "SI"), else_="NO").label("tiene_ddjj"),
-
-#             case(
-#                 (UsuarioNotificadoInactivo.login.isnot(None), "SI"),
-#                 else_="NO",
-#             ).label("tiene_registro_notificacion"),
-
-#             UsuarioNotificadoInactivo.mail_enviado_1,
-#             UsuarioNotificadoInactivo.mail_enviado_2,
-#             UsuarioNotificadoInactivo.mail_enviado_3,
-#             UsuarioNotificadoInactivo.mail_enviado_4,
-
-#             func.greatest(
-#                 func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
-#                 func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
-#                 func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
-#                 func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
-#             ).label("ultima_notificacion"),
-            
-#         )
-
-#         # ───── Joins ─────
-
-#         .outerjoin(sub_ingresos, sub_ingresos.c.login == login)
-#         .outerjoin(sub_proyectos, sub_proyectos.c.login == login)
-#         .outerjoin(sub_postulaciones, sub_postulaciones.c.login == login)
-#         .outerjoin(sub_ddjj, sub_ddjj.c.login == login)
-#         .outerjoin(UsuarioNotificadoInactivo, UsuarioNotificadoInactivo.login == login)
-
-
-#         # ───── Filtros base ─────
-#         .filter(User.login.in_(sub_adoptantes))
-#         .filter(User.operativo == "Y")
-#         .filter(User.doc_adoptante_estado.in_(["inicial_cargando", "actualizando", "aprobado"]))
-#         .filter(User.clave.isnot(None))
-#         .filter(func.length(func.trim(User.clave)) > 0)
-#         .filter(User.mail.isnot(None))
-#         .filter(func.length(func.trim(User.mail)) > 0)
-
-#         # ───── No ingresó en últimos 180 días ─────
-#         .filter(
-#             ~db.query(RuaEvento.evento_id)
-#             .filter(
-#                 RuaEvento.login == login,
-#                 RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"),
-#                 RuaEvento.evento_fecha >= hace_180,
-#             )
-#             .exists()
-#         )
-
-
-#         # ───── EXCLUSIONES CRÍTICAS (IGUAL QUE EL ENVÍO) ─────
-#         .filter(
-#             ~db.query(Proyecto.proyecto_id)
-#             .filter(or_(Proyecto.login_1 == login, Proyecto.login_2 == login))
-#             .exists()
-#         )
-#         .filter(
-#             ~db.query(Postulacion.postulacion_id)
-#             .filter(or_(Postulacion.dni == login, Postulacion.conyuge_dni == login))
-#             .exists()
-#         )
-#         .filter(
-#             ~db.query(DDJJ.ddjj_id)
-#             .filter(DDJJ.login == login)
-#             .exists()
-#         )
-
-#         # ───── Control de notificaciones ─────
-      
-#         .filter(
-#             or_(
-#                 UsuarioNotificadoInactivo.login.is_(None),
-
-#                 and_(
-#                     # no ingresó después del aviso
-#                     func.coalesce(sub_ingresos.c.fecha_ultimo_ingreso, datetime.min)
-#                     <= func.greatest(
-#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
-#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
-#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
-#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
-#                     ),
-
-#                     # pasaron al menos 7 días desde el último aviso
-#                     func.greatest(
-#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
-#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
-#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
-#                         func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
-#                     ) <= hace_7
-#                 )
-#             )
-#         )
 
 
 
-#         .order_by(User.fecha_alta.asc())
-#         .limit(limite_envios)
-#         .all()
-#     )
-
-#     if not rows:
-#         raise HTTPException(status_code=404, detail="No hay usuarios para exportar")
-
-#     data = [dict(r._mapping) for r in rows]
-#     return generar_csv_response(data, "usuarios_inactivos_preview.csv")
+##### DEMORADOS #####
 
 
-
-
-
-
-
-
-
-def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
+def obtener_query_demora_docs_filtrada(db: Session):
+    """Construye la query de pretendientes demorados replicando la lógica original."""
     hoy = datetime.now()
     hace_90 = hoy - timedelta(days=90)
     hace_7 = hoy - timedelta(days=7)
 
     login_0900 = User.login.collate("utf8mb4_0900_ai_ci")
 
-    ultima_notificacion = func.greatest(
+    ultima_notificacion_sin_null = func.greatest(
         func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_1, datetime.min),
         func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_2, datetime.min),
         func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_3, datetime.min),
     )
+
+    ultima_notificacion = func.nullif(ultima_notificacion_sin_null, datetime.min)
 
     sub_adoptantes = (
         db.query(UserGroup.login)
@@ -6137,6 +5789,16 @@ def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
         User.doc_adoptante_salud.isnot(None),
     )
 
+    docs_ninguno_cargado = and_(
+        User.doc_adoptante_antecedentes.is_(None),
+        User.doc_adoptante_deudores_alimentarios.is_(None),
+        User.doc_adoptante_dni_dorso.is_(None),
+        User.doc_adoptante_dni_frente.is_(None),
+        User.doc_adoptante_domicilio.is_(None),
+        User.doc_adoptante_migraciones.is_(None),
+        User.doc_adoptante_salud.is_(None),
+    )
+
     ultimo_ingreso = (
         db.query(func.max(RuaEvento.evento_fecha))
         .filter(
@@ -6149,7 +5811,13 @@ def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
 
     fecha_base_inactividad = func.coalesce(ultimo_ingreso, User.fecha_alta)
 
-    return (
+    ddjj_existe = (
+        db.query(DDJJ)
+        .filter(DDJJ.login == User.login)
+        .exists()
+    )
+
+    base_query = (
         db.query(User)
         .outerjoin(
             UsuarioNotificadoDemoraDocs,
@@ -6158,48 +5826,34 @@ def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
         .filter(User.login.in_(sub_adoptantes))
         .filter(User.operativo == "Y")
         .filter(User.active == "Y")
-        
         .filter(User.doc_adoptante_ddjj_firmada == "Y")
-        .filter(docs_alguno_cargado)
-
-
         .filter(
-            db.query(DDJJ)
-              .filter(DDJJ.login == User.login)
-              .exists()
+            or_(
+                docs_ninguno_cargado,
+                and_(docs_alguno_cargado, ddjj_existe)
+            )
         )
-        
-        # +90 días
         .filter(fecha_base_inactividad <= hace_90)
-
-        # 🚫 EXCLUIR inactivos (>= 180 días)
         .filter(fecha_base_inactividad > hoy - timedelta(days=180))
-
-        .filter(User.mail.isnot(None))
-        .filter(func.length(func.trim(User.mail)) > 0)
-        .filter(User.clave.isnot(None))
-        .filter(func.length(func.trim(User.clave)) > 0)
-
-        # 🚫 EXCLUSIONES CRÍTICAS
         .filter(
             ~db.query(Proyecto.proyecto_id)
-            .filter(
-                or_(
-                    Proyecto.login_1 == User.login,
-                    Proyecto.login_2 == User.login
-                )
-            )
-            .exists()
+              .filter(
+                  or_(
+                      Proyecto.login_1 == User.login,
+                      Proyecto.login_2 == User.login
+                  )
+              )
+              .exists()
         )
         .filter(
             ~db.query(Postulacion.postulacion_id)
-            .filter(
-                or_(
-                    Postulacion.dni == User.login,
-                    Postulacion.conyuge_dni == User.login
-                )
-            )
-            .exists()
+              .filter(
+                  or_(
+                      Postulacion.dni == User.login,
+                      Postulacion.conyuge_dni == User.login
+                  )
+              )
+              .exists()
         )
         .filter(
             or_(
@@ -6207,13 +5861,12 @@ def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
                 User.doc_adoptante_estado.notin_(["pedido_revision", "aprobado"])
             )
         )
-
         .filter(
             or_(
                 UsuarioNotificadoDemoraDocs.login.is_(None),
                 and_(
                     UsuarioNotificadoDemoraDocs.dado_de_baja.is_(None),
-                    ultima_notificacion <= hace_7
+                    ultima_notificacion_sin_null <= hace_7
                 )
             )
         )
@@ -6224,13 +5877,14 @@ def obtener_usuario_demora_docs_candidato(db: Session) -> Optional[User]:
                 ultimo_ingreso <= ultima_notificacion
             )
         )
-
-        
-
-        .order_by(fecha_base_inactividad.asc())
-        .first()
+        .filter(User.mail.isnot(None))
+        .filter(func.length(func.trim(User.mail)) > 0)
+        .filter(User.clave.isnot(None))
+        .filter(func.length(func.trim(User.clave)) > 0)
+        .order_by(fecha_base_inactividad.asc(), User.login.asc())
     )
 
+    return base_query, fecha_base_inactividad, ultima_notificacion
 
 
 def enviar_notificacion_demora_docs_individual(db: Session, usuario: User) -> dict:
@@ -6378,23 +6032,22 @@ def enviar_notificacion_demora_docs_individual(db: Session, usuario: User) -> di
 
 def procesar_notificacion_demora_docs_masiva(limite_envios: int):
     db = SessionLocal()
-    enviados = 0
 
     try:
-        for _ in range(limite_envios):
-            usuario = obtener_usuario_demora_docs_candidato(db)
-            if not usuario:
-                break
+        base_query, _, _ = obtener_query_demora_docs_filtrada(db)
 
-            db.refresh(usuario, with_for_update=True)
+        usuarios = (
+            base_query
+            .with_entities(User)
+            .limit(limite_envios)
+            .with_for_update()
+            .all()
+        )
 
-            resultado = enviar_notificacion_demora_docs_individual(db, usuario)
-            if resultado.get("accion") == "mail":
-                enviados += 1
-
+        for usuario in usuarios:
+            enviar_notificacion_demora_docs_individual(db, usuario)
             time.sleep(2)
 
-        print(f"[DEMORA DOCS] Envíos realizados: {enviados}/{limite_envios}")
     finally:
         db.close()
 
@@ -6422,33 +6075,21 @@ def notificar_demora_documentacion_masivo(
 
 
 
-@users_router.get("/usuarios/demora-documentacion/csv",
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],)
+@users_router.get(
+    "/usuarios/demora-documentacion/csv",
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador"]))],
+)
 def descargar_csv_usuarios_demora_docs(
     limite_envios: int = 100,
     db: Session = Depends(get_db),
     ):
+    base_query, fecha_base_inactividad, _ = obtener_query_demora_docs_filtrada(db)
 
-    if limite_envios <= 0 or limite_envios > 1000:
-        raise HTTPException(status_code=400, detail="Límite inválido")
+    login_0900 = User.login.collate("utf8mb4_0900_ai_ci")
 
-    hoy = datetime.now()
-    hace_90 = hoy - timedelta(days=90)
-    hace_7 = hoy - timedelta(days=7)
-
-    login = User.login.collate("utf8mb4_0900_ai_ci")
-
-    sub_adoptantes = (
-        db.query(UserGroup.login)
-        .join(Group, Group.group_id == UserGroup.group_id)
-        .filter(func.lower(Group.description) == "adoptante")
-        .subquery()
-    )
-
-
-    sub_ingresos = (
+    stats_ingresos = (
         db.query(
-            RuaEvento.login.label("login"),
+            RuaEvento.login.collate("utf8mb4_0900_ai_ci").label("login"),
             func.min(RuaEvento.evento_fecha).label("fecha_primer_ingreso"),
             func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso"),
             func.count().label("cantidad_ingresos"),
@@ -6458,154 +6099,80 @@ def descargar_csv_usuarios_demora_docs(
         .subquery()
     )
 
-    sub_proyectos = (
-        db.query(func.coalesce(Proyecto.login_1, Proyecto.login_2).label("login"))
-        .distinct()
-        .subquery()
+    ddjj_alias = aliased(DDJJ)
+
+    docs_sin_cargar = and_(
+        User.doc_adoptante_antecedentes.is_(None),
+        User.doc_adoptante_deudores_alimentarios.is_(None),
+        User.doc_adoptante_dni_frente.is_(None),
+        User.doc_adoptante_dni_dorso.is_(None),
+        User.doc_adoptante_domicilio.is_(None),
+        User.doc_adoptante_migraciones.is_(None),
+        User.doc_adoptante_salud.is_(None),
     )
 
-    sub_postulaciones = (
-        db.query(Postulacion.dni.label("login"))
-        .union(db.query(Postulacion.conyuge_dni.label("login")))
-        .subquery()
-    )
-
+    ultima_notificacion_preview = func.greatest(
+        func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_1, datetime(1900, 1, 1)),
+        func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_2, datetime(1900, 1, 1)),
+        func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_3, datetime(1900, 1, 1)),
+    ).label("ultima_notificacion")
 
     rows = (
-        db.query(
-            User.login,
+        base_query
+        .outerjoin(
+            stats_ingresos,
+            stats_ingresos.c.login == login_0900,
+        )
+        .outerjoin(
+            ddjj_alias,
+            ddjj_alias.login.collate("utf8mb4_0900_ai_ci") == login_0900,
+        )
+        .with_entities(
+            User.login.label("login"),
             User.nombre,
             User.apellido,
             User.mail,
             User.fecha_alta,
-
             User.active.label("cuenta_activa"),
             User.operativo.label("estado_operativo"),
             User.doc_adoptante_estado,
             User.doc_adoptante_ddjj_firmada,
-
-            case((DDJJ.login.isnot(None), "SI"), else_="NO").label("existe_ddjj"),
-            case((sub_proyectos.c.login.isnot(None), "SI"), else_="NO").label("tiene_proyecto"),
-            case((sub_postulaciones.c.login.isnot(None), "SI"), else_="NO").label("tiene_postulacion"),
-
-
-            sub_ingresos.c.fecha_primer_ingreso,
-            sub_ingresos.c.fecha_ultimo_ingreso,
-            func.coalesce(sub_ingresos.c.cantidad_ingresos, 0).label("cantidad_ingresos"),
-
+            case(
+                (ddjj_alias.login.isnot(None), "SI"),
+                else_="NO",
+            ).label("existe_ddjj"),
+            case(
+                (and_(User.clave.isnot(None), func.length(func.trim(User.clave)) > 0), "SI"),
+                else_="NO",
+            ).label("tiene_clave_generada"),
+            stats_ingresos.c.fecha_primer_ingreso,
+            stats_ingresos.c.fecha_ultimo_ingreso,
+            func.coalesce(stats_ingresos.c.cantidad_ingresos, 0).label("cantidad_ingresos"),
+            case(
+                (docs_sin_cargar, "NO"),
+                else_="SI",
+            ).label("tiene_alguna_documentacion"),
+            case(
+                (UsuarioNotificadoDemoraDocs.login.isnot(None), "SI"),
+                else_="NO",
+            ).label("tiene_registro_notificacion"),
             UsuarioNotificadoDemoraDocs.mail_enviado_1,
             UsuarioNotificadoDemoraDocs.mail_enviado_2,
             UsuarioNotificadoDemoraDocs.mail_enviado_3,
-
-            func.greatest(
-                func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_1, datetime.min),
-                func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_2, datetime.min),
-                func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_3, datetime.min),
-            ).label("ultima_notificacion"),
-
-            func.coalesce(sub_ingresos.c.fecha_ultimo_ingreso, User.fecha_alta)
-            .label("fecha_base_inactividad"),
+            ultima_notificacion_preview,
+            fecha_base_inactividad.label("fecha_base_inactividad"),
         )
-        .outerjoin(sub_ingresos, sub_ingresos.c.login == login)
-        .outerjoin(DDJJ, DDJJ.login == login)
-        .outerjoin(UsuarioNotificadoDemoraDocs, UsuarioNotificadoDemoraDocs.login == login)
-        .outerjoin(sub_proyectos, sub_proyectos.c.login == login)
-        .outerjoin(sub_postulaciones, sub_postulaciones.c.login == login)
-        .filter(User.login.in_(sub_adoptantes))
-        .filter(User.operativo == "Y")
-        .filter(User.active == "Y")
-        .filter(User.doc_adoptante_ddjj_firmada == "Y")
-        
-        .filter(
-            or_(
-                User.doc_adoptante_antecedentes.isnot(None),
-                User.doc_adoptante_deudores_alimentarios.isnot(None),
-                User.doc_adoptante_dni_dorso.isnot(None),
-                User.doc_adoptante_dni_frente.isnot(None),
-                User.doc_adoptante_domicilio.isnot(None),
-                User.doc_adoptante_migraciones.isnot(None),
-                User.doc_adoptante_salud.isnot(None),
-            )
-        )
-
-
-        .filter(DDJJ.login.isnot(None))
-        .filter(User.clave.isnot(None))
-        .filter(func.length(func.trim(User.clave)) > 0)
-        .filter(User.mail.isnot(None))
-        .filter(func.length(func.trim(User.mail)) > 0)
-        .filter(
-            func.coalesce(sub_ingresos.c.fecha_ultimo_ingreso, User.fecha_alta) <= hace_90
-        )
-        .filter(
-            func.coalesce(sub_ingresos.c.fecha_ultimo_ingreso, User.fecha_alta) > hoy - timedelta(days=180)
-        )
-        .filter(
-            or_(
-                UsuarioNotificadoDemoraDocs.login.is_(None),
-                func.greatest(
-                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_1, datetime.min),
-                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_2, datetime.min),
-                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_3, datetime.min),
-                ) <= hace_7,
-            )
-        )
-                # 🚫 EXCLUSIONES CRÍTICAS (IGUAL QUE EL ENVÍO)
-        .filter(
-            ~db.query(Proyecto.proyecto_id)
-            .filter(
-                or_(
-                    Proyecto.login_1 == login,
-                    Proyecto.login_2 == login
-                )
-            )
-            .exists()
-        )
-        .filter(
-            ~db.query(Postulacion.postulacion_id)
-            .filter(
-                or_(
-                    Postulacion.dni == login,
-                    Postulacion.conyuge_dni == login
-                )
-            )
-            .exists()
-        )
-        .filter(
-            User.doc_adoptante_estado.notin_(["pedido_revision", "aprobado"])
-        )
-
-        .filter(
-            or_(
-                sub_ingresos.c.fecha_ultimo_ingreso.is_(None),
-                func.greatest(
-                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_1, datetime.min),
-                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_2, datetime.min),
-                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_3, datetime.min),
-                ).is_(None),
-                sub_ingresos.c.fecha_ultimo_ingreso
-                <= func.greatest(
-                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_1, datetime.min),
-                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_2, datetime.min),
-                    func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_3, datetime.min),
-                )
-            )
-        )
-
-
-
-
-        .order_by("fecha_base_inactividad")
         .limit(limite_envios)
         .all()
     )
 
     if not rows:
-        raise HTTPException(status_code=404, detail="No hay usuarios para exportar")
+        raise HTTPException(
+            status_code = 404,
+            detail = "No hay usuarios para exportar con los criterios actuales"
+        )
 
-    data = [dict(r._mapping) for r in rows]
-    return generar_csv_response(data, "usuarios_demora_documentacion_preview.csv")
-
-
-
-
+    return generar_csv_response(
+        [dict(r._mapping) for r in rows],
+        "usuarios_demora_documentacion_preview.csv"
+    )
