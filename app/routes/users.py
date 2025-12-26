@@ -4965,8 +4965,6 @@ def descargar_documentos_usuario(
 
 
 
-##### INACTIVIDAD #####
-
 
 def procesar_envio_masivo(lineas: List[str]):
     # Procesa el envío masivo de mails para reconfirmar flexibilidad adoptiva
@@ -5357,6 +5355,8 @@ async def notificar_desde_csv_postulantes(
 
 
 
+##### INACTIVIDAD #####
+
 
 def query_usuarios_inactivos_base(db: Session):
     hoy = datetime.now()
@@ -5478,19 +5478,12 @@ def query_usuarios_inactivos_base(db: Session):
     )
 
 
-@users_router.get("/usuarios/inactivos/csv",
-    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))], )
-def descargar_csv_usuarios_inactivos(
-    limite_envios: int = 100,
-    db: Session = Depends(get_db),
-    ):
-
-    if limite_envios <= 0 or limite_envios > 2000:
-        raise HTTPException(status_code=400, detail="Límite inválido")
-
+def obtener_query_candidatos_inactivos(db: Session):
+    """Devuelve la subquery base de inactivos y la vista diagnóstica para CSV/previa."""
     base = query_usuarios_inactivos_base(db).subquery()
+    login_col = base.c.login
 
-    sub_ingresos = (
+    stats_ingresos = (
         db.query(
             RuaEvento.login.collate("utf8mb4_0900_ai_ci").label("login"),
             func.min(RuaEvento.evento_fecha).label("fecha_primer_ingreso"),
@@ -5502,62 +5495,93 @@ def descargar_csv_usuarios_inactivos(
         .subquery()
     )
 
-    rows = (
+    proyectos = (
+        db.query(
+            func.coalesce(
+                Proyecto.login_1.collate("utf8mb4_0900_ai_ci"),
+                Proyecto.login_2.collate("utf8mb4_0900_ai_ci"),
+            ).label("login")
+        )
+        .filter(or_(Proyecto.login_1.isnot(None), Proyecto.login_2.isnot(None)))
+        .distinct()
+        .subquery()
+    )
+
+    postulaciones = (
+        db.query(Postulacion.dni.collate("utf8mb4_0900_ai_ci").label("login"))
+        .filter(Postulacion.dni.isnot(None))
+        .union(
+            db.query(Postulacion.conyuge_dni.collate("utf8mb4_0900_ai_ci").label("login"))
+            .filter(Postulacion.conyuge_dni.isnot(None))
+        )
+        .subquery()
+    )
+
+    ddjj_diag = (
+        db.query(DDJJ.login.collate("utf8mb4_0900_ai_ci").label("login"))
+        .distinct()
+        .subquery()
+    )
+
+    ultima_notificacion_preview = func.greatest(
+        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime(1900, 1, 1)),
+        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime(1900, 1, 1)),
+        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime(1900, 1, 1)),
+        func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime(1900, 1, 1)),
+    ).label("ultima_notificacion")
+
+    preview_query = (
         db.query(
             base.c.login,
             base.c.nombre,
             base.c.apellido,
             base.c.mail,
             base.c.fecha_alta,
-
             User.active.label("cuenta_activa"),
             User.operativo.label("estado_operativo"),
             User.doc_adoptante_estado,
-
             case(
                 (and_(User.clave.isnot(None), func.length(func.trim(User.clave)) > 0), "SI"),
                 else_="NO",
             ).label("tiene_clave_generada"),
-
-            sub_ingresos.c.fecha_primer_ingreso,
-            sub_ingresos.c.fecha_ultimo_ingreso,
-            func.coalesce(sub_ingresos.c.cantidad_ingresos, 0).label("cantidad_ingresos"),
-
+            stats_ingresos.c.fecha_primer_ingreso,
+            stats_ingresos.c.fecha_ultimo_ingreso,
+            func.coalesce(stats_ingresos.c.cantidad_ingresos, 0).label("cantidad_ingresos"),
+            case(
+                (proyectos.c.login.isnot(None), "SI"),
+                else_="NO",
+            ).label("tiene_proyecto"),
+            case(
+                (postulaciones.c.login.isnot(None), "SI"),
+                else_="NO",
+            ).label("tiene_postulacion"),
+            case(
+                (ddjj_diag.c.login.isnot(None), "SI"),
+                else_="NO",
+            ).label("tiene_ddjj"),
             case(
                 (UsuarioNotificadoInactivo.login.isnot(None), "SI"),
                 else_="NO",
             ).label("tiene_registro_notificacion"),
-
             UsuarioNotificadoInactivo.mail_enviado_1,
             UsuarioNotificadoInactivo.mail_enviado_2,
             UsuarioNotificadoInactivo.mail_enviado_3,
             UsuarioNotificadoInactivo.mail_enviado_4,
-
-            func.greatest(
-                func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime.min),
-                func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime.min),
-                func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime.min),
-                func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime.min),
-            ).label("ultima_notificacion"),
-
+            ultima_notificacion_preview,
         )
-        .join(User, User.login.collate("utf8mb4_0900_ai_ci") == base.c.login)
-        .outerjoin(sub_ingresos, sub_ingresos.c.login == base.c.login)
+        .join(User, User.login.collate("utf8mb4_0900_ai_ci") == login_col)
+        .outerjoin(stats_ingresos, stats_ingresos.c.login == login_col)
+        .outerjoin(proyectos, proyectos.c.login == login_col)
+        .outerjoin(postulaciones, postulaciones.c.login == login_col)
+        .outerjoin(ddjj_diag, ddjj_diag.c.login == login_col)
         .outerjoin(
             UsuarioNotificadoInactivo,
-            UsuarioNotificadoInactivo.login.collate("utf8mb4_0900_ai_ci") == base.c.login,
+            UsuarioNotificadoInactivo.login.collate("utf8mb4_0900_ai_ci") == login_col,
         )
-        .limit(limite_envios)
-        .all()
+        .order_by(base.c.fecha_alta.asc(), base.c.login.asc())
     )
 
-    if not rows:
-        raise HTTPException(status_code=404, detail="No hay usuarios para exportar")
-
-    return generar_csv_response(
-        [dict(r._mapping) for r in rows],
-        "usuarios_inactivos_preview.csv",
-    )
+    return base, preview_query
 
 
 def enviar_notificacion_inactividad_individual(db: Session, usuario: User) -> dict:
@@ -5698,7 +5722,7 @@ def procesar_notificacion_inactivos_masiva(limite_envios: int):
     db = SessionLocal()
 
     try:
-        base = query_usuarios_inactivos_base(db).subquery()
+        base, _ = obtener_query_candidatos_inactivos(db)
 
         usuarios = (
             db.query(User)
@@ -5747,6 +5771,28 @@ def notificar_usuarios_inactivos_masivo(
         "limite_envios": limite_envios
     }
 
+
+@users_router.get("/usuarios/inactivos/csv",
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))], )
+def descargar_csv_usuarios_inactivos(
+    limite_envios: int = 100,
+    db: Session = Depends(get_db),
+    ):
+
+    if limite_envios <= 0 or limite_envios > 2000:
+        raise HTTPException(status_code=400, detail="Límite inválido")
+
+    _, preview_query = obtener_query_candidatos_inactivos(db)
+
+    rows = preview_query.limit(limite_envios).all()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No hay usuarios para exportar")
+
+    return generar_csv_response(
+        [dict(r._mapping) for r in rows],
+        "usuarios_inactivos_preview.csv",
+    )
 
 
 
@@ -6075,10 +6121,8 @@ def notificar_demora_documentacion_masivo(
 
 
 
-@users_router.get(
-    "/usuarios/demora-documentacion/csv",
-    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador"]))],
-)
+@users_router.get( "/usuarios/demora-documentacion/csv",
+    dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador"]))],)
 def descargar_csv_usuarios_demora_docs(
     limite_envios: int = 100,
     db: Session = Depends(get_db),
