@@ -1213,6 +1213,8 @@ def send_message(payload: dict = Body(...), db: Session = Depends(get_db)):
 
 
 
+
+
 @notificaciones_router.get("/mensajeria/listado/whatsapp", response_model=dict,
     dependencies=[Depends(verify_api_key),
         Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"])),],)

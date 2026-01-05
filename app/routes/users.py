@@ -70,6 +70,17 @@ from pathlib import Path
 
  
 
+# Estados finales del proyecto que indican que el ciclo concluyó
+FINAL_PROJECT_STATES = {
+    "adopcion_definitiva",
+    "baja_anulacion",
+    "baja_caducidad",
+    "baja_desistimiento",
+    "baja_interrupcion",
+    "baja_por_convocatoria",
+    "baja_rechazo_invitacion",
+}
+
 
 # Cargar variables de entorno desde el archivo .env
 load_dotenv()
@@ -517,6 +528,8 @@ def get_users(
 
         for user in users:
 
+            doc_ddjj_firmada = (user.doc_adoptante_ddjj_firmada or "N").strip().upper()
+
             # ----- proyectos_ids con prioridad (solo Adoptantes) -----
             es_adoptante = (user.group or "").lower() == "adoptante"
 
@@ -569,7 +582,7 @@ def get_users(
                 )
 
                 proyectos_rows = (
-                    db.query(Proyecto.proyecto_id, Proyecto.ingreso_por)
+                    db.query(Proyecto.proyecto_id, Proyecto.ingreso_por, Proyecto.estado_general)
                       .outerjoin(hist_max_sq, hist_max_sq.c.pid == Proyecto.proyecto_id)
                       .filter(or_(Proyecto.login_1 == user.login, Proyecto.login_2 == user.login))
                       .order_by(
@@ -580,6 +593,12 @@ def get_users(
                       )
                       .all()
                 )
+                if doc_ddjj_firmada == "Y":
+                    proyectos_rows = [
+                        row for row in proyectos_rows
+                        if (row.estado_general or "") not in FINAL_PROJECT_STATES
+                    ]
+
                 proyectos_ids = [row.proyecto_id for row in proyectos_rows]
                 
 
@@ -621,7 +640,7 @@ def get_users(
                 estado_raw = (
                     user.estado_general if user.estado_general else (
                         "sin_curso" if not user.doc_adoptante_curso_aprobado or user.doc_adoptante_curso_aprobado != "Y"
-                        else "ddjj_pendiente" if not user.doc_adoptante_ddjj_firmada or user.doc_adoptante_ddjj_firmada != "Y"
+                        else "ddjj_pendiente" if doc_ddjj_firmada != "Y"
                         else user.doc_adoptante_estado if user.doc_adoptante_estado in valid_states
                         else "inicial_cargando"
                     )
@@ -960,6 +979,8 @@ def get_user_by_login(
         if not user:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
+        doc_ddjj_firmada = (user.doc_adoptante_ddjj_firmada or "N").strip().upper()
+
         # Instancia DDJJ (para checks)
         ddjj = db.query(DDJJ).filter(DDJJ.login == user.login).first()
 
@@ -1028,7 +1049,7 @@ def get_user_by_login(
 
 
         proyectos_rows = (
-            db.query(Proyecto.proyecto_id, Proyecto.ingreso_por)
+            db.query(Proyecto.proyecto_id, Proyecto.ingreso_por, Proyecto.estado_general)
               .outerjoin(hist_max_sq, hist_max_sq.c.pid == Proyecto.proyecto_id)
               .filter(or_(Proyecto.login_1 == user.login, Proyecto.login_2 == user.login))
               .order_by(
@@ -1039,6 +1060,12 @@ def get_user_by_login(
               )
               .all()
         )
+
+        if doc_ddjj_firmada == "Y":
+            proyectos_rows = [
+                r for r in proyectos_rows
+                if (r.estado_general or "") not in FINAL_PROJECT_STATES
+            ]
 
         proyectos_ids = [r.proyecto_id for r in proyectos_rows] or []
 
@@ -3580,6 +3607,7 @@ def get_estado_usuario(
     # --- Proyecto primario SOLO si es RUA ---
     # Orden por estado (mismo criterio que usás en otros endpoints para estabilidad)
     estados_ordenados = [
+        'creado', 'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando',
         'aprobado', 'calendarizando', 'entrevistando', 'para_valorar', 'viable',
         'viable_no_disponible', 'en_suspenso', 'no_viable', 'en_carpeta',
         'vinculacion', 'guarda_provisoria', 'guarda_confirmada', 'adopcion_definitiva',
@@ -3603,10 +3631,34 @@ def get_estado_usuario(
     )
     # Si no hay RUA, 'proyecto' queda en None → el código entra a las ramas de mensajes "a nivel usuario".
 
+    estado_proyecto_actual = proyecto.estado_general if proyecto else None
+    proyecto_para_portada = proyecto
+    ultimo_proyecto_cerrado = False
+    tiene_baja_caducidad = False
+    if estado_proyecto_actual:
+        if estado_proyecto_actual == "adopcion_definitiva":
+            ultimo_proyecto_cerrado = True
+            proyecto_para_portada = None
+        elif estado_proyecto_actual.startswith("baja"):
+            if estado_proyecto_actual == "baja_caducidad":
+                tiene_baja_caducidad = True
+            else:
+                ultimo_proyecto_cerrado = True
+                proyecto_para_portada = None
+
+    doc_ddjj_firmada = (user.doc_adoptante_ddjj_firmada or "N").strip().upper()
+
 
     mensaje_para_portada = ""
     tipo_mensaje = "info"
     en_fecha_de_ratificar = False
+    puede_iniciar_nuevo_proyecto = (
+        ultimo_proyecto_cerrado
+        and not tiene_baja_caducidad
+        and doc_ddjj_firmada != "Y"
+    )
+
+    mostrar_mensaje_reinicio = puede_iniciar_nuevo_proyecto
 
 
     # 🧠 Curso para adoptantes
@@ -3619,6 +3671,13 @@ def get_estado_usuario(
 
 
     if group_name.lower() == "adoptante":
+        mensaje_reinicio_html = """
+            <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 12px;">
+                <h5>¿Deseás iniciar un nuevo proceso?</h5>
+                <p>Puedes volver a completar tu DDJJ, actualizar la documentación personal y presentar un nuevo proyecto.</p>
+                <p style="margin-bottom:0;"><strong>No es necesario repetir el curso de sensibilización.</strong></p>
+            </div>
+        """
         if curso_aprobado == "N":
             mensaje_para_portada = """
                 <h4>Curso de sensibilización</h4>
@@ -3635,13 +3694,15 @@ def get_estado_usuario(
                 <p>Acceda <a href="/menu_adoptantes/alta_ddjj"
                     style="color: #007bff; text-decoration: underline;">aquí para completar su DDJJ</a>.</p>
             """ 
-        elif curso_aprobado == "Y" and ddjj and user.doc_adoptante_ddjj_firmada == "N":
+        elif curso_aprobado == "Y" and ddjj and doc_ddjj_firmada != "Y":
             mensaje_para_portada = """
                 <h4>Actualización de DDJJ</h4>
                 <p>Acceda <a href="/menu_adoptantes/alta_ddjj"
                     style="color: #007bff; text-decoration: underline;">aquí para actualizar su DDJJ</a>.</p>
             """ 
-        elif ddjj and user.doc_adoptante_ddjj_firmada == "Y" and \
+            if mostrar_mensaje_reinicio:
+                mensaje_para_portada += mensaje_reinicio_html
+        elif ddjj and doc_ddjj_firmada == "Y" and \
                 user.doc_adoptante_estado in ( 'inicial_cargando', 'actualizando' ) :
             mensaje_para_portada = """
                 <h4>DDJJ firmada</h4>
@@ -3649,20 +3710,20 @@ def get_estado_usuario(
                 <p>Complete la documentación personal <a href='/menu_adoptantes/personales'>desde aquí</a>.</p>
             """ 
 
-        elif ddjj and user.doc_adoptante_ddjj_firmada == "Y" and \
+        elif ddjj and doc_ddjj_firmada == "Y" and \
                 user.doc_adoptante_estado in ( 'pedido_revision' ) :
             mensaje_para_portada = """
                 <h4>Documentación en revisión</h4>
                 <h5>Aguarde la revisión de su documentación personal.</h5>
             """ 
-        elif ddjj and user.doc_adoptante_ddjj_firmada == "Y" and \
-                user.doc_adoptante_estado in ( 'aprobado' ) and not proyecto :
+        elif ddjj and doc_ddjj_firmada == "Y" and \
+            user.doc_adoptante_estado in ( 'aprobado' ) and not proyecto_para_portada :
             mensaje_para_portada = """
                 <h4>Documentación aprobada</h4>
                 <h5>Puede presentar su proyecto adoptivo.</h5>
             """ 
-        elif proyecto:
-            estado = proyecto.estado_general
+        elif proyecto_para_portada:
+            estado = proyecto_para_portada.estado_general
             estados_mensajes = {
                 "confeccionando": (
                     "Documentación personal aprobada",
@@ -3744,6 +3805,11 @@ def get_estado_usuario(
                     "Se ha otorgado la guarda confirmada del NNA.",
                     "¡Felicitaciones!"
                 ),
+                "baja_caducidad": (
+                    "Baja por caducidad",
+                    "Su proyecto fue dado de baja por caducidad y no puede iniciar un nuevo proceso desde el portal.",
+                    "Por favor, comuníquese con el equipo técnico del RUA para regularizar la situación."
+                ),
                 "adopcion_definitiva": (
                     "Adopción definitiva",
                     "La adopción ha sido otorgada definitivamente.",
@@ -3787,9 +3853,11 @@ def get_estado_usuario(
                     <h4>Proyecto dado de baja</h4>
                     <h6>Para más información, contacte al equipo técnico.</h6>
                 """
+            
+            
+            if mostrar_mensaje_reinicio:
+                mensaje_para_portada += mensaje_reinicio_html
 
-            
-            
             if estado in ["viable", "en_carpeta"]:
                 FECHA_CORTE_ULTIMO_CAMBIO = date(2025, 6, 1)
 
@@ -3815,7 +3883,7 @@ def get_estado_usuario(
 
                 # --- Fechas candidatas ---
                 fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-                    ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                    ProyectoHistorialEstado.proyecto_id == proyecto_para_portada.proyecto_id,
                     ProyectoHistorialEstado.estado_anterior == "viable",
                     ProyectoHistorialEstado.estado_nuevo == "viable",
                     ProyectoHistorialEstado.estado_anterior != "en_carpeta",
@@ -3823,36 +3891,39 @@ def get_estado_usuario(
                 ).scalar()
 
                 fecha_desde_estados_previos_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-                    ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                    ProyectoHistorialEstado.estado_nuevo == "viable",
+                    ProyectoHistorialEstado.proyecto_id == proyecto_para_portada.proyecto_id,
                     ProyectoHistorialEstado.estado_anterior.in_(ESTADOS_PREVIOS_A_VIABLE),
-                    ProyectoHistorialEstado.estado_anterior.notin_(ESTADOS_CAMINO_A_CARPETA),
+                    ProyectoHistorialEstado.estado_nuevo == "viable",
                     ProyectoHistorialEstado.estado_anterior != "en_carpeta",
                     ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
                 ).scalar()
 
                 fecha_null_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-                    ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                    ProyectoHistorialEstado.estado_nuevo == "viable",
+                    ProyectoHistorialEstado.proyecto_id == proyecto_para_portada.proyecto_id,
                     ProyectoHistorialEstado.estado_anterior.is_(None),
-                    ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
+                    ProyectoHistorialEstado.estado_nuevo == "viable"
                 ).scalar()
 
                 fecha_vinculacion = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-                    ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+                    ProyectoHistorialEstado.proyecto_id == proyecto_para_portada.proyecto_id,
                     ProyectoHistorialEstado.estado_nuevo.in_(["vinculacion", "guarda_provisoria", "guarda_confirmada"])
                 ).scalar()
 
                 # ✅ NUEVO: última ratificación registrada por pretensos
                 fecha_ultima_ratificacion = (
                     db.query(func.max(UsuarioNotificadoRatificacion.ratificado))
-                    .filter(UsuarioNotificadoRatificacion.proyecto_id == proyecto.proyecto_id)
+                    .filter(UsuarioNotificadoRatificacion.proyecto_id == proyecto_para_portada.proyecto_id)
                     .scalar()
                 )
 
                 fechas_posibles = []
-                if proyecto.ultimo_cambio_de_estado and proyecto.ultimo_cambio_de_estado <= FECHA_CORTE_ULTIMO_CAMBIO:
-                    fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, dt_time.min))
+                if (
+                    proyecto_para_portada.ultimo_cambio_de_estado
+                    and proyecto_para_portada.ultimo_cambio_de_estado <= FECHA_CORTE_ULTIMO_CAMBIO
+                ):
+                    fechas_posibles.append(
+                        datetime.combine(proyecto_para_portada.ultimo_cambio_de_estado, dt_time.min)
+                    )
 
                 for f in (
                     fecha_viable_a_viable,
@@ -4025,6 +4096,7 @@ def get_estado_usuario(
         "en_fecha_de_ratificar": en_fecha_de_ratificar,
         "fecha_ratificacion": fecha_ratificacion.strftime("%Y-%m-%d") if 'fecha_ratificacion' in locals() else None,
         "fecha_ratificacion_exacta": fecha_ratificacion_exacta.strftime("%Y-%m-%d") if 'fecha_ratificacion_exacta' in locals() else None,
+        "puede_iniciar_nuevo_proyecto": puede_iniciar_nuevo_proyecto,
     }
 
 

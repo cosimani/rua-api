@@ -234,6 +234,22 @@ def _download_all(raw:str, zipname:str, proyecto_id:int):
     return FileResponse(tmp.name, filename=f"{zipname}_{proyecto_id}.zip", media_type="application/zip")
 
 
+def _get_proyecto_baja_caducidad_para_login(db: Session, login: Optional[str]):
+    """Devuelve el proyecto más reciente en baja por caducidad para el login indicado."""
+    if not login:
+        return None
+
+    return (
+        db.query(Proyecto)
+        .filter(
+            Proyecto.ingreso_por == "rua",
+            Proyecto.estado_general == "baja_caducidad",
+            ((Proyecto.login_1 == login) | (Proyecto.login_2 == login))
+        )
+        .order_by(Proyecto.proyecto_id.desc())
+        .first()
+    )
+
 
 def _set_estado_nna_por_proyecto(db: Session, proyecto_id: int, nuevo_estado: str) -> int:
     """
@@ -297,6 +313,60 @@ ESTADOS_CAMINO_A_CARPETA = (
     "adopcion_definitiva",
     "en_suspenso",
 )
+
+FINAL_PROJECT_STATES = {
+    "adopcion_definitiva",
+    "baja_anulacion",
+    "baja_caducidad",
+    "baja_desistimiento",
+    "baja_interrupcion",
+    "baja_por_convocatoria",
+    "baja_rechazo_invitacion",
+}
+
+ESTADOS_PROYECTO_ACTIVOS = (
+    "invitacion_pendiente",
+    "confeccionando",
+    "en_revision",
+    "actualizando",
+    "enviada_a_juzgado",
+    "aprobado",
+    "calendarizando",
+    "entrevistando",
+    "para_valorar",
+    "viable",
+    "viable_no_disponible",
+    "en_suspenso",
+    "no_viable",
+    "en_carpeta",
+    "vinculacion",
+    "guarda_provisoria",
+    "guarda_confirmada",
+)
+
+
+def _preparar_pretensos_para_nuevo_proceso(db: Session, proyecto: Proyecto) -> None:
+    """Resetea indicadores de DDJJ y documentación para habilitar un nuevo ciclo adoptivo."""
+
+    if not proyecto or proyecto.ingreso_por != "rua":
+        return
+
+    for login in filter(None, [proyecto.login_1, proyecto.login_2]):
+        user = db.query(User).filter(User.login == login).first()
+        if not user:
+            continue
+
+        cambios = False
+        if user.doc_adoptante_ddjj_firmada != "N":
+            user.doc_adoptante_ddjj_firmada = "N"
+            cambios = True
+
+        if user.doc_adoptante_estado != "inicial_cargando":
+            user.doc_adoptante_estado = "inicial_cargando"
+            cambios = True
+
+        if cambios:
+            db.add(user)
 
 
 def _calcular_info_ratificacion_proyecto(proyecto: Proyecto, db: Session, logger=None):
@@ -1536,6 +1606,16 @@ def crear_proyecto_preliminar(
                 "next_page": "actual"
             }
 
+        proyecto_baja_caducidad_login1 = _get_proyecto_baja_caducidad_para_login(db, usuario_actual_login)
+        if proyecto_baja_caducidad_login1:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Tu último proyecto fue dado de baja por caducidad. Comunicate con el equipo del RUA.",
+                "tiempo_mensaje": 8,
+                "next_page": "actual"
+            }
+
         doc_adoptante_curso_aprobado = True
         aceptado_code = None
 
@@ -1575,6 +1655,19 @@ def crear_proyecto_preliminar(
                     "tipo_mensaje": "rojo",
                     "mensaje": f"El usuario '{login_2}' no tiene el rol 'adoptante'.",
                     "tiempo_mensaje": 4,
+                    "next_page": "actual"
+                }
+
+            proyecto_baja_caducidad_login2 = _get_proyecto_baja_caducidad_para_login(db, login_2)
+            if proyecto_baja_caducidad_login2:
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": (
+                        f"La persona con DNI '{login_2}' tiene un proyecto dado de baja por caducidad. "
+                        "Comuníquense con el equipo del RUA."
+                    ),
+                    "tiempo_mensaje": 8,
                     "next_page": "actual"
                 }
 
@@ -1887,6 +1980,16 @@ def crear_proyecto(
         if not login_1_es_adoptante:
             raise HTTPException(status_code=403, detail=f"El usuario '{data['login_1']}' no tiene el rol 'adoptante'.")
 
+        proyecto_baja_caducidad_login1 = _get_proyecto_baja_caducidad_para_login(db, login_1)
+        if proyecto_baja_caducidad_login1:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "El usuario '{login}' tiene un proyecto dado de baja por caducidad. "
+                    "Comuníquense con el equipo del RUA."
+                ).format(login=login_1)
+            )
+
         # Si se incluye login_2, validar también su existencia, rol y mail
         if login_2:
 
@@ -1913,6 +2016,16 @@ def crear_proyecto(
 
             if mail_2.strip().lower() != (login_2_user.mail or "").strip().lower():
                 raise HTTPException(status_code=400, detail="El mail proporcionado en 'mail_2' no coincide con el del usuario 'login_2'.")
+
+            proyecto_baja_caducidad_login2 = _get_proyecto_baja_caducidad_para_login(db, login_2)
+            if proyecto_baja_caducidad_login2:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "El usuario '{login}' tiene un proyecto dado de baja por caducidad. "
+                        "Comuníquense con el equipo del RUA."
+                    ).format(login=login_2)
+                )
 
 
         # Verificar que login_1 no tenga un proyecto activo según estado_general
@@ -5368,6 +5481,9 @@ def confirmar_sentencia_adopcion(
         # 🔁 NNA asociados
         nnas_actualizados = _set_estado_nna_por_proyecto(db, proyecto_id, "adopcion_definitiva")
 
+        if proyecto.ingreso_por == "rua":
+            _preparar_pretensos_para_nuevo_proceso(db, proyecto)
+
         db.commit()
 
         return {
@@ -5547,6 +5663,8 @@ def interrumpir_vinculacion_o_guarda(
         total_nna_liberados = len(nna_liberados_set)
 
 
+        _preparar_pretensos_para_nuevo_proceso(db, proyecto)
+
         db.commit()
 
         return {
@@ -5653,6 +5771,8 @@ def baja_por_convocatoria(
 
         # Estado del proyecto
         proyecto.estado_general = "baja_por_convocatoria"
+
+        _preparar_pretensos_para_nuevo_proceso(db, proyecto)
 
         db.commit()
 
@@ -5795,6 +5915,16 @@ def crear_proyecto_completo(
 
         print( '1', login_1, login_2 )
 
+        user_1_obj = db.query(User).filter(User.login == login_1).first()
+        if not user_1_obj:
+            return {
+                "success": False,
+                "tipo_mensaje": "rojo",
+                "mensaje": "No se encontró el usuario adoptante asociado a la sesión.",
+                "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
         user1_roles = db.query(UserGroup).filter(UserGroup.login == login_1).all()
         if not any(db.query(Group).filter(Group.group_id == r.group_id, Group.description == "adoptante").first() for r in user1_roles):
             return {
@@ -5802,6 +5932,16 @@ def crear_proyecto_completo(
                 "tipo_mensaje": "naranja",
                 "mensaje": f"El usuario no tiene el rol 'adoptante'.",
                 "tiempo_mensaje": 5,
+                "next_page": "actual"
+            }
+
+        proyecto_baja_caducidad_login1 = _get_proyecto_baja_caducidad_para_login(db, login_1)
+        if proyecto_baja_caducidad_login1:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": "Tu último proyecto fue dado de baja por caducidad. Comunicate con el equipo del RUA.",
+                "tiempo_mensaje": 8,
                 "next_page": "actual"
             }
 
@@ -5855,6 +5995,19 @@ def crear_proyecto_completo(
                         "Una vez que esté en condiciones, realizar esta solicitud nuevamente."
                     ),               
                     "tiempo_mensaje": 5,
+                    "next_page": "actual"
+                }
+
+            proyecto_baja_caducidad_login2 = _get_proyecto_baja_caducidad_para_login(db, login_2)
+            if proyecto_baja_caducidad_login2:
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": (
+                        f"La persona con DNI {login_2} tiene un proyecto dado de baja por caducidad. "
+                        "Comuníquense con el equipo del RUA."
+                    ),
+                    "tiempo_mensaje": 8,
                     "next_page": "actual"
                 }
 
@@ -5913,6 +6066,52 @@ def crear_proyecto_completo(
         login_2_anterior = proyecto_existente.login_2 if proyecto_existente else None
         tipo_anterior = proyecto_existente.proyecto_tipo if proyecto_existente else None
 
+        if not proyecto_existente:
+            if user_1_obj.doc_adoptante_ddjj_firmada != "Y":
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": "Debes completar y firmar la DDJJ antes de presentar un proyecto.",
+                    "tiempo_mensaje": 5,
+                    "next_page": "/menu_adoptantes/alta_ddjj",
+                }
+
+            if user_1_obj.doc_adoptante_estado != "aprobado":
+                return {
+                    "success": False,
+                    "tipo_mensaje": "naranja",
+                    "mensaje": "Tu documentación personal debe estar aprobada antes de crear un proyecto.",
+                    "tiempo_mensaje": 5,
+                    "next_page": "/menu_adoptantes/personales",
+                }
+
+
+        proyecto_activo_usuario = (
+            db.query(Proyecto)
+            .filter(
+                Proyecto.ingreso_por == "rua",
+                Proyecto.estado_general.in_(ESTADOS_PROYECTO_ACTIVOS),
+                ((Proyecto.login_1 == login_1) | (Proyecto.login_2 == login_1)),
+            )
+        )
+
+        if proyecto_existente:
+            proyecto_activo_usuario = proyecto_activo_usuario.filter(Proyecto.proyecto_id != proyecto_existente.proyecto_id)
+
+        proyecto_activo_usuario = proyecto_activo_usuario.first()
+
+        if proyecto_activo_usuario:
+            return {
+                "success": False,
+                "tipo_mensaje": "naranja",
+                "mensaje": (
+                    "Ya contás con un proyecto en curso (estado: "
+                    f"{proyecto_activo_usuario.estado_general}). Debes finalizarlo antes de iniciar uno nuevo."
+                ),
+                "tiempo_mensaje": 5,
+                "next_page": "actual",
+            }
+
 
 
         if login_2:
@@ -5920,11 +6119,7 @@ def crear_proyecto_completo(
                 db.query(Proyecto)
                 .filter(
                     ((Proyecto.login_1 == login_2) | (Proyecto.login_2 == login_2)),
-                    Proyecto.estado_general.in_([
-                        'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando', 'aprobado',
-                        'calendarizando', 'entrevistando', 'para_valorar', 'viable', 'viable_no_disponible',
-                        'en_suspenso', 'no_viable', 'en_carpeta', 'vinculacion', 'guarda_provisoria', 'guarda_confirmada'
-                    ]),
+                    Proyecto.estado_general.in_(ESTADOS_PROYECTO_ACTIVOS),
                     Proyecto.ingreso_por == "rua"
                 )
                 .first()
@@ -8049,6 +8244,9 @@ def actualizar_estado_proyecto(
 
     proyecto.estado_general         = nuevo_estado
 
+    if nuevo_estado in FINAL_PROJECT_STATES:
+        _preparar_pretensos_para_nuevo_proceso(db, proyecto)
+
     # Este cambio de estado ya no lo registraré porque ya lo hace en ProyectoHistorialEstado
     # y dificulta el seguimiento de la ratificación. Más que nada se usa para para los proyectos de RUA v1
     # proyecto.ultimo_cambio_de_estado = datetime.now().date()
@@ -8335,6 +8533,7 @@ def notificar_siguiente_proyecto_para_ratificar(
                     if not baja_caducidad_triggered:
                         baja_caducidad_triggered = True
                         baja_contexto["cuando"] = hoy
+                    _preparar_pretensos_para_nuevo_proceso(db, proyecto_obj)
                     db.commit()
                     enviados.append({"login": login, "mensaje": "Proyecto pasado a baja_caducidad"})
                 continue
