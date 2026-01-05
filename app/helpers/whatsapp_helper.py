@@ -1,26 +1,31 @@
-import requests
 import os
 
+import requests
 from dotenv import load_dotenv
-from typing import Dict
+from typing import Dict, Optional
+
+from sqlalchemy.orm import Session
+
+from helpers.config_whatsapp import WhatsAppSettings, get_whatsapp_settings
 
 
-# Cargar variables de entorno desde el archivo .env
 load_dotenv()
 
-# Obtener y validar la variable
-WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
-
-if not WHATSAPP_ACCESS_TOKEN:
-    raise RuntimeError("La variable de entorno WHATSAPP_ACCESS_TOKEN no está definida. Verificá tu archivo .env")
-
-
 WHATSAPP_API_URL = "https://graph.facebook.com/v22.0"
-PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")  # configurá esto en tu entorno
-ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")        # configurá esto en tu entorno
 
-if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
-    raise RuntimeError("Faltan variables WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID")
+
+def _resolve_whatsapp_settings(
+    db: Optional[Session],
+    whatsapp_settings: Optional[WhatsAppSettings]
+) -> WhatsAppSettings:
+    """Devuelve una configuración válida de WhatsApp usando sec_settings."""
+    if whatsapp_settings:
+        return whatsapp_settings
+
+    if db is None:
+        raise ValueError("Se requiere una sesión de base de datos para obtener la configuración de WhatsApp.")
+
+    return get_whatsapp_settings(db)
 
 
 
@@ -93,16 +98,21 @@ if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
 
 
 def _enviar_template_whatsapp(
+    *,
+    db: Session,
     destinatario: str,
     template_name: str,
     parametros: list,
-    language_code: str = "es"
-    ) -> Dict:
+    language_code: str = "es",
+    whatsapp_settings: Optional[WhatsAppSettings] = None
+) -> Dict:
 
-    url = f"{WHATSAPP_API_URL}/{PHONE_NUMBER_ID}/messages"
+    settings = _resolve_whatsapp_settings(db, whatsapp_settings)
+
+    url = f"{WHATSAPP_API_URL}/{settings.phone_number_id}/messages"
 
     headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Authorization": f"Bearer {settings.whatsapp_token}",
         "Content-Type": "application/json"
     }
 
@@ -168,15 +178,20 @@ def _enviar_template_whatsapp(
 # {{2}} = Mensaje
 # ==========================================================
 def enviar_whatsapp_rua_notificacion(
+    *,
+    db: Session,
     destinatario: str,
     nombre: str,
-    mensaje: str
-    ) -> Dict:
+    mensaje: str,
+    whatsapp_settings: Optional[WhatsAppSettings] = None
+) -> Dict:
 
     return _enviar_template_whatsapp(
-        destinatario = destinatario,
-        template_name = "rua_notificacion_v1",
-        parametros = [
+        db=db,
+        whatsapp_settings=whatsapp_settings,
+        destinatario=destinatario,
+        template_name="rua_notificacion_v1",
+        parametros=[
             nombre,
             mensaje
         ]
@@ -192,16 +207,21 @@ def enviar_whatsapp_rua_notificacion(
 # {{3}} Hora
 # ==========================================================
 def enviar_whatsapp_rua_recordatorio_cita(
+    *,
+    db: Session,
     destinatario: str,
     nombre: str,
     fecha: str,
-    hora: str
-    ) -> Dict:
+    hora: str,
+    whatsapp_settings: Optional[WhatsAppSettings] = None
+) -> Dict:
 
     return _enviar_template_whatsapp(
-        destinatario = destinatario,
-        template_name = "rua_recordatorio_cita_v1",
-        parametros = [
+        db=db,
+        whatsapp_settings=whatsapp_settings,
+        destinatario=destinatario,
+        template_name="rua_recordatorio_cita_v1",
+        parametros=[
             nombre,
             fecha,
             hora
@@ -214,12 +234,20 @@ def enviar_whatsapp_rua_recordatorio_cita(
 
 
 
-def enviar_whatsapp_texto(destinatario: str, mensaje: str) -> dict:
+def enviar_whatsapp_texto(
+    *,
+    db: Session,
+    destinatario: str,
+    mensaje: str,
+    whatsapp_settings: Optional[WhatsAppSettings] = None
+) -> dict:
 
-    url = f"{WHATSAPP_API_URL}/{PHONE_NUMBER_ID}/messages"
+    settings = _resolve_whatsapp_settings(db, whatsapp_settings)
+
+    url = f"{WHATSAPP_API_URL}/{settings.phone_number_id}/messages"
 
     headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Authorization": f"Bearer {settings.whatsapp_token}",
         "Content-Type": "application/json"
     }
 
@@ -254,11 +282,19 @@ def enviar_whatsapp_texto(destinatario: str, mensaje: str) -> dict:
 
 
 
-def enviar_whatsapp(destinatario: str, mensaje: str) -> dict:
-    url = f"{WHATSAPP_API_URL}/{PHONE_NUMBER_ID}/messages"
+def enviar_whatsapp(
+    *,
+    db: Session,
+    destinatario: str,
+    mensaje: str,
+    whatsapp_settings: Optional[WhatsAppSettings] = None
+) -> dict:
+    settings = _resolve_whatsapp_settings(db, whatsapp_settings)
+
+    url = f"{WHATSAPP_API_URL}/{settings.phone_number_id}/messages"
     
     headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Authorization": f"Bearer {settings.whatsapp_token}",
         "Content-Type": "application/json"
     }
 

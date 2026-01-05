@@ -1304,3 +1304,23 @@ def get_notificacion_settings(db, base_key: str):
         setting = db.query(SecSettings).filter_by(set_name=key).first()
         config[canal.replace("_", "")] = (setting.set_value == "Y") if setting else False
     return config
+
+
+
+def normalize_phone(phone: str) -> str:
+    """
+    Normaliza un número de teléfono para asegurar consistencia entre 
+    lo que envía Meta (ej: 549...) y lo que guardamos (ej: 54...).
+    """
+    if not phone:
+        return phone
+    
+    # Eliminar cualquier caracter que no sea número
+    normalized = "".join(filter(str.isdigit, phone))
+    
+    # Caso específico Argentina: Meta envía 549... pero se suele guardar como 54...
+    # Si empieza con 549 y tiene 13 dígitos, quitamos el 9.
+    if normalized.startswith("549") and len(normalized) == 13:
+        normalized = "54" + normalized[3:]
+        
+    return normalized

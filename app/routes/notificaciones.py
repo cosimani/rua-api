@@ -1,27 +1,36 @@
 
-from fastapi import APIRouter, HTTPException, Depends, Query, Body
+from fastapi import APIRouter, HTTPException, Depends, Query, Body, Request
 from typing import Literal, Optional, List
+
+from fastapi.responses import PlainTextResponse #NUEVO!
+
+from helpers.config_whatsapp import get_whatsapp_settings #NUEVO!
 
 from models.users import User, Group, UserGroup 
 from models.proyecto import Proyecto
 from models.eventos_y_configs import SecSettings
 
-from models.notif_y_observaciones import NotificacionesRUA, Mensajeria
+from models.notif_y_observaciones import NotificacionesRUA, Mensajeria, WebhookEvent
+
 
 
 from database.config import get_db  # Importá get_db desde config.py
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import func
+from sqlalchemy import or_ #NUEVO!
 
 from models.eventos_y_configs import RuaEvento
 from datetime import date, datetime, timedelta
 from security.security import get_current_user, require_roles, verify_api_key
 
-from helpers.utils import enviar_mail, get_setting_value
+from helpers.utils import enviar_mail, get_setting_value, normalize_phone
 from helpers.whatsapp_helper import enviar_whatsapp, enviar_whatsapp_texto, _enviar_template_whatsapp
 from helpers.mensajeria_utils import registrar_mensaje
 
+from helpers.whatsapp_template_1 import WhatsAppTemplate1Service #NUEVO!
+from helpers.whatsapp_template_2 import WhatsAppTemplate2Service #NUEVO!
+from helpers.whatsapp_template_3 import WhatsAppTemplate3Service #NUEVO!
 
 
 from helpers.notificaciones_utils import crear_notificacion_individual, crear_notificacion_masiva_por_rol, \
@@ -29,6 +38,11 @@ from helpers.notificaciones_utils import crear_notificacion_individual, crear_no
 
 
 
+
+import logging #NUEVO! -> Para saber si llegan los webhooks correctamente
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__) 
+#===================================================================================
 
 
 
@@ -524,110 +538,6 @@ def listar_notificaciones_comunes_del_proyecto(
 
 
 
-@notificaciones_router.post("/mensajeria/whatsapp", response_model=dict,
-    dependencies=[Depends(verify_api_key),
-        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
-def enviar_whatsapp(
-    data: dict = Body(...),
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
-    ):
-
-    print("\n" + "=" * 80)
-    print("🚀 [ENVÍO WHATSAPP]")
-    print("📨 Payload:", data)
-
-    destinatarios = data.get("destinatarios", [])
-    plantilla = data.get("plantilla")
-    parametros = data.get("parametros", [])
-
-    if not destinatarios:
-        raise HTTPException(400, "Debe indicar destinatarios")
-
-    if not plantilla:
-        raise HTTPException(400, "Debe indicar 'plantilla'")
-
-    login_emisor = current_user["user"]["login"]
-    resultados = []
-
-    for login_destinatario in destinatarios:
-
-        try:
-            user = db.query(User).filter_by(login=login_destinatario).first()
-
-            if not user or not user.celular:
-                resultados.append({
-                    "login": login_destinatario,
-                    "success": False,
-                    "mensaje": "Usuario sin celular o inexistente"
-                })
-                continue
-
-            numero = user.celular.replace("+", "").replace(" ", "").replace("-", "")
-            if not numero.startswith("54"):
-                numero = "54" + numero
-
-            print(f"📲 Enviando a {numero} - Plantilla: {plantilla}")
-
-            # ---- Enviar WhatsApp ----
-            respuesta_envio = _enviar_template_whatsapp(
-                destinatario=numero,
-                template_name=plantilla,
-                parametros=parametros
-            )
-
-            estado = "enviado" if "messages" in respuesta_envio else "error"
-            mensaje_externo_id = None
-
-            if "messages" in respuesta_envio:
-                mensaje_externo_id = respuesta_envio["messages"][0].get("id")
-
-            # ---- Registrar mensaje con tu función ----
-            registrar_mensaje(
-                db,
-                tipo="whatsapp",
-                login_emisor=login_emisor,
-                login_destinatario=login_destinatario,
-                destinatario_texto=f"{user.nombre} {user.apellido}",
-                contenido=f"Plantilla: {plantilla} / Parámetros: {parametros}",
-                estado=estado,
-                mensaje_externo_id=mensaje_externo_id,
-                data_json=respuesta_envio
-            )
-
-            resultados.append({
-                "login": login_destinatario,
-                "success": estado == "enviado",
-                "mensaje": f"WhatsApp {estado}"
-            })
-
-        except Exception as e:
-            resultados.append({
-                "login": login_destinatario,
-                "success": False,
-                "mensaje": str(e)
-            })
-
-    # 🔥 commit final
-    db.commit()
-
-    enviados = sum(1 for r in resultados if r["success"])
-    total = len(resultados)
-
-    tipo_mensaje = "verde" if enviados == total else "naranja" if enviados > 0 else "rojo"
-
-    return {
-        "success": True,
-        "tipo_mensaje": tipo_mensaje,
-        "mensaje": "<br>".join([f"{r['login']}: {r['mensaje']}" for r in resultados]),
-        "tiempo_mensaje": 5,
-        "next_page": "actual"
-    }
-
-
-
-
-
 @notificaciones_router.post("/mensajeria/email", response_model=dict,
     dependencies=[Depends(verify_api_key),
         Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
@@ -745,7 +655,6 @@ def listar_mensajeria(
     limit: int = 20,
 
     search: Optional[str] = None,
-    tipo: Optional[str] = None,
     estado: Optional[str] = None,
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
@@ -754,12 +663,11 @@ def listar_mensajeria(
     current_user: dict = Depends(get_current_user)
     ):
 
+    """
+    📧 Devuelve el historial paginado de correos electrónicos enviados (tipo=email).
+    """
 
-    query = db.query(Mensajeria)
-
-    # FILTRO POR TIPO
-    if tipo in ["whatsapp", "email"]:
-        query = query.filter(Mensajeria.tipo == tipo)
+    query = db.query(Mensajeria).filter(Mensajeria.tipo == "email")
 
     # FILTRO POR ESTADO
     if estado:
@@ -817,10 +725,6 @@ def listar_mensajeria(
 
 
 
-
-# ==========================================================
-#  🔁 Actualizar estado del mensaje
-# ==========================================================
 @notificaciones_router.put("/mensajeria/{mensaje_id}/estado", response_model=dict,
     dependencies=[Depends(verify_api_key), 
     Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
@@ -846,59 +750,61 @@ def actualizar_estado_mensaje(
 
 
 
-@notificaciones_router.get("/webhook/whatsapp")
-def verificar_webhook(
-    hub_mode: str = Query(None, alias="hub.mode"),
-    hub_challenge: str = Query(None, alias="hub.challenge"),
-    hub_verify_token: str = Query(None, alias="hub.verify_token")
-    ):
-    VERIFY_TOKEN = "rua_whatsapp_webhook_2025"
 
-    if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
-        return int(hub_challenge)
-    else:
-        raise HTTPException(status_code=403, detail="Webhook no autorizado")
+# @notificaciones_router.get("/webhook/whatsapp")
+# def verificar_webhook(
+#     hub_mode: str = Query(None, alias="hub.mode"),
+#     hub_challenge: str = Query(None, alias="hub.challenge"),
+#     hub_verify_token: str = Query(None, alias="hub.verify_token"),
+#     db: Session = Depends(get_db)
+#     ):
+#     whatsapp_settings = get_whatsapp_settings(db)
+
+#     if hub_mode == "subscribe" and hub_verify_token == whatsapp_settings.verify_token:
+#         return int(hub_challenge)
+#     else:
+#         raise HTTPException(status_code=403, detail="Webhook no autorizado")
 
 
 
 
-@notificaciones_router.post("/webhook/whatsapp")
-def recibir_estado_whatsapp(data: dict, db: Session = Depends(get_db)):
+# @notificaciones_router.post("/webhook/whatsapp")
+# def recibir_estado_whatsapp(data: dict, db: Session = Depends(get_db)):
 
-    try:
-        entry = data.get("entry", [])
-        changes = entry[0].get("changes", [])
-        value = changes[0].get("value", {})
+#     try:
+#         entry = data.get("entry", [])
+#         changes = entry[0].get("changes", [])
+#         value = changes[0].get("value", {})
 
-        statuses = value.get("statuses", [])
+#         statuses = value.get("statuses", [])
 
-        for status in statuses:
-            mensaje_id_externo = status.get("id")
-            estado_wp = status.get("status")
+#         for status in statuses:
+#             mensaje_id_externo = status.get("id")
+#             estado_wp = status.get("status")
 
-            # Mapear estados WhatsApp -> sistema interno
-            mapeo = {
-                "sent": "enviado",
-                "delivered": "entregado",
-                "read": "leido",
-                "failed": "error"
-            }
+#             # Mapear estados WhatsApp -> sistema interno
+#             mapeo = {
+#                 "sent": "enviado",
+#                 "delivered": "entregado",
+#                 "read": "leido",
+#                 "failed": "error"
+#             }
 
-            nuevo_estado = mapeo.get(estado_wp, "error")
+#             nuevo_estado = mapeo.get(estado_wp, "error")
 
-            mensaje = db.query(Mensajeria).filter(
-                Mensajeria.mensaje_externo_id == mensaje_id_externo
-            ).first()
+#             mensaje = db.query(Mensajeria).filter(
+#                 Mensajeria.mensaje_externo_id == mensaje_id_externo
+#             ).first()
 
-            if mensaje:
-                mensaje.estado = nuevo_estado
-                db.commit()
+#             if mensaje:
+#                 mensaje.estado = nuevo_estado
+#                 db.commit()
 
-        return {"success": True}
+#         return {"success": True}
 
-    except Exception as e:
-        print("❌ Error webhook:", str(e))
-        return {"success": False}
+#     except Exception as e:
+#         print("❌ Error webhook:", str(e))
+#         return {"success": False}
 
 
 
@@ -1054,3 +960,368 @@ def save_config_mensajeria(
     db.commit()
 
     return {"success": True, "mensaje": "Configuración guardada"}
+
+
+
+
+
+
+
+#===================================================================================================
+
+@notificaciones_router.get("/webhook/whatsapp")
+async def verify_token(
+    hub_mode: str = Query(None, alias="hub.mode"), # almacena los query params en una variable hub_mode de tipo string 
+    hub_verify_token: str = Query(None, alias="hub.verify_token"),
+    hub_challenge: str = Query(None, alias="hub.challenge"),
+    db: Session = Depends(get_db)
+    ):
+     
+    whatsapp_settings = get_whatsapp_settings(db)
+
+    if hub_mode == "subscribe" and hub_verify_token == whatsapp_settings.verify_token:
+        return PlainTextResponse(hub_challenge) # retorna el valor de hub_challenge en texto plano porque asi lo exige "META"
+
+    return PlainTextResponse("Verification failed", status_code=403)
+
+
+
+@notificaciones_router.post("/webhook/whatsapp")
+async def receive_update(request: Request, db: Session = Depends(get_db)):
+    try:
+        body = await request.json()
+        logger.info(f"WEBHOOK RECEIVED: {body}")
+    except Exception as e:
+        logger.error(f"Error parsing webhook body: {e}")
+        return {"status": "error", "message": "Invalid JSON"}
+
+    # 1) Si es un mensaje entrante
+    entry = body.get("entry", [])
+    for e in entry:
+        for change in e.get("changes", []):
+            value = change.get("value", {})
+
+            # a) mensajes entrantes
+            if "messages" in value:
+                for message in value["messages"]:
+                    sender = message["from"]
+                    msg_type = message["type"]
+                    meta_id = message["id"]
+
+                    # Normalizar número del remitente
+                    normalized_sender = normalize_phone(sender)
+
+                    # Buscar destinatario por celular
+                    user = db.query(User).filter(
+                        or_(
+                            User.celular == normalized_sender,
+                            User.celular == sender
+                        )
+                    ).first()
+                    
+                    login_user = user.login if user else None
+                    user_texto = f"{user.nombre} {user.apellido}" if user else sender
+
+                    content = ""
+                    if msg_type == "text":
+                        content = message["text"]["body"]
+                        logger.info(f"Mensaje recibido de {sender}: {content}")
+
+                    # 1. Guardar en el historial (webhooks)
+                    new_event = WebhookEvent(
+                        mensaje_externo_id=meta_id,
+                        content=content,
+                        status="recibido",
+                        login_usuario=login_user
+                    )
+                    db.add(new_event)
+
+                    # 2. Actualizar o crear el registro en Mensajeria (último evento)
+                    last_msg = None
+                    if login_user:
+                        last_msg = db.query(Mensajeria).filter(Mensajeria.login_destinatario == login_user).first()
+                    
+                    if last_msg:
+                        last_msg.mensaje_externo_id = meta_id
+                        last_msg.contenido = content
+                        last_msg.estado = "recibido"
+                        last_msg.destinatario_texto = user_texto
+                    else:
+                        last_msg = Mensajeria(
+                            mensaje_externo_id=meta_id,
+                            tipo="whatsapp",
+                            contenido=content,
+                            estado="recibido",
+                            login_destinatario=login_user,
+                            destinatario_texto=user_texto
+                        )
+                        db.add(last_msg)
+                    
+                    db.commit()
+
+            # b) estados del mensaje (sent, delivered, read...)
+            if "statuses" in value:
+                for status in value["statuses"]:
+                    message_id = status["id"]
+                    status_value = status["status"]
+                    timestamp = status["timestamp"]
+
+                    # Mapear estados de WhatsApp a los de nuestro Enum
+                    # Enum: 'no_enviado', 'enviado', 'recibido', 'leido', 'entregado', 'error'
+                    estado_mapeado = status_value
+                    if status_value == 'sent': estado_mapeado = 'enviado'
+                    elif status_value == 'delivered': estado_mapeado = 'entregado'
+                    elif status_value == 'read': estado_mapeado = 'leido'
+                    elif status_value == 'failed': estado_mapeado = 'error'
+
+                    logger.info(f"Estado del mensaje {message_id}: {status_value} (mapeado: {estado_mapeado})")
+                    
+                    # Buscar el último evento de este mensaje para ver el estado actual
+                    last_event = db.query(WebhookEvent).filter(
+                        WebhookEvent.mensaje_externo_id == message_id
+                    ).order_by(WebhookEvent.received_at.desc()).first()
+                    
+                    if last_event:
+                        # Solo registrar si el estado es DISTINTO al que ya tenemos
+                        if last_event.status != estado_mapeado:
+                            # 1. Guardar el cambio de estado en el historial
+                            new_status_event = WebhookEvent(
+                                mensaje_externo_id=message_id,
+                                asunto=last_event.asunto,
+                                content=last_event.content,
+                                status=estado_mapeado,
+                                login_usuario=last_event.login_usuario
+                            )
+                            db.add(new_status_event)
+
+                            # 2. Actualizar el registro en Mensajeria solo si coincide el mensaje_externo_id
+                            last_msg = db.query(Mensajeria).filter(Mensajeria.mensaje_externo_id == message_id).first()
+                            if last_msg:
+                                last_msg.estado = estado_mapeado
+                            
+                            db.commit()
+                            logger.info(f"Nuevo estado registrado: {message_id} -> {estado_mapeado}")
+                        else:
+                            logger.info(f"Estado {estado_mapeado} ya registrado para {message_id}, ignorando duplicado.")
+                    else:
+                        logger.warning(f"Mensaje original {message_id} no encontrado en historial para registrar estado {estado_mapeado}")
+
+    return {"status": "ok"}
+
+
+
+
+@notificaciones_router.post("/mensajeria/whatsapp",
+    dependencies=[Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"])), ],)
+def send_message(payload: dict = Body(...), db: Session = Depends(get_db)):
+    # 1. Enviar mensaje a Meta (Meta suele aceptar el número con o sin 9, pero usamos el original o el normalizado según prefieras. 
+    # WhatsApp Cloud API suele preferir el formato internacional completo sin el 9 para Argentina si es para enviar, 
+    # pero si el usuario ya puso el número que funciona, lo mantenemos para el envío y normalizamos para la DB).
+    # Normalizar número
+    try:
+        whatsapp_settings = get_whatsapp_settings(db)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    numero_destino = payload.get("to")
+    nombre_template = payload.get("message")
+    variables = payload.get("vars") or []
+
+    if not numero_destino or not nombre_template:
+        raise HTTPException(400, "Debe indicar 'to' y 'message'.")
+
+    if not isinstance(variables, list):
+        raise HTTPException(400, "'vars' debe ser una lista.")
+
+    normalized_to = normalize_phone(numero_destino)
+
+    num_vars = len(variables)
+
+    if num_vars == 0 or num_vars == 1:
+        service = WhatsAppTemplate1Service
+    elif num_vars == 2:
+        service = WhatsAppTemplate2Service
+    elif num_vars == 3:
+        service = WhatsAppTemplate3Service
+    else:
+        return {"status": "error", "message": "Solo se soportan hasta 3 variables"}
+
+    response = service.send_template_message(
+        numero_destino,
+        nombre_template,
+        variables,
+        whatsapp_settings=whatsapp_settings
+    )
+
+    meta_id = None
+    if "messages" in response and len(response["messages"]) > 0:
+        meta_id = response["messages"][0].get("id")
+
+    user = db.query(User).filter(
+        or_(
+            User.celular == normalized_to,
+            User.celular == numero_destino
+        )
+    ).first()
+
+    login_dest = user.login if user else None
+    dest_texto = f"{user.nombre} {user.apellido}" if user else numero_destino
+
+    content = service.get_template_content(nombre_template, whatsapp_settings) or nombre_template
+
+    if variables and content:
+        for i, var in enumerate(variables):
+            placeholder = f"{{{{{i + 1}}}}}"
+            content = content.replace(placeholder, var)
+
+    new_event = WebhookEvent(
+        mensaje_externo_id=meta_id,
+        asunto=nombre_template,
+        content=content,
+        status="enviado",
+        login_usuario=login_dest
+    )
+    db.add(new_event)
+
+    last_msg = None
+    if login_dest:
+        last_msg = db.query(Mensajeria).filter(Mensajeria.login_destinatario == login_dest).first()
+
+    if last_msg:
+        last_msg.mensaje_externo_id = meta_id
+        last_msg.asunto = nombre_template
+        last_msg.contenido = content
+        last_msg.estado = "enviado"
+        last_msg.destinatario_texto = dest_texto
+    else:
+        last_msg = Mensajeria(
+            mensaje_externo_id=meta_id,
+            tipo="whatsapp",
+            asunto=nombre_template,
+            contenido=content,
+            estado="enviado",
+            login_destinatario=login_dest,
+            destinatario_texto=dest_texto
+        )
+        db.add(last_msg)
+
+    db.commit()
+
+    return response
+
+
+
+
+@notificaciones_router.get("/mensajeria/listado/whatsapp", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"])),],)
+def listar_mensajeria_whatsapp(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=200),
+    search: Optional[str] = Query(None, description="Buscar por destinatario, asunto o contenido"),
+    estado: Optional[str] = Query(None, description="Filtrar por estado del mensaje"),
+    fecha_desde: Optional[str] = Query(None, alias="fecha_desde"),
+    fecha_hasta: Optional[str] = Query(None, alias="fecha_hasta"),
+    db: Session = Depends(get_db)
+    ):
+
+    """📱 Devuelve el historial paginado de mensajes de WhatsApp."""
+
+    query = db.query(Mensajeria).filter(Mensajeria.tipo == "whatsapp")
+
+    if estado:
+        query = query.filter(Mensajeria.estado == estado)
+
+    if search:
+        like = f"%{search}%"
+        query = query.filter(
+            (Mensajeria.destinatario_texto.ilike(like)) |
+            (Mensajeria.asunto.ilike(like)) |
+            (Mensajeria.contenido.ilike(like))
+        )
+
+    if fecha_desde:
+        query = query.filter(Mensajeria.fecha_envio >= fecha_desde)
+
+    if fecha_hasta:
+        query = query.filter(Mensajeria.fecha_envio <= fecha_hasta)
+
+    total_records = query.count()
+    total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
+
+    mensajes = (
+        query.order_by(Mensajeria.fecha_envio.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+
+    mensajes_list = [
+        {
+            "id": m.mensaje_id,
+            "fecha_envio": m.fecha_envio,
+            "tipo": m.tipo,
+            "destinatario": m.destinatario_texto,
+            "asunto": m.asunto,
+            "contenido": m.contenido,
+            "estado": m.estado,
+        }
+        for m in mensajes
+    ]
+
+    return {
+        "page": page,
+        "limit": limit,
+        "total_pages": total_pages,
+        "total_records": total_records,
+        "mensajes": mensajes_list
+    }
+
+
+
+
+@notificaciones_router.get("/mensajeria/detalle_mensaje",
+    dependencies=[Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"])),],)
+def get_mensajeria_detalle(
+    login: str = Query(..., description="Login del usuario"),
+    db: Session = Depends(get_db)
+    ):
+    
+    """
+    Trae todo el historial de eventos (webhooks) relacionado con un usuario.
+    """
+    events = db.query(WebhookEvent).filter(
+        WebhookEvent.login_usuario == login
+    ).order_by(WebhookEvent.received_at.asc()).all()
+    
+    user = db.query(User).filter(User.login == login).first()
+    
+    if not user:
+        return {"status": "error", "message": "Usuario no encontrado"}
+
+    history = []
+    for event in events:
+        history.append({
+            "id": event.id,
+            "mensaje_externo_id": event.mensaje_externo_id,
+            "timestamp": event.received_at,
+            "contenido": event.content,
+            "estado": event.status
+        })
+    
+    return {
+        "usuario": {
+            "login": user.login,
+            "nombre": user.nombre,
+            "apellido": user.apellido,
+            "celular": user.celular
+        },
+        "history": history
+    }
+
+
+
+
+

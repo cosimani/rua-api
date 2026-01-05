@@ -29,6 +29,7 @@ from database.config import get_db
 from helpers.utils import get_user_name_by_login, construir_subregistro_string, parse_date, generar_codigo_para_link, \
     enviar_mail, enviar_mail_multiples, get_setting_value, edad_como_texto, check_consecutive_numbers, \
     get_notificacion_settings
+from helpers.config_whatsapp import get_whatsapp_settings
 from helpers.mensajeria_utils import registrar_mensaje
 
 from models.eventos_y_configs import RuaEvento, UsuarioNotificadoRatificacion
@@ -233,33 +234,6 @@ def _download_all(raw:str, zipname:str, proyecto_id:int):
     return FileResponse(tmp.name, filename=f"{zipname}_{proyecto_id}.zip", media_type="application/zip")
 
 
-# def _set_estado_nna_por_proyecto(db: Session, proyecto_id: int, nuevo_estado: str) -> int:
-#     """
-#     Actualiza el estado (nna_estado) de todos los NNA asociados a las carpetas
-#     donde participa el proyecto dado. Devuelve la cantidad de NNA actualizados.
-#     """
-#     # Subconsulta con carpetas donde está el proyecto
-#     subq_carpetas = (
-#         db.query(DetalleProyectosEnCarpeta.carpeta_id)
-#           .filter(DetalleProyectosEnCarpeta.proyecto_id == proyecto_id)
-#           .subquery()
-#     )
-
-#     # NNA que están en esas carpetas
-#     nnas_q = (
-#         db.query(Nna)
-#           .join(DetalleNNAEnCarpeta, DetalleNNAEnCarpeta.nna_id == Nna.nna_id)
-#           .filter(DetalleNNAEnCarpeta.carpeta_id.in_(subq_carpetas))
-#     )
-
-#     count = 0
-#     for nna in nnas_q.all():
-#         if nna.nna_estado != nuevo_estado:
-#             nna.nna_estado = nuevo_estado
-#             count += 1
-
-#     return count
-
 
 def _set_estado_nna_por_proyecto(db: Session, proyecto_id: int, nuevo_estado: str) -> int:
     """
@@ -298,6 +272,115 @@ def _set_estado_nna_por_proyecto(db: Session, proyecto_id: int, nuevo_estado: st
             count += 1
 
     return count
+
+
+
+
+
+FECHA_CORTE_ULTIMO_CAMBIO = date(2025, 6, 1)
+ESTADOS_PREVIOS_A_VIABLE = [
+    "en_revision", "actualizando", "aprobado",
+    "calendarizando", "entrevistando", "para_valorar",
+    "en_suspenso", "viable", "no_viable", "vinculacion",
+    "guarda_provisoria", "guarda_confirmada",
+    "adopcion_definitiva", "baja_anulacion", "baja_caducidad",
+    "baja_por_convocatoria", "baja_rechazo_invitacion",
+    "baja_interrupcion", "baja_desistimiento"
+]
+
+ESTADOS_CAMINO_A_CARPETA = (
+    "en_carpeta",
+    "enviada_a_juzgado",
+    "vinculacion",
+    "guarda_provisoria",
+    "guarda_confirmada",
+    "adopcion_definitiva",
+    "en_suspenso",
+)
+
+
+def _calcular_info_ratificacion_proyecto(proyecto: Proyecto, db: Session, logger=None):
+    """Centraliza el cálculo de fechas de ratificación para un proyecto."""
+
+    def log(msg: str) -> None:
+        if logger:
+            logger(msg)
+
+    fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+        ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+        ProyectoHistorialEstado.estado_anterior == "viable",
+        ProyectoHistorialEstado.estado_nuevo == "viable",
+        ProyectoHistorialEstado.estado_anterior != "en_carpeta",
+        ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
+    ).scalar()
+
+    fecha_desde_estados_previos_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+        ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+        ProyectoHistorialEstado.estado_nuevo == "viable",
+        ProyectoHistorialEstado.estado_anterior.in_(ESTADOS_PREVIOS_A_VIABLE),
+        ProyectoHistorialEstado.estado_anterior.notin_(ESTADOS_CAMINO_A_CARPETA),
+        ProyectoHistorialEstado.estado_anterior != "en_carpeta",
+        ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
+    ).scalar()
+
+    fecha_null_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+        ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+        ProyectoHistorialEstado.estado_nuevo == "viable",
+        ProyectoHistorialEstado.estado_anterior.is_(None),
+        ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
+    ).scalar()
+
+    fecha_vinculacion = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
+        ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
+        ProyectoHistorialEstado.estado_nuevo.in_(["vinculacion", "guarda_provisoria", "guarda_confirmada"])
+    ).scalar()
+
+    fecha_ultima_ratificacion = (
+        db.query(func.max(UsuarioNotificadoRatificacion.ratificado))
+        .filter(UsuarioNotificadoRatificacion.proyecto_id == proyecto.proyecto_id)
+        .scalar()
+    )
+
+    log(f"   • fecha_viable_a_viable: {fecha_viable_a_viable}")
+    log(f"   • fecha_desde_estados_previos_a_viable: {fecha_desde_estados_previos_a_viable}")
+    log(f"   • fecha_null_a_viable: {fecha_null_a_viable}")
+    log(f"   • fecha_vinculacion/guarda: {fecha_vinculacion}")
+    log(f"   • fecha_ultima_ratificacion: {fecha_ultima_ratificacion}")
+    log(f"   • ultimo_cambio_de_estado: {proyecto.ultimo_cambio_de_estado}")
+
+    fechas_posibles = []
+
+    if proyecto.ultimo_cambio_de_estado and proyecto.ultimo_cambio_de_estado <= FECHA_CORTE_ULTIMO_CAMBIO:
+        fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
+        log(f"   ✔️ Se considera ultimo_cambio_de_estado ({proyecto.ultimo_cambio_de_estado})")
+
+    for fecha in (
+        fecha_viable_a_viable,
+        fecha_desde_estados_previos_a_viable,
+        fecha_null_a_viable,
+        fecha_vinculacion,
+        fecha_ultima_ratificacion,
+    ):
+        if fecha:
+            fechas_posibles.append(fecha)
+
+    fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
+    fecha_ratificacion_exacta = (fecha_cambio_final + timedelta(days=365)) if fecha_cambio_final else None
+    fecha_ratificacion = (fecha_cambio_final + timedelta(days=356)) if fecha_cambio_final else None
+
+    log(f"   ➤ fecha_cambio_final elegida: {fecha_cambio_final}")
+    log(f"   ➤ fecha_ratificacion (aviso): {fecha_ratificacion}")
+    log(f"   ➤ fecha_ratificacion_exacta (1 año): {fecha_ratificacion_exacta}")
+
+    return {
+        "fecha_cambio_final": fecha_cambio_final,
+        "fecha_ratificacion": fecha_ratificacion,
+        "fecha_ratificacion_exacta": fecha_ratificacion_exacta,
+        "fecha_ultima_ratificacion": fecha_ultima_ratificacion,
+    }
+
+
+
 
 
 
@@ -959,77 +1042,11 @@ def get_proyecto_por_id(
             raise HTTPException(status_code=404, detail=f"Proyecto con ID {proyecto_id} no encontrado.")
 
 
-        # ============================================================
-        # 🔄 Lógica unificada de fechas de ratificación (como en endpoints de ratificación)
-        # ============================================================
-        FECHA_CORTE_ULTIMO_CAMBIO = date(2025, 6, 1)
-
-        ESTADOS_PREVIOS_A_VIABLE = [
-            "en_revision", "actualizando", "aprobado",
-            "calendarizando", "entrevistando", "para_valorar",
-            "en_suspenso", "viable", "no_viable", "vinculacion",
-            "guarda_provisoria", "guarda_confirmada",
-            "adopcion_definitiva", "baja_anulacion", "baja_caducidad",
-            "baja_por_convocatoria", "baja_rechazo_invitacion",
-            "baja_interrupcion", "baja_desistimiento"
-        ]
-
-        # Consultas de fechas relevantes
-        fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-            ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-            ProyectoHistorialEstado.estado_anterior == "viable",
-            ProyectoHistorialEstado.estado_nuevo == "viable",
-            ProyectoHistorialEstado.estado_anterior != "en_carpeta",
-            ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
-        ).scalar()
-
-        fecha_desde_estados_previos_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-            ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-            ProyectoHistorialEstado.estado_nuevo == "viable",
-            ProyectoHistorialEstado.estado_anterior.in_(ESTADOS_PREVIOS_A_VIABLE),
-            ProyectoHistorialEstado.estado_anterior != "en_carpeta",
-            ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
-        ).scalar()
-
-        fecha_null_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-            ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-            ProyectoHistorialEstado.estado_nuevo == "viable",
-            ProyectoHistorialEstado.estado_anterior.is_(None),
-            ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
-        ).scalar()
-
-        fecha_vinculacion = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-            ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-            ProyectoHistorialEstado.estado_nuevo.in_(["vinculacion", "guarda_provisoria", "guarda_confirmada"])
-        ).scalar()
-
-        fecha_ultima_ratificacion = (
-            db.query(func.max(UsuarioNotificadoRatificacion.ratificado))
-            .filter(UsuarioNotificadoRatificacion.proyecto_id == proyecto.proyecto_id)
-            .scalar()
-        )
-
-        # Agrupar fechas y determinar la más reciente
-        fechas_posibles = []
-
-        if proyecto.ultimo_cambio_de_estado and proyecto.ultimo_cambio_de_estado <= FECHA_CORTE_ULTIMO_CAMBIO:
-            fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
-
-        for f in (
-            fecha_viable_a_viable,
-            fecha_desde_estados_previos_a_viable,
-            fecha_null_a_viable,
-            fecha_vinculacion,
-            fecha_ultima_ratificacion
-        ):
-            if f:
-                fechas_posibles.append(f)
-
-        fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
-
-        # Cálculo de fechas exactas
-        fecha_ratificacion_exacta = (fecha_cambio_final + timedelta(days=365)) if fecha_cambio_final else None
-        fecha_ratificacion_aviso = (fecha_cambio_final + timedelta(days=356)) if fecha_cambio_final else None
+        info_ratificacion = _calcular_info_ratificacion_proyecto(proyecto, db)
+        fecha_cambio_final = info_ratificacion["fecha_cambio_final"]
+        fecha_ratificacion_exacta = info_ratificacion["fecha_ratificacion_exacta"]
+        fecha_ratificacion_aviso = info_ratificacion["fecha_ratificacion"]
+        fecha_ultima_ratificacion = info_ratificacion["fecha_ultima_ratificacion"]
 
 
 
@@ -5740,561 +5757,6 @@ def descargar_sentencia_adopcion(
 
 
 
-# @proyectos_router.post("/crear-proyecto-completo", response_model=dict,
-#     dependencies=[Depends(verify_api_key), Depends(require_roles(["adoptante"]))])
-# def crear_proyecto_completo( 
-#     data: dict = Body(...),
-#     db: Session = Depends(get_db),
-#     current_user: User = Depends(get_current_user) ):
-
-#     """
-#     📋 Crea o actualiza un proyecto adoptivo (monoparental o biparental).
-#     Si el proyecto del usuario está en estado 'confeccionando' (ya no se usa más) o 'actualizando',
-#     lo actualiza con los nuevos datos (tipo, pareja, domicilio y subregistros).
-#     """
-    
-#     try:
-
-#         login_1 = current_user["user"]["login"]
-#         nombre_1 = current_user["user"]["nombre"]
-#         apellido_1 = current_user["user"]["apellido"]
-
-#         tipo = data.get("proyecto_tipo")
-#         login_2 = data.get("login_2")
-#         proyecto_barrio = data.get("proyecto_barrio")
-#         proyecto_calle_y_nro = data.get("proyecto_calle_y_nro")
-#         proyecto_depto_etc = data.get("proyecto_depto_etc")
-#         proyecto_localidad = data.get("proyecto_localidad")
-#         provincia = data.get("proyecto_provincia")
-
-#         if tipo not in ["Monoparental", "Matrimonio", "Unión convivencial"]:
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "naranja",
-#                 "mensaje": "Tipo de proyecto inválido.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-#         print( '1', login_1, login_2 )
-
-#         user1_roles = db.query(UserGroup).filter(UserGroup.login == login_1).all()
-#         if not any(db.query(Group).filter(Group.group_id == r.group_id, Group.description == "adoptante").first() for r in user1_roles):
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "naranja",
-#                 "mensaje": f"El usuario no tiene el rol 'adoptante'.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-#         login_2_user = None
-#         if tipo != "Monoparental":
-#             if not login_2:
-#                 return {
-#                     "success": False,
-#                     "tipo_mensaje": "naranja",
-#                     "mensaje": "Debe especificar el DNI de la pareja para proyectos en pareja.",
-#                     "tiempo_mensaje": 5,
-#                     "next_page": "actual"
-#                 }
-#             if login_2 == login_1:
-#                 return {
-#                     "success": False,
-#                     "tipo_mensaje": "naranja",
-#                     "mensaje": f"El DNI de la pareja es igual al tuyo.",
-#                     "tiempo_mensaje": 5,
-#                     "next_page": "actual"
-#                 }
-            
-#             login_2_user = db.query(User).filter(User.login == login_2).first()
-#             if not login_2_user:
-#                 return {
-#                     "success": False,
-#                     "tipo_mensaje": "naranja",
-#                     "mensaje": f"El DNI de su pareja {login_2} no corresponde a un usuario en el Sistema RUA. "
-#                         "Es necesario que su pareja se registre primero en el sistema antes de poder continuar.",
-#                     "tiempo_mensaje": 5,
-#                     "next_page": "actual"
-#                 }
-            
-#             login_2_roles = db.query(UserGroup).filter(UserGroup.login == login_2).all()
-#             if not any(db.query(Group).filter(Group.group_id == r.group_id, Group.description == "adoptante").first() for r in login_2_roles):
-#                 return {
-#                     "success": False,
-#                     "tipo_mensaje": "naranja",
-#                     "mensaje": f"El usuario de su pareja no tiene el rol 'adoptante'.",
-#                     "tiempo_mensaje": 5,
-#                     "next_page": "actual"
-#                 }
-
-#             if login_2_user.doc_adoptante_estado != "aprobado":
-#                 return {
-#                     "success": False,
-#                     "tipo_mensaje": "naranja",
-#                     "mensaje": (
-#                         f"El usuario con DNI {login_2} no puede unirse al proyecto porque su documentación personal aún "
-#                         "no fue aprobada. Primero debe completar y aprobar la documentación en el sistema. "
-#                         "Una vez que esté en condiciones, realizar esta solicitud nuevamente."
-#                     ),               
-#                     "tiempo_mensaje": 5,
-#                     "next_page": "actual"
-#                 }
-
-#         # ───────────────────────────────────────────────────────────────
-#         # SUBREGISTROS
-#         # ───────────────────────────────────────────────────────────────
-#         subregistros_definitivos = [
-#             "subreg_1", "subreg_2", "subreg_3", "subreg_4",
-#             "subreg_FE1", "subreg_FE2", "subreg_FE3", "subreg_FE4", "subreg_FET",
-#             "subreg_5A1E1", "subreg_5A1E2", "subreg_5A1E3", "subreg_5A1E4", "subreg_5A1ET",
-#             "subreg_5A2E1", "subreg_5A2E2", "subreg_5A2E3", "subreg_5A2E4", "subreg_5A2ET",
-#             "subreg_5B1E1", "subreg_5B1E2", "subreg_5B1E3", "subreg_5B1E4", "subreg_5B1ET",
-#             "subreg_5B2E1", "subreg_5B2E2", "subreg_5B2E3", "subreg_5B2E4", "subreg_5B2ET",
-#             "subreg_5B3E1", "subreg_5B3E2", "subreg_5B3E3", "subreg_5B3E4", "subreg_5B3ET",
-#             "subreg_F5S", "subreg_F5E1", "subreg_F5E2", "subreg_F5E3", "subreg_F5E4", "subreg_F5ET",
-#             "subreg_61E1", "subreg_61E2", "subreg_61E3", "subreg_61ET",
-#             "subreg_62E1", "subreg_62E2", "subreg_62E3", "subreg_62ET",
-#             "subreg_63E1", "subreg_63E2", "subreg_63E3", "subreg_63ET",
-#             "subreg_FQ1", "subreg_FQ2", "subreg_FQ3",
-#             "subreg_F6E1", "subreg_F6E2", "subreg_F6E3", "subreg_F6ET",
-#         ]
-
-#         subreg_data = {campo: ("Y" if data.get(campo) == "Y" else "N") for campo in subregistros_definitivos}
-#         if not any(valor == "Y" for valor in subreg_data.values()):
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "naranja",
-#                 "mensaje": "Debe seleccionar al menos un subregistro.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }               
-
-#         # ───────────────────────────────────────────────────────────────
-#         # BUSCAR PROYECTO EXISTENTE (CONFECCIONANDO o ACTUALIZANDO)
-#         # ───────────────────────────────────────────────────────────────
-#         proyecto_existente = (
-#             db.query(Proyecto)
-#             .filter(
-#                 Proyecto.ingreso_por == "rua",
-#                 Proyecto.estado_general.in_(["confeccionando", "actualizando"]),
-#                 (Proyecto.login_1 == login_1) | (Proyecto.login_2 == login_1)
-#             )
-#             .first()
-#         )
-
-#         # Si el proyecto existe y quien actualiza era login_2 → invertir roles
-#         if proyecto_existente and proyecto_existente.login_2 == login_1:
-#             print("🔁 Intercambiando roles: quien actualiza era login_2, pasa a ser login_1")
-#             temp = proyecto_existente.login_1
-#             proyecto_existente.login_1 = login_1
-#             proyecto_existente.login_2 = temp
-#             db.flush()
-
-#         # Guardar valores anteriores para comparación
-#         login_2_anterior = proyecto_existente.login_2 if proyecto_existente else None
-#         tipo_anterior = proyecto_existente.proyecto_tipo if proyecto_existente else None
-
-
-#         if login_2:
-#             proyecto_pareja_activo = (
-#                 db.query(Proyecto)
-#                 .filter(
-#                     ((Proyecto.login_1 == login_2) | (Proyecto.login_2 == login_2)),
-#                     Proyecto.estado_general.in_([
-#                         'invitacion_pendiente', 'confeccionando', 'en_revision', 'actualizando', 'aprobado',
-#                         'calendarizando', 'entrevistando', 'para_valorar', 'viable', 'viable_no_disponible',
-#                         'en_suspenso', 'no_viable', 'en_carpeta', 'vinculacion', 'guarda_provisoria', 'guarda_confirmada'
-#                     ]),
-#                     Proyecto.ingreso_por == "rua"
-#                 )
-#                 .first()
-#             )
-
-
-#             if proyecto_pareja_activo:
-#                 if not (proyecto_existente and proyecto_pareja_activo.proyecto_id == proyecto_existente.proyecto_id):
-#                     return {
-#                         "success": False,
-#                         "tipo_mensaje": "naranja",
-#                         "mensaje": f"El usuario con DNI {login_2} ya forma parte de otro proyecto activo y no puede sumarse a este.",
-#                         "tiempo_mensaje": 5,
-#                         "next_page": "actual"
-#                     }
-
-
-#         # ───────────────────────────────────────────────────────────────
-#         # DETERMINAR SI DEBE CREARSE NUEVO PROYECTO O ACTUALIZARSE
-#         # ───────────────────────────────────────────────────────────────
-#         if proyecto_existente:
-#             # Caso 1: proyecto pasa de monoparental a biparental
-#             paso_a_biparental = tipo_anterior == "Monoparental" and tipo != "Monoparental"
-
-#             # Caso 2: cambio de pareja (sin importar el orden)
-#             cambio_de_pareja = (
-#                 {proyecto_existente.login_1, login_2_anterior} != {login_1, login_2}
-#             )
-
-#             # Caso 3: la pareja anterior ya había aceptado
-#             pareja_ya_aceptada = (
-#                 proyecto_existente.aceptado == "Y" and
-#                 proyecto_existente.aceptado_code is not None
-#             )
-
-#             print(f"🟡 paso_a_biparental={paso_a_biparental}, cambio_de_pareja={cambio_de_pareja}, pareja_ya_aceptada={pareja_ya_aceptada}")
-
-
-#             estado_anterior = proyecto_existente.estado_general
-#             proyecto_existente.proyecto_tipo = tipo
-#             proyecto_existente.login_2 = login_2 if tipo != "Monoparental" else None
-#             proyecto_existente.proyecto_calle_y_nro = proyecto_calle_y_nro
-#             proyecto_existente.proyecto_depto_etc = proyecto_depto_etc
-#             proyecto_existente.proyecto_barrio = proyecto_barrio
-#             proyecto_existente.proyecto_localidad = proyecto_localidad
-#             proyecto_existente.proyecto_provincia = provincia
-
-#             for campo, valor in subreg_data.items():
-#                 setattr(proyecto_existente, campo, valor)
-
-
-#             # Si hay cambio de pareja o paso a biparental y la anterior no estaba aceptada → enviar nueva invitación
-#             if (paso_a_biparental or cambio_de_pareja) and not pareja_ya_aceptada:
-#                 print("📩 Se enviará nueva invitación a la pareja (cambio detectado).")
-
-#                 # 🔸 Enviar nueva invitación
-#                 aceptado_code = generar_codigo_para_link(16)
-#                 proyecto_existente.aceptado_code = aceptado_code
-#                 proyecto_existente.aceptado = "N"
-#                 proyecto_existente.estado_general = "invitacion_pendiente"
-
-
-#                 protocolo = get_setting_value(db, "protocolo")
-#                 host = get_setting_value(db, "donde_esta_alojado")
-#                 puerto = get_setting_value(db, "puerto_tcp")
-#                 endpoint = get_setting_value(db, "endpoint_aceptar_invitacion")
-#                 if endpoint and not endpoint.startswith("/"):
-#                     endpoint = "/" + endpoint
-
-#                 puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
-#                 host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
-
-#                 link_aceptar = f"{protocolo}://{host_con_puerto}{endpoint}?invitacion={aceptado_code}&respuesta=Y"
-#                 link_rechazar = f"{protocolo}://{host_con_puerto}{endpoint}?invitacion={aceptado_code}&respuesta=N"
-
-#                 cuerpo = f"""
-#                 <html>
-#                   <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-#                       <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-#                       <tr>
-#                         <td align="center">
-#                           <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-#                             <tr>
-#                               <td style="font-size: 24px; color: #007bff;">
-#                                   <strong>¡Hola {login_2_user.nombre}!</strong>
-#                               </td>
-#                             </tr>
-#                             <tr>
-#                               <td style="padding-top: 20px; font-size: 17px;">
-#                                 <p>Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
-#                                 <p><strong>{nombre_1} {apellido_1}</strong> (DNI: {login_1}) te invitó a conformar un 
-#                                   proyecto adoptivo en conjunto.</p>
-#                                 <p>Te pedimos que confirmes tu participación para poder avanzar:</p>
-#                               </td>
-#                             </tr>
-#                             <tr>
-#                               <td align="center" style="padding: 30px 0;">
-#                                 <table cellpadding="0" cellspacing="0" style="text-align: center;">
-#                                   <tr>
-#                                     <td style="padding-bottom: 10px;">
-#                                       <a href="{link_aceptar}"
-#                                           style="display: inline-block; padding: 12px 20px; background-color: #28a745; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
-#                                           ✅ Acepto la invitación
-#                                       </a>
-#                                     </td>
-#                                   </tr>
-#                                   <tr>
-#                                     <td>
-#                                       <a href="{link_rechazar}"
-#                                           style="display: inline-block; padding: 12px 20px; background-color: #dc3545; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
-#                                           ❌ Rechazo la invitación
-#                                       </a>
-#                                     </td>
-#                                   </tr>
-#                                 </table>
-#                               </td>
-#                             </tr>
-#                             <tr>
-#                               <td style="padding-top: 30px; font-size: 17px;">
-#                                 <p>¡Muchas gracias por querer formar parte del Registro Único de Adopciones de Córdoba!</p>
-#                               </td>
-#                             </tr>
-#                           </table>
-#                         </td>
-#                       </tr>
-#                       </table>
-#                   </body>
-#                 </html>
-#                 """
-
-#                 try:
-#                     enviar_mail(
-#                         destinatario = login_2_user.mail,
-#                         asunto = "Invitación a conformar proyecto adoptivo en pareja",
-#                         cuerpo = cuerpo
-#                     )
-#                     print("✅ Correo de invitación enviado correctamente")
-#                 except Exception as e:
-#                     print(f"❌ Error al enviar correo: {e}")
-
-
-#                 db.add(ProyectoHistorialEstado(
-#                     proyecto_id = proyecto_existente.proyecto_id,
-#                     estado_anterior = estado_anterior,
-#                     estado_nuevo = "invitacion_pendiente",
-#                     fecha_hora = datetime.now()
-#                 ))
-
-#                 db.add(RuaEvento(
-#                     login = login_1,
-#                     evento_detalle = f"Se envió invitación a {login_2} para sumarse al proyecto.",
-#                     evento_fecha = datetime.now()
-#                 ))
-
-
-#                 db.commit()
-
-#                 return {
-#                     "success": True,
-#                     "tipo_mensaje": "verde",
-#                     "mensaje": "Invitación enviada correctamente.",
-#                     "tiempo_mensaje": 4,
-#                     "next_page": "actual",
-#                     "proyecto_id": proyecto_existente.proyecto_id  # ✅ devuelve el id del proyecto creado
-#                 }
-
-
-#             else:
-#                 print("✅ Misma pareja o ya aceptada, solo se actualiza el proyecto.")
-                
-#                 # Si sigue siendo monoparental → revisión normal
-#                 proyecto_existente.estado_general = "en_revision"
-
-#                 db.add(ProyectoHistorialEstado(
-#                     proyecto_id = proyecto_existente.proyecto_id,
-#                     estado_anterior = estado_anterior,
-#                     estado_nuevo = "en_revision",
-#                     fecha_hora = datetime.now()
-#                 ))
-
-#                 db.add(RuaEvento(
-#                     login = login_1,
-#                     evento_detalle = "Actualizó proyecto y solicitó revisión.",
-#                     evento_fecha = datetime.now()
-#                 ))
-
-#                 crear_notificacion_masiva_por_rol(
-#                     db = db,
-#                     rol = "supervisora",
-#                     mensaje = f"{nombre_1} {apellido_1} actualizó su proyecto y solicitó revisión.",
-#                     link = "/menu_supervisoras/detalleProyecto",
-#                     data_json = {"proyecto_id": proyecto_existente.proyecto_id},
-#                     tipo_mensaje = "azul"
-#                 )
-
-#                 db.commit()
-                
-#                 return {
-#                     "success": True,
-#                     "tipo_mensaje": "verde",
-#                     "mensaje": "Proyecto actualizado correctamente.",
-#                     "tiempo_mensaje": 5,
-#                     "next_page": "menu_adoptantes/proyecto",
-#                     "proyecto_id": proyecto_existente.proyecto_id
-#                 }
-
-
-#         # ───────────────────────────────────────────────────────────────
-#         # SI NO EXISTE → CREA NUEVO
-#         # ───────────────────────────────────────────────────────────────
-#         aceptado_code = generar_codigo_para_link(16) if tipo != "Monoparental" else None
-#         aceptado = "N" if tipo != "Monoparental" else "Y"
-#         estado = "invitacion_pendiente" if tipo != "Monoparental" else "en_revision"
-
-#         nuevo = Proyecto(
-#             login_1=login_1,
-#             login_2=login_2 if tipo != "Monoparental" else None,
-#             proyecto_tipo=tipo,
-#             proyecto_calle_y_nro=proyecto_calle_y_nro,
-#             proyecto_depto_etc=proyecto_depto_etc,
-#             proyecto_barrio=proyecto_barrio,
-#             proyecto_localidad=proyecto_localidad,
-#             proyecto_provincia=provincia,
-#             ingreso_por="rua",
-#             aceptado=aceptado,
-#             aceptado_code=aceptado_code,
-#             operativo="Y",
-#             estado_general=estado,
-#             **subreg_data
-#         )
-
-#         db.add(nuevo)
-#         db.flush()
-
-#         if tipo == "Monoparental":
-#             db.add(RuaEvento(
-#                 login=login_1,
-#                 evento_detalle="Creó proyecto monoparental.",
-#                 evento_fecha=datetime.now()
-#             ))
-#         else:
-#             # Envía invitación 
-#             try:
-#                 protocolo = get_setting_value(db, "protocolo")
-#                 host = get_setting_value(db, "donde_esta_alojado")
-#                 puerto = get_setting_value(db, "puerto_tcp")
-#                 endpoint = get_setting_value(db, "endpoint_aceptar_invitacion")
-#                 if endpoint and not endpoint.startswith("/"):
-#                     endpoint = "/" + endpoint
-
-#                 puerto_predeterminado = (protocolo == "http" and puerto == "80") or (protocolo == "https" and puerto == "443")
-#                 host_con_puerto = f"{host}:{puerto}" if puerto and not puerto_predeterminado else host
-
-#                 link_aceptar = f"{protocolo}://{host_con_puerto}{endpoint}?invitacion={aceptado_code}&respuesta=Y"
-#                 link_rechazar = f"{protocolo}://{host_con_puerto}{endpoint}?invitacion={aceptado_code}&respuesta=N"
-
-#                 cuerpo = f"""
-#                 <html>
-#                   <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-#                       <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-#                       <tr>
-#                         <td align="center">
-#                           <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-#                             <tr>
-#                               <td style="font-size: 24px; color: #007bff;">
-#                                   <strong>¡Hola {login_2_user.nombre}!</strong>
-#                               </td>
-#                             </tr>
-
-#                             <tr>
-#                               <td style="padding-top: 20px; font-size: 17px;">
-#                                 <p>Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
-#                                 <p><strong>{nombre_1} {apellido_1}</strong> (DNI: {login_1}) te invitó a conformar un 
-#                                   proyecto adoptivo en conjunto.</p>
-#                                 <p>Te pedimos que confirmes tu participación para poder avanzar:</p>
-#                               </td>
-#                             </tr>
-#                             <tr>
-#                               <td align="center" style="padding: 30px 0;">
-#                                 <table cellpadding="0" cellspacing="0" style="text-align: center;">
-#                                   <tr>
-#                                     <td style="padding-bottom: 10px;">
-#                                       <a href="{link_aceptar}"
-#                                           style="display: inline-block; padding: 12px 20px; background-color: #28a745; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
-#                                           ✅ Acepto la invitación
-#                                       </a>
-#                                     </td>
-#                                   </tr>
-#                                   <tr>
-#                                     <td>
-#                                       <a href="{link_rechazar}"
-#                                           style="display: inline-block; padding: 12px 20px; background-color: #dc3545; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
-#                                           ❌ Rechazo la invitación
-#                                       </a>
-#                                     </td>
-#                                   </tr>
-#                                 </table>
-#                               </td>
-#                             </tr>
-
-#                             <tr>
-#                               <td style="padding-top: 30px; font-size: 17px;">
-#                                 <p>¡Muchas gracias por querer formar parte del Registro Único de Adopciones de Córdoba!</p>
-#                               </td>
-#                             </tr>
-                              
-#                           </table>
-#                           </td>
-#                       </tr>
-#                       </table>
-#                   </body>
-#                 </html>
-#                 """
-
-#                 try:
-#                     db.flush()
-#                     enviar_mail(destinatario=login_2_user.mail, 
-#                                 asunto="Invitación a conformar proyecto adoptivo en pareja", 
-#                                 cuerpo=cuerpo)
-#                     print("✅ Correo enviado correctamente")
-#                 except Exception as e:
-#                     print(f"❌ Error al enviar correo: {e}")
-
-
-#                 print( '10', login_2_user.mail )
-
-#                 evento = RuaEvento(
-#                     login=login_1,
-#                     evento_detalle=f"Se envío invitación a {login_2} para sumarse al proyecto.",
-#                     evento_fecha=datetime.now()
-#                 )
-#                 db.add(evento)
-#                 db.flush()
-
-#                 db.commit()
-
-#                 return {
-#                     "success": True,
-#                     "tipo_mensaje": "verde",
-#                     "mensaje": "Invitación enviada correctamente.",
-#                     "tiempo_mensaje": 4,
-#                     "next_page": "actual",
-#                     "proyecto_id": nuevo.proyecto_id  # ✅ devuelve el id del proyecto creado
-#                 }
-
-#             except Exception as e:
-#                 return {
-#                     "success": False,
-#                     "tipo_mensaje": "naranja",
-#                     "mensaje": f"⚠️ Error al enviar correo de invitación: {str(e)}",
-#                     "tiempo_mensaje": 5,
-#                     "next_page": "actual"
-#                 }
-
-#         crear_notificacion_masiva_por_rol(
-#             db=db,
-#             rol="supervisora",
-#             mensaje=f"{nombre_1} {apellido_1} creó un nuevo proyecto y solicitó revisión.",
-#             link="/menu_supervisoras/detalleProyecto",
-#             data_json={"proyecto_id": nuevo.proyecto_id},
-#             tipo_mensaje="azul"
-#         )
-
-#         db.add(ProyectoHistorialEstado(
-#             proyecto_id=nuevo.proyecto_id,
-#             estado_anterior=None,
-#             estado_nuevo=estado,
-#             fecha_hora=datetime.now()
-#         ))
-
-#         db.commit()
-#         return {
-#             "success": True,
-#             "tipo_mensaje": "verde",
-#             "mensaje": "Proyecto registrado correctamente.",
-#             "tiempo_mensaje": 4,
-#             "next_page": "menu_adoptantes/proyecto",
-#             "proyecto_id": nuevo.proyecto_id
-#         }
-
-#     except SQLAlchemyError as e:
-#         db.rollback()
-#         return {"success": False, "tipo_mensaje": "rojo", "mensaje": str(e)}
-
-
-
-
-
-
 @proyectos_router.post("/crear-proyecto-completo", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["adoptante"]))])
 def crear_proyecto_completo( 
@@ -6888,198 +6350,6 @@ def crear_proyecto_completo(
 
 
 
-# @proyectos_router.post("/notificacion/proyecto/mensaje", response_model=dict,
-#                       dependencies=[Depends(verify_api_key),
-#                                     Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
-# def notificar_proyecto_mensaje(
-#     data: dict = Body(...),
-#     db: Session = Depends(get_db),
-#     current_user: dict = Depends(get_current_user)
-#     ):
-
-#     """
-#     📢 Envía una notificación completa a los pretensos vinculados a un proyecto:
-#     - Crea notificaciones individuales
-#     - Registra observaciones internas
-#     - Cambia estado de proyecto si corresponde
-#     - Envía correos electrónicos a los pretensos
-
-#     ### Ejemplo del JSON esperado:
-#     ```json
-#     {
-#         "proyecto_id": 123,
-#         "mensaje": "Recordá subir el certificado de salud.",
-#         "link": "/menu_adoptantes/documentacion",
-#         "data_json": { "accion": "solicitar_actualizacion_doc" },
-#         "tipo_mensaje": "naranja"
-#     }
-#     """
-#     proyecto_id = data.get("proyecto_id")
-#     mensaje = data.get("mensaje")
-#     link = data.get("link")
-#     data_json = data.get("data_json") or {}
-#     tipo_mensaje = data.get("tipo_mensaje", "naranja")
-#     login_que_observa = current_user["user"]["login"]
-#     accion = data_json.get("accion")  # puede ser None, "solicitar_actualizacion_doc", "aprobar_documentacion"
-
-#     if not all([proyecto_id, mensaje, link]):
-#         return {
-#             "success": False,
-#             "tipo_mensaje": "naranja",
-#             "mensaje": "Faltan campos requeridos: proyecto_id, mensaje o link.",
-#             "tiempo_mensaje": 5,
-#             "next_page": "actual"
-#         }
-
-#     try:
-#         proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
-#         if not proyecto:
-#             return {
-#                 "success": False,
-#                 "tipo_mensaje": "rojo",
-#                 "mensaje": "El proyecto no existe.",
-#                 "tiempo_mensaje": 5,
-#                 "next_page": "actual"
-#             }
-
-#         logins_destinatarios = [proyecto.login_1]
-#         if proyecto.login_2:
-#             logins_destinatarios.append(proyecto.login_2)
-
-#         nuevo_estado = None
-#         if accion == "solicitar_actualizacion_doc":
-#             nuevo_estado = "actualizando"
-#         elif accion == "aprobar_documentacion":
-#             nuevo_estado = "aprobado"
-
-#         for login in logins_destinatarios:
-#             user = db.query(User).filter(User.login == login).first()
-#             if not user:
-#                 continue
-
-#             # Extraer texto plano del mensaje HTML para guardar en base
-#             mensaje_texto_plano = BeautifulSoup(mensaje, "lxml").get_text(separator=" ", strip=True)
-
-#             if not mensaje_texto_plano:
-#                 return {
-#                     "success": False,
-#                     "tipo_mensaje": "naranja",
-#                     "mensaje": "El mensaje debe tener contenido con información.",
-#                     "tiempo_mensaje": 5,
-#                     "next_page": "actual"
-#                 }
-
-
-#             # Crear notificación individual
-#             resultado = crear_notificacion_individual(
-#                 db=db,
-#                 login_destinatario=login,
-#                 mensaje=mensaje_texto_plano,
-#                 link=link,
-#                 data_json=data_json,
-#                 tipo_mensaje=tipo_mensaje,
-#                 enviar_por_whatsapp=False,
-#                 login_que_notifico=login_que_observa,
-#             )
-#             if not resultado["success"]:
-#                 raise Exception(resultado["mensaje"])
-
-#             # Registrar evento
-#             evento_detalle = f"Notificación a {login} desde proyecto {proyecto_id}: {mensaje_texto_plano[:150]}"
-#             if nuevo_estado:
-#                 evento_detalle += f" | Estado actualizado: '{nuevo_estado}'"
-
-#             db.add(RuaEvento(
-#                 login=login,
-#                 evento_detalle=evento_detalle,
-#                 evento_fecha=datetime.now()
-#             ))
-
-#             # Enviar correo si tiene mail
-#             if user.mail:
-#                 try:
-                   
-#                     cuerpo = f"""
-#                     <html>
-#                       <body style="margin: 0; padding: 0; background-color: #f8f9fa;">
-#                         <table cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8f9fa; padding: 20px;">
-#                           <tr>
-#                             <td align="center">
-#                               <table cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 10px; padding: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #343a40; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-#                                 <tr>
-#                                   <td style="font-size: 24px; color: #007bff;">
-#                                       <strong>¡Hola {user.nombre}!</strong>
-#                                   </td>
-#                                 </tr>
-#                                 <tr>
-#                                   <td style="padding-top: 20px; font-size: 17px;">
-#                                     <p>Nos comunicamos desde el <strong>Registro Único de Adopciones de Córdoba</strong>.</p>
-#                                     <p>Te informamos que recibiste la siguiente notificación en la plataforma:</p>
-#                                   </td>
-#                                 </tr>
-#                                 <tr>
-#                                   <td style="padding-top: 20px; font-size: 16px;">
-#                                     <div style="background-color: #f1f3f5; padding: 15px 20px; border-left: 4px solid #0d6efd; border-radius: 6px; margin-top: 10px;">
-#                                         {mensaje}
-#                                     </div>
-#                                   </td>
-#                                 </tr>
-#                                 <tr>
-#                                   <td style="padding-top: 30px; font-size: 17px;">
-#                                     <p>¡Saludos!</p>
-#                                   </td>
-#                                 </tr>
-#                               </table>
-#                             </td>
-#                           </tr>
-#                         </table>
-#                       </body>
-#                     </html>
-#                     """
-
-
-#                     enviar_mail(
-#                         destinatario=user.mail,
-#                         asunto="Notificación del Sistema RUA",
-#                         cuerpo=cuerpo
-#                     )
-#                 except Exception as e:
-#                     db.rollback()
-#                     return {
-#                         "success": False,
-#                         "tipo_mensaje": "naranja",
-#                         "mensaje": f"⚠️ Error al enviar correo a {user.nombre}: {str(e)}",
-#                         "tiempo_mensaje": 5,
-#                         "next_page": "actual"
-#                     }
-
-#         # Aplicar cambio de estado si corresponde
-#         if nuevo_estado:
-#             proyecto.doc_proyecto_estado = nuevo_estado
-
-#         db.commit()
-
-#         return {
-#             "success": True,
-#             "tipo_mensaje": "verde",
-#             "mensaje": "✅ Notificación enviada correctamente a los pretensos.",
-#             "tiempo_mensaje": 5,
-#             "next_page": "actual"
-#         }
-
-#     except Exception as e:
-#         db.rollback()
-#         return {
-#             "success": False,
-#             "tipo_mensaje": "rojo",
-#             "mensaje": f"❌ Error al procesar la notificación: {str(e)}",
-#             "tiempo_mensaje": 6,
-#             "next_page": "actual"
-#         }
-
-
-
-
 @proyectos_router.post("/notificacion/proyecto/mensaje", response_model=dict,
     dependencies=[ Depends(verify_api_key),
         Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
@@ -7140,6 +6410,7 @@ def notificar_proyecto_mensaje(
         canales = get_notificacion_settings(db, base_setting)
         enviar_email_flag = canales.get("email", False)
         enviar_whatsapp_flag = canales.get("whatsapp", False)
+        whatsapp_settings = get_whatsapp_settings(db) if enviar_whatsapp_flag else None
 
         # ------------- ESTADO DEL PROYECTO -------------
         nuevo_estado = None
@@ -7293,9 +6564,11 @@ def notificar_proyecto_mensaje(
                             numero = "54" + numero
 
                         respuesta = enviar_whatsapp_rua_notificacion(
+                            db=db,
                             destinatario=numero,
                             nombre=user.nombre,
-                            mensaje=mensaje_texto_plano
+                            mensaje=mensaje_texto_plano,
+                            whatsapp_settings=whatsapp_settings
                         )
 
                         whatsapp_enviado = "messages" in respuesta
@@ -8913,7 +8186,6 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
             datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
             if fecha_parametro else date.today()
         )
-        FECHA_CORTE_ULTIMO_CAMBIO = date(2025, 6, 1)
         print(f"\n🗓️ Fecha límite de cálculo: {fecha_limite}")
 
         # 2️⃣ Proyectos candidatos
@@ -8922,91 +8194,14 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
             Proyecto.ingreso_por == "rua"
         ).all()
 
-        ESTADOS_PREVIOS_A_VIABLE = [
-            "en_revision", "actualizando", "aprobado",
-            "calendarizando", "entrevistando", "para_valorar",
-            "en_suspenso", "viable", "no_viable", "vinculacion",
-            "guarda_provisoria", "guarda_confirmada",
-            "adopcion_definitiva", "baja_anulacion", "baja_caducidad",
-            "baja_por_convocatoria", "baja_rechazo_invitacion",
-            "baja_interrupcion", "baja_desistimiento"
-        ]
-
         resultado = []
 
         for proyecto in proyectos:
             print(f"\n🔍 Proyecto ID {proyecto.proyecto_id} | Estado actual: {proyecto.estado_general}")
             print(f"   • Pretensos: {proyecto.login_1 or '-'}" + (f" y {proyecto.login_2}" if proyecto.login_2 else ""))
-
-            # 3️⃣ Fechas candidatas (cada una con su lógica)
-            fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                ProyectoHistorialEstado.estado_anterior == "viable",
-                ProyectoHistorialEstado.estado_nuevo == "viable",
-                ProyectoHistorialEstado.estado_anterior != "en_carpeta",
-                ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
-            ).scalar()
-
-            fecha_desde_estados_previos_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                ProyectoHistorialEstado.estado_nuevo == "viable",
-                ProyectoHistorialEstado.estado_anterior.in_(ESTADOS_PREVIOS_A_VIABLE),
-                ProyectoHistorialEstado.estado_anterior != "en_carpeta",
-                ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
-            ).scalar()
-
-            fecha_null_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                ProyectoHistorialEstado.estado_nuevo == "viable",
-                ProyectoHistorialEstado.estado_anterior.is_(None),
-                ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
-            ).scalar()
-
-            fecha_vinculacion = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                ProyectoHistorialEstado.estado_nuevo.in_(["vinculacion", "guarda_provisoria", "guarda_confirmada"])
-            ).scalar()
-
-            # 🟢 Nueva: última ratificación hecha por pretensos
-            fecha_ultima_ratificacion = (
-                db.query(func.max(UsuarioNotificadoRatificacion.ratificado))
-                .filter(UsuarioNotificadoRatificacion.proyecto_id == proyecto.proyecto_id)
-                .scalar()
-            )
-
-            print(f"   • fecha_viable_a_viable: {fecha_viable_a_viable}")
-            print(f"   • fecha_desde_estados_previos_a_viable: {fecha_desde_estados_previos_a_viable}")
-            print(f"   • fecha_null_a_viable: {fecha_null_a_viable}")
-            print(f"   • fecha_vinculacion/guarda: {fecha_vinculacion}")
-            print(f"   • fecha_ultima_ratificacion: {fecha_ultima_ratificacion}")
-            print(f"   • ultimo_cambio_de_estado: {proyecto.ultimo_cambio_de_estado}")
-
-            # 4️⃣ Determinar la fecha base (más reciente)
-            fechas_posibles = []
-
-            if proyecto.ultimo_cambio_de_estado and proyecto.ultimo_cambio_de_estado <= FECHA_CORTE_ULTIMO_CAMBIO:
-                fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
-                print(f"   ✔️ Se considera ultimo_cambio_de_estado ({proyecto.ultimo_cambio_de_estado})")
-
-            for f in (
-                fecha_viable_a_viable,
-                fecha_desde_estados_previos_a_viable,
-                fecha_null_a_viable,
-                fecha_vinculacion,
-                fecha_ultima_ratificacion
-            ):
-                if f:
-                    fechas_posibles.append(f)
-
-            fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
-
-            # 5️⃣ Fechas de ratificación
-            fecha_ratificacion_exacta = (fecha_cambio_final + timedelta(days=365)) if fecha_cambio_final else None
-            fecha_ratificacion = (fecha_cambio_final + timedelta(days=356)) if fecha_cambio_final else None
-
-            print(f"   ➤ fecha_cambio_final elegida: {fecha_cambio_final}")
-            print(f"   ➤ fecha_ratificacion (aviso): {fecha_ratificacion}")
-            print(f"   ➤ fecha_ratificacion_exacta (1 año): {fecha_ratificacion_exacta}")
+            info = _calcular_info_ratificacion_proyecto(proyecto, db, logger=print)
+            fecha_ratificacion = info["fecha_ratificacion"]
+            fecha_ratificacion_exacta = info["fecha_ratificacion_exacta"]
 
             # 6️⃣ Comparar con la fecha límite
             if fecha_ratificacion and fecha_ratificacion.date() <= fecha_limite:
@@ -9016,10 +8211,10 @@ def get_proyectos_para_ratificar_al_dia_del_parametro(
                     "login_1": proyecto.login_1,
                     "login_2": proyecto.login_2,
                     "estado_general": proyecto.estado_general,
-                    "fecha_cambio_final": fecha_cambio_final.strftime("%Y-%m-%d") if fecha_cambio_final else None,
+                    "fecha_cambio_final": info["fecha_cambio_final"].strftime("%Y-%m-%d") if info["fecha_cambio_final"] else None,
                     "fecha_ratificacion": fecha_ratificacion.strftime("%Y-%m-%d") if fecha_ratificacion else None,
                     "fecha_ratificacion_exacta": fecha_ratificacion_exacta.strftime("%Y-%m-%d") if fecha_ratificacion_exacta else None,
-                    "fecha_ultima_ratificacion": fecha_ultima_ratificacion.strftime("%Y-%m-%d") if fecha_ultima_ratificacion else None
+                    "fecha_ultima_ratificacion": info["fecha_ultima_ratificacion"].strftime("%Y-%m-%d") if info["fecha_ultima_ratificacion"] else None
                 })
             else:
                 print("❎ No debe ratificar aún.")
@@ -9056,8 +8251,6 @@ def notificar_siguiente_proyecto_para_ratificar(
             datetime.strptime(fecha_parametro, "%Y-%m-%d").date()
             if fecha_parametro else date.today()
         )
-        FECHA_CORTE_ULTIMO_CAMBIO = date(2025, 6, 1)
-
         # 2️⃣ Subconsulta: proyectos con notificación en los últimos 7 días
         subq_notificados = (
             db.query(UsuarioNotificadoRatificacion.proyecto_id)
@@ -9078,85 +8271,22 @@ def notificar_siguiente_proyecto_para_ratificar(
             ~Proyecto.proyecto_id.in_(subq_notificados)
         ).all()
 
-        ESTADOS_PREVIOS_A_VIABLE = [
-            "en_revision", "actualizando", "aprobado", "calendarizando", "entrevistando",
-            "para_valorar", "en_suspenso", "viable", "no_viable", "vinculacion",
-            "guarda_provisoria", "guarda_confirmada", "adopcion_definitiva",
-            "baja_anulacion", "baja_caducidad", "baja_por_convocatoria",
-            "baja_rechazo_invitacion", "baja_interrupcion", "baja_desistimiento"
-        ]
-
         candidatos = []
 
         for proyecto in proyectos:
-            # === mismas fechas que el endpoint GET ===
-            fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                ProyectoHistorialEstado.estado_anterior == "viable",
-                ProyectoHistorialEstado.estado_nuevo == "viable",
-                ProyectoHistorialEstado.estado_anterior != "en_carpeta",
-                ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
-            ).scalar()
-
-            fecha_desde_estados_previos_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                ProyectoHistorialEstado.estado_nuevo == "viable",
-                ProyectoHistorialEstado.estado_anterior.in_(ESTADOS_PREVIOS_A_VIABLE),
-                ProyectoHistorialEstado.estado_anterior != "en_carpeta",
-                ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
-            ).scalar()
-
-            fecha_null_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                ProyectoHistorialEstado.estado_nuevo == "viable",
-                ProyectoHistorialEstado.estado_anterior.is_(None),
-                ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
-            ).scalar()
-
-            fecha_vinculacion = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
-                ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
-                ProyectoHistorialEstado.estado_nuevo.in_(["vinculacion", "guarda_provisoria", "guarda_confirmada"])
-            ).scalar()
-
-            fecha_ultima_ratificacion = (
-                db.query(func.max(UsuarioNotificadoRatificacion.ratificado))
-                .filter(UsuarioNotificadoRatificacion.proyecto_id == proyecto.proyecto_id)
-                .scalar()
-            )
-
-            # === determinación de la fecha base ===
-            fechas_posibles = []
-
-            if proyecto.ultimo_cambio_de_estado and proyecto.ultimo_cambio_de_estado <= FECHA_CORTE_ULTIMO_CAMBIO:
-                fechas_posibles.append(datetime.combine(proyecto.ultimo_cambio_de_estado, time.min))
-
-            for f in (
-                fecha_viable_a_viable,
-                fecha_desde_estados_previos_a_viable,
-                fecha_null_a_viable,
-                fecha_vinculacion,
-                fecha_ultima_ratificacion
-            ):
-                if f:
-                    fechas_posibles.append(f)
-
-            fecha_cambio_final = max(fechas_posibles) if fechas_posibles else None
-
-            # === cálculo de fechas de ratificación ===
-            fecha_ratificacion = (
-                fecha_cambio_final + timedelta(days=356)
-                if fecha_cambio_final else None
-            )
+            info = _calcular_info_ratificacion_proyecto(proyecto, db)
+            fecha_ratificacion = info["fecha_ratificacion"]
 
             if fecha_ratificacion and fecha_ratificacion.date() <= fecha_limite:
-                candidatos.append((proyecto, fecha_ratificacion))
+                candidatos.append((proyecto, info))
 
         # 4️⃣ Seleccionar el más antiguo
         if not candidatos:
             raise HTTPException(status_code=404, detail="No hay proyectos pendientes para notificar.")
 
-        candidatos.sort(key=lambda x: x[1])
-        proyecto_obj, fecha_ratif = candidatos[0]
+        candidatos.sort(key=lambda x: x[1]["fecha_ratificacion"])
+        proyecto_obj, info_seleccionada = candidatos[0]
+        fecha_ratif = info_seleccionada["fecha_ratificacion"]
 
         # 5️⃣ Enviar notificación (idéntico a tu flujo actual)
         logins = [proyecto_obj.login_1, proyecto_obj.login_2] if proyecto_obj.login_2 else [proyecto_obj.login_1]
@@ -9832,6 +8962,7 @@ def eliminar_documento_proyecto(
 
 
 
+
 @proyectos_router.get("/proyectos/documentos/{proyecto_id}/descargar-uno", response_class=FileResponse,
     dependencies=[Depends(verify_api_key),
                   Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
@@ -9893,15 +9024,13 @@ def descargar_un_documento_proyecto(
 
 
 
-@proyectos_router.get(
-    "/{proyecto_id}/info-notificaciones",
-    response_model=dict,
+@proyectos_router.get("/{proyecto_id}/info-notificaciones", response_model=dict,
     dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))]
 )
 def obtener_info_notificaciones_proyecto(
     proyecto_id: int,
     db: Session = Depends(get_db)
-):
+    ):
     """
     🔎 Devuelve información para describir qué notificaciones se enviarán
     al valorar un proyecto (especialmente en convocatorias).

@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Enum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Enum, ForeignKey, func, Boolean
+
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.dialects.mysql import JSON
 from models.users import User
@@ -78,48 +79,130 @@ class NotificacionesRUA(Base):
 
 
 
+# class Mensajeria(Base):
+#     __tablename__ = "mensajeria"
+
+#     mensaje_id = Column(Integer, primary_key=True, autoincrement=True)
+
+#     # Fecha y hora del envío
+#     fecha_envio = Column(DateTime, nullable=False, server_default=func.now())
+
+#     # Tipo de mensaje: 'whatsapp' o 'email'
+#     tipo = Column(Enum('whatsapp', 'email'), nullable=False)
+
+#     # Usuario que generó el envío
+#     login_emisor = Column(String(190), ForeignKey("sec_users.login", ondelete="SET NULL"), nullable=True)
+
+#     # Usuario o destinatario (login si existe, o texto libre si fue externo)
+#     login_destinatario = Column(String(190), ForeignKey("sec_users.login", ondelete="SET NULL"), nullable=True)
+#     destinatario_texto = Column(String(255), nullable=True)  # Ej: "Juan Pérez (37630123)" o correo
+
+#     # Asunto (solo relevante para correo, opcional en WhatsApp)
+#     asunto = Column(String(255), nullable=True)
+
+#     # Contenido del mensaje
+#     contenido = Column(Text, nullable=True)
+
+#     # Estado del mensaje (según tipo WhatsApp o email)
+#     # WhatsApp: no_enviado / enviado / recibido / leido / error
+#     # Email: enviado / entregado / error
+#     estado = Column(
+#         Enum('no_enviado', 'enviado', 'recibido', 'leido', 'entregado', 'error', name='estado_mensaje_enum'),
+#         default='enviado',
+#         nullable=False
+#     )
+
+#     # Identificador externo (por ejemplo, ID devuelto por la API de WhatsApp o Mail)
+#     mensaje_externo_id = Column(String(255), nullable=True)
+
+#     # Información adicional (por ejemplo, logs, respuesta de API, metadatos de envío)
+#     data_json = Column(JSON, nullable=True)
+
+#     # Si el mensaje fue reenviado manualmente
+#     reenviado = Column(Boolean, default=False)
+
+#     # Relación a los usuarios
+#     emisor_rel = relationship("User", foreign_keys=[login_emisor])
+#     destinatario_rel = relationship("User", foreign_keys=[login_destinatario])
+
+
+
+
+# Tabla Mensajeria y WebhookEvent agregadas por JANO 
 class Mensajeria(Base):
+    """Almacena solo el ÚLTIMO evento (mensaje o estado) de cada destinatario."""
     __tablename__ = "mensajeria"
 
     mensaje_id = Column(Integer, primary_key=True, autoincrement=True)
-
-    # Fecha y hora del envío
-    fecha_envio = Column(DateTime, nullable=False, server_default=func.now())
-
-    # Tipo de mensaje: 'whatsapp' o 'email'
+    fecha_envio = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
     tipo = Column(Enum('whatsapp', 'email'), nullable=False)
-
-    # Usuario que generó el envío
+    
+    # Mantenemos String(190) para coincidir con tu tabla sec_users
     login_emisor = Column(String(190), ForeignKey("sec_users.login", ondelete="SET NULL"), nullable=True)
-
-    # Usuario o destinatario (login si existe, o texto libre si fue externo)
     login_destinatario = Column(String(190), ForeignKey("sec_users.login", ondelete="SET NULL"), nullable=True)
-    destinatario_texto = Column(String(255), nullable=True)  # Ej: "Juan Pérez (37630123)" o correo
-
-    # Asunto (solo relevante para correo, opcional en WhatsApp)
+    
+    destinatario_texto = Column(String(255), nullable=True)
     asunto = Column(String(255), nullable=True)
-
-    # Contenido del mensaje
     contenido = Column(Text, nullable=True)
-
-    # Estado del mensaje (según tipo WhatsApp o email)
-    # WhatsApp: no_enviado / enviado / recibido / leido / error
-    # Email: enviado / entregado / error
     estado = Column(
         Enum('no_enviado', 'enviado', 'recibido', 'leido', 'entregado', 'error', name='estado_mensaje_enum'),
         default='enviado',
         nullable=False
     )
-
-    # Identificador externo (por ejemplo, ID devuelto por la API de WhatsApp o Mail)
-    mensaje_externo_id = Column(String(255), nullable=True)
-
-    # Información adicional (por ejemplo, logs, respuesta de API, metadatos de envío)
+    mensaje_externo_id = Column(String(255), index=True, nullable=True)
     data_json = Column(JSON, nullable=True)
-
-    # Si el mensaje fue reenviado manualmente
     reenviado = Column(Boolean, default=False)
 
-    # Relación a los usuarios
-    emisor_rel = relationship("User", foreign_keys=[login_emisor])
-    destinatario_rel = relationship("User", foreign_keys=[login_destinatario])
+    # --- CAMBIO AQUI ---
+    # Usamos 'backref' en lugar de 'back_populates' para evitar el KeyError
+    # Esto inyecta automáticamente 'mensajes_enviados' dentro del modelo User
+    emisor_rel = relationship("User", foreign_keys=[login_emisor], backref="mensajes_enviados")
+    destinatario_rel = relationship("User", foreign_keys=[login_destinatario], backref="mensajes_recibidos")
+
+
+
+
+class WebhookEvent(Base):
+    """
+    Almacena el historial COMPLETO de eventos (mensajes entrantes y cambios de estado).
+    Los estados están normalizados y coinciden con Mensajeria.estado.
+    """
+    __tablename__ = "webhooks"
+
+    id = Column(Integer, primary_key=True)
+
+    mensaje_externo_id = Column(String(255), index=True, nullable=True)
+
+    received_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.now()
+    )
+
+    asunto = Column(String(255), nullable=True)
+
+    content = Column(Text, nullable=True)
+
+    status = Column(
+        Enum(
+            'no_enviado',
+            'enviado',
+            'recibido',
+            'leido',
+            'entregado',
+            'error',
+            name='estado_mensaje_enum'
+        ),
+        nullable=False
+    )
+
+    login_usuario = Column(
+        String(190),
+        ForeignKey("sec_users.login", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    usuario = relationship(
+        "User",
+        foreign_keys=[login_usuario]
+    )

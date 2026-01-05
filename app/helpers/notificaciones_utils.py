@@ -6,6 +6,7 @@ from models.notif_y_observaciones import NotificacionesRUA
 from models.users import User, Group, UserGroup
 from datetime import datetime
 
+from helpers.config_whatsapp import get_whatsapp_settings
 from helpers.whatsapp_helper import enviar_whatsapp
 
 
@@ -36,10 +37,16 @@ def crear_notificacion_individual(
         ))
 
         if enviar_por_whatsapp:
+            whatsapp_settings = get_whatsapp_settings(db)
             user = db.query(User).filter_by(login=login_destinatario).first()
             if user and user.celular:
                 numero_internacional = user.celular
-                enviar_whatsapp(numero_internacional, mensaje)
+                enviar_whatsapp(
+                    db=db,
+                    destinatario=numero_internacional,
+                    mensaje=mensaje,
+                    whatsapp_settings=whatsapp_settings
+                )
 
         return {"success": True, "mensaje": "Notificación creada"}
     except SQLAlchemyError as e:

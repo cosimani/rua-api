@@ -4,9 +4,10 @@ from typing import List, Dict, Optional, Literal, Tuple
 from math import ceil
 from database.config import SessionLocal
 from helpers.utils import check_consecutive_numbers, get_user_name_by_login, \
-        build_subregistro_string, parse_date, calculate_age, validar_correo, generar_codigo_para_link, \
-        normalizar_y_validar_dni, capitalizar_nombre, normalizar_celular, verificar_recaptcha, \
-        get_notificacion_settings
+    build_subregistro_string, parse_date, calculate_age, validar_correo, generar_codigo_para_link, \
+    normalizar_y_validar_dni, capitalizar_nombre, normalizar_celular, verificar_recaptcha, \
+    get_notificacion_settings
+from helpers.config_whatsapp import get_whatsapp_settings
 
 from helpers.moodle import existe_mail_en_moodle, existe_dni_en_moodle, crear_usuario_en_moodle, get_idcurso, \
     enrolar_usuario, get_idusuario_by_mail, eliminar_usuario_en_moodle, actualizar_usuario_en_moodle, \
@@ -3802,6 +3803,16 @@ def get_estado_usuario(
                     "baja_interrupcion", "baja_desistimiento"
                 ]
 
+                ESTADOS_CAMINO_A_CARPETA = (
+                    "en_carpeta",
+                    "enviada_a_juzgado",
+                    "vinculacion",
+                    "guarda_provisoria",
+                    "guarda_confirmada",
+                    "adopcion_definitiva",
+                    "en_suspenso",
+                )
+
                 # --- Fechas candidatas ---
                 fecha_viable_a_viable = db.query(func.max(ProyectoHistorialEstado.fecha_hora)).filter(
                     ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
@@ -3815,6 +3826,7 @@ def get_estado_usuario(
                     ProyectoHistorialEstado.proyecto_id == proyecto.proyecto_id,
                     ProyectoHistorialEstado.estado_nuevo == "viable",
                     ProyectoHistorialEstado.estado_anterior.in_(ESTADOS_PREVIOS_A_VIABLE),
+                    ProyectoHistorialEstado.estado_anterior.notin_(ESTADOS_CAMINO_A_CARPETA),
                     ProyectoHistorialEstado.estado_anterior != "en_carpeta",
                     ProyectoHistorialEstado.estado_nuevo != "en_carpeta"
                 ).scalar()
@@ -4230,6 +4242,7 @@ def notificar_pretenso_mensaje(
         canales = get_notificacion_settings(db, base_setting)
         enviar_email_flag = canales.get("email", False)
         enviar_whatsapp_flag = canales.get("whatsapp", False)
+        whatsapp_settings = get_whatsapp_settings(db) if enviar_whatsapp_flag else None
 
 
         # Extraer texto plano del mensaje HTML para guardar en base
@@ -4495,9 +4508,11 @@ def notificar_pretenso_mensaje(
                         numero = "54" + numero
 
                     respuesta_whatsapp = enviar_whatsapp_rua_notificacion(
+                        db=db,
                         destinatario=numero,
                         nombre=user_destino.nombre,
-                        mensaje=mensaje_texto_plano
+                        mensaje=mensaje_texto_plano,
+                        whatsapp_settings=whatsapp_settings
                     )
 
                     whatsapp_enviado = "messages" in respuesta_whatsapp
