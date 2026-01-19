@@ -3660,14 +3660,16 @@ def get_estado_usuario(
 
     mostrar_mensaje_reinicio = puede_iniciar_nuevo_proyecto
 
-
     # 🧠 Curso para adoptantes
     curso_aprobado = user.doc_adoptante_curso_aprobado or "N"
     if group_name.lower() == "adoptante" and curso_aprobado == "N":
         if is_curso_aprobado(user.mail, db):
             curso_aprobado = "Y"
             user.doc_adoptante_curso_aprobado = "Y"
-            db.commit()
+            try:
+                db.commit()
+            except SQLAlchemyError:
+                db.rollback()
 
 
     if group_name.lower() == "adoptante":
