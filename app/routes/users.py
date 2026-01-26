@@ -5552,10 +5552,12 @@ def query_usuarios_inactivos_base(db: Session):
             or_(
                 UsuarioNotificadoInactivo.login.is_(None),
                 and_(
+                    UsuarioNotificadoInactivo.dado_de_baja.is_(None),
                     sub_ultimo_ingreso.c.fecha_ultimo_ingreso.is_(None),
                     ultima_notificacion <= hace_7,
                 ),
                 and_(
+                    UsuarioNotificadoInactivo.dado_de_baja.is_(None),
                     sub_ultimo_ingreso.c.fecha_ultimo_ingreso <= ultima_notificacion,
                     ultima_notificacion <= hace_7,
                 ),
@@ -6049,7 +6051,15 @@ def enviar_notificacion_demora_docs_individual(db: Session, usuario: User) -> di
             nro_envio = 3
 
         else:
-            return {"success": False, "accion": "limite_alcanzado"}
+            usuario.operativo = "N"
+            notificacion.dado_de_baja = hoy
+            db.add(RuaEvento(
+                login = usuario.login,
+                evento_detalle = "Usuario dado de baja por demora en documentación.",
+                evento_fecha = hoy
+            ))
+            db.commit()
+            return {"success": True, "accion": "baja"}
 
 
         enviar_mail(
