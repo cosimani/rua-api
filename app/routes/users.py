@@ -5888,6 +5888,195 @@ def descargar_csv_usuarios_inactivos(
 
 
 
+@users_router.post(
+    "/usuarios/inactivos/reset-por-nuevo-ingreso",
+    response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))]
+)
+def resetear_inactivos_por_login_reciente(
+    db: Session = Depends(get_db)
+    ):
+
+    registros = (
+        db.query(UsuarioNotificadoInactivo)
+        .filter(
+            or_(
+                UsuarioNotificadoInactivo.mail_enviado_1.isnot(None),
+                UsuarioNotificadoInactivo.mail_enviado_2.isnot(None),
+                UsuarioNotificadoInactivo.mail_enviado_3.isnot(None),
+                UsuarioNotificadoInactivo.mail_enviado_4.isnot(None),
+                UsuarioNotificadoInactivo.dado_de_baja.isnot(None),
+            )
+        )
+        .all()
+    )
+
+    resultados = {
+        "evaluados": len(registros),
+        "reseteados": 0,
+        "sin_ingreso_reciente": 0
+    }
+
+    for registro in registros:
+        ultimo_ingreso = (
+            db.query(func.max(RuaEvento.evento_fecha))
+            .filter(
+                RuaEvento.login == registro.login,
+                RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%")
+            )
+            .scalar()
+        )
+
+        if not ultimo_ingreso:
+            resultados["sin_ingreso_reciente"] += 1
+            continue
+
+        ultima_notificacion = max(
+            [f for f in [
+                registro.mail_enviado_1,
+                registro.mail_enviado_2,
+                registro.mail_enviado_3,
+                registro.mail_enviado_4,
+                registro.dado_de_baja
+            ] if f is not None],
+            default=None
+        )
+
+        if ultima_notificacion and ultimo_ingreso <= ultima_notificacion:
+            resultados["sin_ingreso_reciente"] += 1
+            continue
+
+        registro.mail_enviado_1 = None
+        registro.mail_enviado_2 = None
+        registro.mail_enviado_3 = None
+        registro.mail_enviado_4 = None
+        registro.dado_de_baja = None
+
+        db.add(RuaEvento(
+            login=registro.login,
+            evento_detalle="Reset automático de notificaciones por inactividad (nuevo ingreso)",
+            evento_fecha=datetime.now()
+        ))
+
+        resultados["reseteados"] += 1
+
+    db.commit()
+
+    resultados["pendientes"] = resultados["evaluados"] - resultados["reseteados"]
+
+    return {
+        "success": True,
+        "tipo_mensaje": "verde",
+        "mensaje": "Proceso completado",
+        "stats": resultados
+    }
+
+
+    return {
+        "success": True,
+        "tipo_mensaje": "verde",
+        "mensaje": "Se reiniciaron los avisos por inactividad para este usuario."
+    }
+
+
+
+@users_router.get(
+    "/usuarios/inactivos/reset/csv",
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],
+)
+def descargar_csv_reset_inactivos(
+    limite_registros: int = 200,
+    db: Session = Depends(get_db),
+    ):
+
+    if limite_registros <= 0 or limite_registros > 2000:
+        raise HTTPException(status_code=400, detail="Límite inválido")
+
+    login_0900 = User.login.collate("utf8mb4_0900_ai_ci")
+
+    stats_ingresos = (
+        db.query(
+            RuaEvento.login.collate("utf8mb4_0900_ai_ci").label("login"),
+            func.min(RuaEvento.evento_fecha).label("fecha_primer_ingreso"),
+            func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso"),
+            func.count().label("cantidad_ingresos"),
+        )
+        .filter(RuaEvento.evento_detalle.ilike("%Ingreso exitoso al sistema%"))
+        .group_by(RuaEvento.login)
+        .subquery()
+    )
+
+    ultima_notificacion_expr = func.nullif(
+        func.greatest(
+            func.coalesce(UsuarioNotificadoInactivo.mail_enviado_1, datetime(1900, 1, 1)),
+            func.coalesce(UsuarioNotificadoInactivo.mail_enviado_2, datetime(1900, 1, 1)),
+            func.coalesce(UsuarioNotificadoInactivo.mail_enviado_3, datetime(1900, 1, 1)),
+            func.coalesce(UsuarioNotificadoInactivo.mail_enviado_4, datetime(1900, 1, 1)),
+            func.coalesce(UsuarioNotificadoInactivo.dado_de_baja, datetime(1900, 1, 1)),
+        ),
+        datetime(1900, 1, 1)
+    )
+
+    rows = (
+        db.query(
+            User.login.label("login"),
+            User.nombre,
+            User.apellido,
+            User.mail,
+            User.fecha_alta,
+            User.active.label("cuenta_activa"),
+            User.operativo.label("estado_operativo"),
+            User.doc_adoptante_estado,
+            case(
+                (and_(User.clave.isnot(None), func.length(func.trim(User.clave)) > 0), "SI"),
+                else_="NO",
+            ).label("tiene_clave_generada"),
+            stats_ingresos.c.fecha_primer_ingreso,
+            stats_ingresos.c.fecha_ultimo_ingreso,
+            func.coalesce(stats_ingresos.c.cantidad_ingresos, 0).label("cantidad_ingresos"),
+            UsuarioNotificadoInactivo.mail_enviado_1,
+            UsuarioNotificadoInactivo.mail_enviado_2,
+            UsuarioNotificadoInactivo.mail_enviado_3,
+            UsuarioNotificadoInactivo.mail_enviado_4,
+            UsuarioNotificadoInactivo.dado_de_baja,
+            ultima_notificacion_expr.label("ultima_notificacion"),
+        )
+        .join(
+            UsuarioNotificadoInactivo,
+            UsuarioNotificadoInactivo.login.collate("utf8mb4_0900_ai_ci") == login_0900,
+        )
+        .outerjoin(stats_ingresos, stats_ingresos.c.login == login_0900)
+        .filter(
+            or_(
+                UsuarioNotificadoInactivo.mail_enviado_1.isnot(None),
+                UsuarioNotificadoInactivo.mail_enviado_2.isnot(None),
+                UsuarioNotificadoInactivo.mail_enviado_3.isnot(None),
+                UsuarioNotificadoInactivo.mail_enviado_4.isnot(None),
+                UsuarioNotificadoInactivo.dado_de_baja.isnot(None),
+            )
+        )
+        .filter(stats_ingresos.c.fecha_ultimo_ingreso.isnot(None))
+        .filter(
+            or_(
+                ultima_notificacion_expr.is_(None),
+                stats_ingresos.c.fecha_ultimo_ingreso > ultima_notificacion_expr,
+            )
+        )
+        .order_by(stats_ingresos.c.fecha_ultimo_ingreso.desc(), User.login.asc())
+        .limit(limite_registros)
+        .all()
+    )
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No hay usuarios para exportar")
+
+    return generar_csv_response(
+        [dict(r._mapping) for r in rows],
+        "usuarios_inactivos_reset_preview.csv",
+    )
+
+
+
 
 
 ##### DEMORADOS #####
@@ -6318,4 +6507,180 @@ def descargar_csv_usuarios_demora_docs(
     return generar_csv_response(
         [dict(r._mapping) for r in rows],
         "usuarios_demora_documentacion_preview.csv"
+    )
+
+
+
+@users_router.post(
+    "/usuarios/demora-documentacion/reset-por-nuevo-ingreso",
+    response_model=dict,
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))]
+)
+def resetear_demora_docs_por_login_reciente(
+    db: Session = Depends(get_db)
+    ):
+
+    registros = (
+        db.query(UsuarioNotificadoDemoraDocs)
+        .filter(
+            or_(
+                UsuarioNotificadoDemoraDocs.mail_enviado_1.isnot(None),
+                UsuarioNotificadoDemoraDocs.mail_enviado_2.isnot(None),
+                UsuarioNotificadoDemoraDocs.mail_enviado_3.isnot(None),
+                UsuarioNotificadoDemoraDocs.dado_de_baja.isnot(None)
+            )
+        )
+        .all()
+    )
+
+    resultados = {
+        "evaluados": len(registros),
+        "reseteados": 0,
+        "sin_ingreso_reciente": 0
+    }
+
+    for registro in registros:
+        ultimo_ingreso = (
+            db.query(func.max(RuaEvento.evento_fecha))
+            .filter(
+                RuaEvento.login == registro.login,
+                RuaEvento.evento_detalle.ilike("%Ingreso exitoso%")
+            )
+            .scalar()
+        )
+
+        if not ultimo_ingreso:
+            resultados["sin_ingreso_reciente"] += 1
+            continue
+
+        ultima_notificacion = max(
+            [f for f in [
+                registro.mail_enviado_1,
+                registro.mail_enviado_2,
+                registro.mail_enviado_3,
+                registro.dado_de_baja
+            ] if f is not None],
+            default=None
+        )
+
+        if ultima_notificacion and ultimo_ingreso <= ultima_notificacion:
+            resultados["sin_ingreso_reciente"] += 1
+            continue
+
+        registro.mail_enviado_1 = None
+        registro.mail_enviado_2 = None
+        registro.mail_enviado_3 = None
+        registro.dado_de_baja = None
+
+        db.add(RuaEvento(
+            login=registro.login,
+            evento_detalle="Reset automático de notificaciones por demora documental (nuevo ingreso)",
+            evento_fecha=datetime.now()
+        ))
+
+        resultados["reseteados"] += 1
+
+    db.commit()
+
+    resultados["pendientes"] = resultados["evaluados"] - resultados["reseteados"]
+
+    return {
+        "success": True,
+        "tipo_mensaje": "verde",
+        "mensaje": "Proceso completado",
+        "stats": resultados
+    }
+
+
+@users_router.get(
+    "/usuarios/demora-documentacion/reset/csv",
+    dependencies=[Depends(verify_api_key), Depends(require_roles(["administrador"]))],
+)
+def descargar_csv_reset_demora_docs(
+    limite_registros: int = 200,
+    db: Session = Depends(get_db),
+    ):
+
+    if limite_registros <= 0 or limite_registros > 2000:
+        raise HTTPException(status_code=400, detail="Límite inválido")
+
+    login_0900 = User.login.collate("utf8mb4_0900_ai_ci")
+
+    stats_ingresos = (
+        db.query(
+            RuaEvento.login.collate("utf8mb4_0900_ai_ci").label("login"),
+            func.min(RuaEvento.evento_fecha).label("fecha_primer_ingreso"),
+            func.max(RuaEvento.evento_fecha).label("fecha_ultimo_ingreso"),
+            func.count().label("cantidad_ingresos"),
+        )
+        .filter(RuaEvento.evento_detalle.ilike("%Ingreso exitoso%"))
+        .group_by(RuaEvento.login)
+        .subquery()
+    )
+
+    ultima_notificacion_expr = func.nullif(
+        func.greatest(
+            func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_1, datetime(1900, 1, 1)),
+            func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_2, datetime(1900, 1, 1)),
+            func.coalesce(UsuarioNotificadoDemoraDocs.mail_enviado_3, datetime(1900, 1, 1)),
+            func.coalesce(UsuarioNotificadoDemoraDocs.dado_de_baja, datetime(1900, 1, 1)),
+        ),
+        datetime(1900, 1, 1)
+    )
+
+    rows = (
+        db.query(
+            User.login.label("login"),
+            User.nombre,
+            User.apellido,
+            User.mail,
+            User.fecha_alta,
+            User.active.label("cuenta_activa"),
+            User.operativo.label("estado_operativo"),
+            User.doc_adoptante_estado,
+            User.doc_adoptante_ddjj_firmada,
+            case(
+                (and_(User.clave.isnot(None), func.length(func.trim(User.clave)) > 0), "SI"),
+                else_="NO",
+            ).label("tiene_clave_generada"),
+            stats_ingresos.c.fecha_primer_ingreso,
+            stats_ingresos.c.fecha_ultimo_ingreso,
+            func.coalesce(stats_ingresos.c.cantidad_ingresos, 0).label("cantidad_ingresos"),
+            UsuarioNotificadoDemoraDocs.mail_enviado_1,
+            UsuarioNotificadoDemoraDocs.mail_enviado_2,
+            UsuarioNotificadoDemoraDocs.mail_enviado_3,
+            UsuarioNotificadoDemoraDocs.dado_de_baja,
+            ultima_notificacion_expr.label("ultima_notificacion"),
+        )
+        .join(
+            UsuarioNotificadoDemoraDocs,
+            UsuarioNotificadoDemoraDocs.login.collate("utf8mb4_0900_ai_ci") == login_0900,
+        )
+        .outerjoin(stats_ingresos, stats_ingresos.c.login == login_0900)
+        .filter(
+            or_(
+                UsuarioNotificadoDemoraDocs.mail_enviado_1.isnot(None),
+                UsuarioNotificadoDemoraDocs.mail_enviado_2.isnot(None),
+                UsuarioNotificadoDemoraDocs.mail_enviado_3.isnot(None),
+                UsuarioNotificadoDemoraDocs.dado_de_baja.isnot(None),
+            )
+        )
+        .filter(stats_ingresos.c.fecha_ultimo_ingreso.isnot(None))
+        .filter(
+            or_(
+                ultima_notificacion_expr.is_(None),
+                stats_ingresos.c.fecha_ultimo_ingreso > ultima_notificacion_expr,
+            )
+        )
+        .order_by(stats_ingresos.c.fecha_ultimo_ingreso.desc(), User.login.asc())
+        .limit(limite_registros)
+        .all()
+    )
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No hay usuarios para exportar")
+
+    return generar_csv_response(
+        [dict(r._mapping) for r in rows],
+        "usuarios_demora_documentacion_reset_preview.csv",
     )
