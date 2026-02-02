@@ -185,6 +185,17 @@ def _normalize_text(s: Optional[str]) -> str:
     s = unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode("ascii")
     return s.lower()
 
+def _normalize_provincia(s: Optional[str]) -> str:
+    s = _normalize_text(s)
+    if not s:
+        return ""
+    s = re.sub(r"\bprovincia de\b", "", s)
+    s = re.sub(r"\bprovincia\b", "", s)
+    s = re.sub(r"\bpostulantes residentes en\b", "", s)
+    s = re.sub(r"\bresidentes en\b", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
 def _extract_age_range(text: str) -> Optional[Tuple[int, int]]:
     """
     Extrae un rango de edades desde texto libre.
@@ -837,6 +848,21 @@ async def crear_postulacion( datos: dict = Body(...), db: Session = Depends(get_
                                + "".join(f"<li>{nombres_amigables.get(c, c.replace('_',' ').capitalize())}</li>" for c in faltantes)
                                + "</ul>",
                     "tiempo_mensaje": 5, "next_page": "actual"}
+
+        residencia_conv = _normalize_provincia(convocatoria.convocatoria_residencia_postulantes)
+        provincia_postulante = _normalize_provincia(datos.get("provincia"))
+        if residencia_conv and residencia_conv != "argentina":
+            if "cordoba" in residencia_conv and "cordoba" not in provincia_postulante:
+                return {
+                    "success": False,
+                    "tipo_mensaje": "amarillo",
+                    "mensaje": (
+                        "<p>Esta convocatoria es exclusiva para personas residentes en la Provincia de Córdoba.</p>"
+                        "<p>No es posible registrar la postulación con una provincia distinta.</p>"
+                    ),
+                    "tiempo_mensaje": 6,
+                    "next_page": "actual"
+                }
        
 
         # --- 4) DNI y mails ---
