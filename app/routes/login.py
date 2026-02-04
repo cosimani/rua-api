@@ -3,7 +3,9 @@
 import bcrypt
 from fastapi import APIRouter, HTTPException, Depends, status, Form, Query, Request, Body
 from sqlalchemy.orm import Session
-from database.config import get_db
+from sqlalchemy.exc import OperationalError
+from sqlalchemy import text
+from database.config import get_db, SessionLocal
 from helpers.utils import check_consecutive_numbers, detect_hash_and_verify, generar_codigo_para_link, enviar_mail, \
     verificar_recaptcha
 
@@ -332,7 +334,35 @@ async def login(
             evento_fecha = datetime.now()
         )
         db.add(nuevo_evento)
-    db.commit()
+
+    try:
+        db.commit()
+    except OperationalError as e:
+        db.rollback()
+        # Reintento con nueva sesión (posible conexión read-only en el pool)
+        try:
+            db_retry = SessionLocal()
+            try:
+                if not uso_clave_maestra:
+                    db_retry.add(RuaEvento(
+                        login=username,
+                        evento_detalle="Ingreso exitoso al sistema.",
+                        evento_fecha=datetime.now()
+                    ))
+                    db_retry.commit()
+            finally:
+                db_retry.close()
+        except Exception as retry_err:
+            # Fallback: registrar en archivo para reproceso manual
+            export_dir = os.getenv("EXPORT_DIR", "/tmp")
+            os.makedirs(export_dir, exist_ok=True)
+            fallback_path = os.path.join(export_dir, "eventos_pendientes.log")
+            with open(fallback_path, "a", encoding="utf-8") as f:
+                f.write(
+                    f"{datetime.now().isoformat()}|login={username}|"
+                    "evento=Ingreso exitoso al sistema.|"
+                    f"error={e}|retry_error={retry_err}\n"
+                )
 
     # 🧾 Construir respuesta base
     response_data = {

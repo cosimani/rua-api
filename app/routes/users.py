@@ -1129,8 +1129,20 @@ def get_user_by_login(
             not user.doc_adoptante_deudores_alimentarios, not user.doc_adoptante_antecedentes,
         ])
 
-        # 👇 PRIORIDAD MÁXIMA: si no tiene clave → “SIN CLAVE”
-        if not ( (user.clave or "").strip() ):
+        tiene_evento_baja = (
+            db.query(RuaEvento.evento_id)
+            .filter(
+                RuaEvento.login == user.login,
+                RuaEvento.evento_detalle.ilike("%dado de baja%")
+            )
+            .first()
+            is not None
+        )
+
+        # 👇 PRIORIDAD MÁXIMA: si está dado de baja por evento + operativo N
+        if user.operativo == "N" and tiene_evento_baja:
+            texto_boton_estado_pretenso = "DE BAJA"
+        elif not ( (user.clave or "").strip() ):
             texto_boton_estado_pretenso = "SIN CLAVE"
         elif user.active == "N":
             texto_boton_estado_pretenso = "INACTIVO"
@@ -1208,6 +1220,7 @@ def get_user_by_login(
             "doc_adoptante_deudores_alimentarios": user.doc_adoptante_deudores_alimentarios,
             "doc_adoptante_antecedentes": user.doc_adoptante_antecedentes,
             "doc_adoptante_migraciones": user.doc_adoptante_migraciones,
+            "tiene_evento_baja": tiene_evento_baja,
 
 
             # Campos de proyecto: siempre referencian al PRIMARIO (RUA). Si no hay RUA, van vacíos.
@@ -4821,6 +4834,89 @@ def darse_de_baja_del_sistema(
             "success": False,
             "tipo_mensaje": "rojo",
             "mensaje": f"Ocurrió un error al registrar la baja: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+
+
+
+@users_router.put("/usuarios/{login}/reactivar", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "supervision", "supervisora"]))])
+def reactivar_usuario_del_sistema(
+    login: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+    ):
+
+    """
+    Reactiva a un usuario dado de baja.
+
+    Marca el campo `operativo` en 'Y' en `sec_users` y registra un evento.
+    """
+
+    login_actual = current_user["user"]["login"]
+
+    # Buscar usuario a reactivar
+    user = db.query(User).filter(User.login == login).first()
+    if not user:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Usuario no encontrado.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    # Validar grupo adoptante
+    grupo = (
+        db.query(Group.description)
+        .join(UserGroup, Group.group_id == UserGroup.group_id)
+        .filter(UserGroup.login == login)
+        .first()
+    )
+    if not grupo or grupo.description.lower() != "adoptante":
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Solo los usuarios adoptantes pueden ser reactivados desde este flujo.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    if user.operativo == "Y":
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "El usuario ya se encuentra activo.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    try:
+        user.operativo = "Y"
+        db.add(RuaEvento(
+            login=login,
+            evento_detalle=f"El usuario fue reactivado luego de estar dado de baja. Reactivó: {login_actual}.",
+            evento_fecha=datetime.now()
+        ))
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "El usuario fue reactivado correctamente.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Ocurrió un error al reactivar el usuario: {str(e)}",
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
