@@ -31,7 +31,11 @@ services:
     working_dir: /app  # Definimos el directorio de trabajo dentro del contenedor
     # command: python3 -m main
     command: >
-      uvicorn main:app --host 0.0.0.0 --port 8000 --reload 
+      sh -c "if [ \"${UVICORN_RELOAD}\" = 'true' ]; then
+        uvicorn main:app --host 0.0.0.0 --port 8000 --reload;
+      else
+        uvicorn main:app --host 0.0.0.0 --port 8000;
+      fi"
 
 networks:
   app-network:
