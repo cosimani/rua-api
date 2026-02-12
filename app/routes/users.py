@@ -27,7 +27,7 @@ from io import StringIO
 
 from models.users import User, Group, UserGroup 
 
-from models.proyecto import Proyecto, ProyectoHistorialEstado, AgendaEntrevistas
+from models.proyecto import Proyecto, ProyectoHistorialEstado, AgendaEntrevistas, DetalleEquipoEnProyecto
 from models.convocatorias import Postulacion
 from models.notif_y_observaciones import ObservacionesPretensos, NotificacionesRUA
 from models.ddjj import DDJJ
@@ -138,6 +138,11 @@ def get_users(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
 
+    count_only: Optional[bool] = Query(
+        False,
+        description="Si es true, devuelve solo totales exactos sin listar usuarios.",
+    ),
+
     operativo: Optional[Literal["Y", "N"]] = Query(
         None,
         description=(
@@ -148,11 +153,23 @@ def get_users(
         ),
     ),
 
+    include_inoperativos: Optional[bool] = Query(
+        False,
+        description=(
+            "Si es true, incluye usuarios operativos e inoperativos."
+        ),
+    ),
+
+
     # group_description: Literal["adoptante", "supervision", "profesional", "supervisora", "administrador"] = Query(
     #     None, description="Grupo o rol del usuario"),   
 
-    group_description: Optional[Literal["adoptante","supervision","profesional","supervisora","administrador"]] = Query(
-        None, description="Grupo o rol del usuario"
+    group_description: Optional[str] = Query(
+        None,
+        description=(
+            "Grupo o rol del usuario."
+            " Si son varios, separar por comas (ej: profesional,supervisora,supervision)."
+        ),
     ),
 
     search: Optional[str] = Query(None, description="Búsqueda por al menos 3 caracteres alfanuméricos"),
@@ -187,7 +204,8 @@ def get_users(
 
     """
     Devuelve los usuarios de sec_users paginados. <br>
-    group_description puede ser: adoptante, profesional, supervisora o administrador <br>
+    group_description puede ser: adoptante, profesional, supervisora, supervision o administrador. <br>
+    Para multiples roles, separar por comas (ej: profesional,supervisora,supervision). <br>
     Búsqueda parcial en: name, apellido, login, email, celular, calle_y_nro, barrio, localidad, provincia. <br>
     proyecto_tipo puede ser: Monoparental, Matrimonio, Unión convivencial. <br>
     curso_aprobado puede ser: Y o N <br>
@@ -203,6 +221,20 @@ def get_users(
     """
    
 
+    has_filters = any([
+        bool(search and search.strip()),
+        curso_aprobado is not None,
+        bool(doc_adoptante_estado),
+        bool(proyecto_tipo),
+        nro_orden_rua is not None,
+        bool(fecha_alta_inicio or fecha_alta_fin),
+        edad_min is not None or edad_max is not None,
+        bool(fecha_nro_orden_inicio or fecha_nro_orden_fin),
+        operativo is not None,
+        include_inoperativos is True,
+        ingreso_por != "todos",
+    ])
+
     try:
 
         t0 = time.perf_counter()
@@ -215,6 +247,15 @@ def get_users(
             )
             .filter(Proyecto.operativo == "Y")
             .group_by(func.coalesce(Proyecto.login_1, Proyecto.login_2))
+            .subquery()
+        )
+
+        proyectos_asociados_subq = (
+            db.query(
+                DetalleEquipoEnProyecto.login.label("login"),
+                func.count(func.distinct(DetalleEquipoEnProyecto.proyecto_id)).label("proyectos_asociados")
+            )
+            .group_by(DetalleEquipoEnProyecto.login)
             .subquery()
         )
 
@@ -284,6 +325,8 @@ def get_users(
                 Proyecto.subregistro_otra_provincia.label("subregistro_otra_provincia"),
                 Proyecto.estado_general.label("estado_general"),
 
+                proyectos_asociados_subq.c.proyectos_asociados.label("proyectos_asociados"),
+
             )
             # El .join se usa para traer los usuarios solo si existe en ambas tablas, sino no trae los usuarios
             .join(UserGroup, User.login == UserGroup.login) 
@@ -301,7 +344,12 @@ def get_users(
                 Proyecto,
                 Proyecto.proyecto_id == proyecto_subq.c.proyecto_id
             )
+            .outerjoin(
+                proyectos_asociados_subq,
+                proyectos_asociados_subq.c.login == User.login
+            )
         )
+
 
         t1 = time.perf_counter()
         print(f"Tiempo para construir la consulta: {t1 - t0:.4f} segundos")
@@ -345,7 +393,11 @@ def get_users(
 
         # Filtro por descripción de grupo
         if group_description:
-            query = query.filter(Group.description == group_description)
+            grupos = [g.strip() for g in group_description.split(",") if g.strip()]
+            if len(grupos) == 1:
+                query = query.filter(Group.description == grupos[0])
+            else:
+                query = query.filter(Group.description.in_(grupos))
 
         # Filtro por tipo de proyecto
         if proyecto_tipo:
@@ -396,7 +448,14 @@ def get_users(
         if operativo is not None:
             query = query.filter(User.operativo == operativo)
         else:
-            if doc_adoptante_estado in ["inactivo", "inoperativo"]:
+            if include_inoperativos:
+                query = query.filter(
+                    or_(
+                        func.upper(User.operativo).in_(["Y", "N"]),
+                        User.doc_adoptante_estado == "rechazado"
+                    )
+                )
+            elif doc_adoptante_estado in ["inactivo", "inoperativo"]:
                 # No aplicar filtro adicional: ya se filtró arriba
                 pass
             elif search and len(search.strip()) >= 3:
@@ -471,6 +530,22 @@ def get_users(
         query = query.distinct(User.login)
 
 
+        # Si solo se requieren totales exactos, evitar el listado
+        if count_only:
+            count_subq = query.with_entities(User.login).distinct().subquery()
+            total_records = db.query(func.count()).select_from(count_subq).scalar() or 0
+            total_pages = ceil(total_records / limit) if limit else 0
+
+            return {
+                "page": page,
+                "limit": limit,
+                "total_pages": total_pages,
+                "total_records": total_records,
+                "total_records_estimated": False,
+                "has_next": False,
+                "users": [],
+            }
+
         # Paginación sin count(): se solicita (limit + 1) registros
         skip = (page - 1) * limit
         t_query_start = time.perf_counter()
@@ -482,6 +557,29 @@ def get_users(
         has_next = len(users) > limit
         if has_next:
             users = users[:limit]
+
+        total_records = None
+        total_pages = None
+        total_records_estimated = False
+
+        if not has_filters:
+            try:
+                total_est = db.execute(
+                    text(
+                        """
+                        SELECT table_rows
+                        FROM information_schema.tables
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'sec_users'
+                        """
+                    )
+                ).scalar()
+                total_records = int(total_est or 0)
+                total_pages = ceil(total_records / limit) if limit else 0
+                total_records_estimated = True
+            except Exception:
+                total_records = None
+                total_pages = None
 
         # Procesamiento de resultados
         t_process_start = time.perf_counter()
@@ -777,6 +875,7 @@ def get_users(
                 "subregistro_string": prim_subregistro_string,
                 "proyecto_estado_general": prim_estado_general,
                 "proyectos_ids": proyectos_ids,
+                "proyectos_asociados": int(user.proyectos_asociados or 0),
                 "fecha_doc_adoptante_estado": fecha_doc_adoptante_estado or "",
 
             }
@@ -791,6 +890,9 @@ def get_users(
         return {
             "page": page,
             "limit": limit,
+            "total_pages": total_pages,
+            "total_records": total_records,
+            "total_records_estimated": total_records_estimated,
             "has_next": has_next,
             "users": users_list,
         }
@@ -4920,6 +5022,166 @@ def reactivar_usuario_del_sistema(
             "tiempo_mensaje": 6,
             "next_page": "actual"
         }
+
+
+@users_router.put("/usuarios/{login}/operativo", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "supervision", "supervisora"]))])
+def actualizar_operativo_usuario(
+    login: str,
+    operativo: Literal["Y", "N"] = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+    ):
+
+    """
+    Actualiza el campo `operativo` en `sec_users`.
+
+    - `Y` habilita el usuario.
+    - `N` deshabilita el usuario.
+    """
+
+    login_actual = current_user["user"]["login"]
+
+    user = db.query(User).filter(User.login == login).first()
+    if not user:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Usuario no encontrado.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    roles = [
+        r[0].lower() for r in (
+            db.query(Group.description)
+            .join(UserGroup, Group.group_id == UserGroup.group_id)
+            .filter(UserGroup.login == login)
+            .all()
+        )
+    ]
+    es_profesional = "profesional" in roles
+    es_supervisora = "supervisora" in roles or "supervision" in roles
+
+    if user.operativo == operativo:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "El usuario ya tiene ese estado operativo.",
+            "tiempo_mensaje": 5,
+            "next_page": "actual"
+        }
+
+    try:
+        proyectos_asociados = 0
+        if es_profesional:
+            proyectos_asociados = (
+                db.query(func.count(func.distinct(DetalleEquipoEnProyecto.proyecto_id)))
+                .filter(DetalleEquipoEnProyecto.login == login)
+                .scalar()
+                or 0
+            )
+
+        if operativo == "N" and es_profesional:
+            (
+                db.query(DetalleEquipoEnProyecto)
+                .filter(DetalleEquipoEnProyecto.login == login)
+                .delete(synchronize_session=False)
+            )
+
+        user.operativo = operativo
+
+        if es_profesional:
+            detalle_proyectos = (
+                "Ningun proyecto asociado."
+                if proyectos_asociados == 0
+                else f"Proyectos asociados: {proyectos_asociados}."
+            )
+            evento_detalle = (
+                f"Profesional {'habilitada' if operativo == 'Y' else 'deshabilitada'} "
+                f"por {login_actual}. {detalle_proyectos}"
+            )
+        elif es_supervisora:
+            evento_detalle = (
+                f"Supervisora {'habilitada' if operativo == 'Y' else 'deshabilitada'} "
+                f"por {login_actual}."
+            )
+        else:
+            evento_detalle = (
+                f"Usuario {'habilitado' if operativo == 'Y' else 'deshabilitado'} "
+                f"por {login_actual}."
+            )
+
+        db.add(RuaEvento(
+            login=login,
+            evento_detalle=evento_detalle,
+            evento_fecha=datetime.now()
+        ))
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "Estado operativo actualizado.",
+            "tiempo_mensaje": 4,
+            "next_page": "actual",
+            "proyectos_asociados": proyectos_asociados if es_profesional else None
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Ocurrió un error al actualizar operativo: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+
+
+@users_router.get("/usuarios/{login}/resumen-operativo", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "supervision", "supervisora"]))])
+def resumen_operativo_usuario(
+    login: str,
+    db: Session = Depends(get_db)
+    ):
+
+    user = db.query(User).filter(User.login == login).first()
+    if not user:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": "Usuario no encontrado.",
+            "proyectos_asociados": 0,
+            "roles": []
+        }
+
+    roles = [
+        r[0].lower() for r in (
+            db.query(Group.description)
+            .join(UserGroup, Group.group_id == UserGroup.group_id)
+            .filter(UserGroup.login == login)
+            .all()
+        )
+    ]
+    es_profesional = "profesional" in roles
+
+    proyectos_asociados = 0
+    if es_profesional:
+        proyectos_asociados = (
+            db.query(func.count(func.distinct(DetalleEquipoEnProyecto.proyecto_id)))
+            .filter(DetalleEquipoEnProyecto.login == login)
+            .scalar()
+            or 0
+        )
+
+    return {
+        "success": True,
+        "roles": roles,
+        "proyectos_asociados": proyectos_asociados
+    }
 
 
 
