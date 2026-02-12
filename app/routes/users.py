@@ -62,6 +62,12 @@ from helpers.utils import enviar_mail, get_setting_value, detect_hash_and_verify
 
 import fitz  # PyMuPDF
 from PIL import Image
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+    HEIF_ENABLED = True
+except Exception:
+    HEIF_ENABLED = False
 import subprocess
 from pathlib import Path
 
@@ -107,6 +113,20 @@ os.makedirs(DIR_PDF_GENERADOS, exist_ok=True)
 
 
 users_router = APIRouter()
+
+
+def convert_heic_to_jpg(src_path: str, output_dir: str) -> Optional[str]:
+    if not HEIF_ENABLED:
+        return None
+    try:
+        base = Path(src_path).stem
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        out_path = os.path.join(output_dir, f"{base}_{timestamp}.jpg")
+        img = Image.open(src_path).convert("RGB")
+        img.save(out_path, "JPEG", quality=95)
+        return out_path
+    except Exception:
+        return None
 
 
 
@@ -2310,6 +2330,16 @@ def descargar_documento_usuario(
     filepath = getattr(usuario, campo)
     if not filepath or not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext in [".heic", ".heif"]:
+        converted = convert_heic_to_jpg(filepath, DIR_PDF_GENERADOS)
+        if converted:
+            return FileResponse(
+                path=converted,
+                filename=os.path.basename(converted),
+                media_type="image/jpeg"
+            )
 
     return FileResponse(
         path = filepath,
@@ -5216,6 +5246,11 @@ def descargar_documentos_usuario(
                 ruta = getattr(modelo, campo, None)
                 if ruta and os.path.exists(ruta):
                     ext = os.path.splitext(ruta)[1].lower()
+                    if ext in [".heic", ".heif"]:
+                        converted = convert_heic_to_jpg(ruta, DIR_PDF_GENERADOS)
+                        if converted:
+                            ruta = converted
+                            ext = ".jpg"
                     nombre_base = f"{modelo.__class__.__name__.lower()}_{campo}_{os.path.basename(ruta)}"
                     out_pdf = os.path.join(DIR_PDF_GENERADOS, nombre_base + ".pdf")
 
