@@ -5282,6 +5282,7 @@ def descargar_documentos_usuario(
 
                         # Guardar como PDF en tamaño A4
                         new_img.save(out_pdf, "PDF", resolution=100.0)
+                        pdf_paths.append((campo, out_pdf))
 
 
                     elif ext in [".doc", ".docx"]:
