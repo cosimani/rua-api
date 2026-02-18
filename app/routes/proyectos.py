@@ -33,6 +33,7 @@ from helpers.config_whatsapp import get_whatsapp_settings
 from helpers.mensajeria_utils import registrar_mensaje
 
 from models.eventos_y_configs import RuaEvento, UsuarioNotificadoRatificacion
+from services.proyecto_unificacion import unify_on_enter_vinculacion
 
 from security.security import get_current_user, verify_api_key, require_roles
 from dotenv import load_dotenv
@@ -4886,6 +4887,12 @@ def subir_dictamen(
         proyecto.doc_dictamen = filepath
         proyecto.estado_general = 'vinculacion'  # 🟢 Nuevo estado
 
+        unify_on_enter_vinculacion(
+            db = db,
+            proyecto_convocatoria_id = proyecto_id,
+            login_usuario = login_actual,
+        )
+
         # ✅ Registrar en el historial
         historial = ProyectoHistorialEstado(
             proyecto_id = proyecto_id,
@@ -4911,7 +4918,10 @@ def subir_dictamen(
             "path": filepath
         }
 
-    except SQLAlchemyError as e:
+    except HTTPException as e:
+        db.rollback()
+        raise e
+    except Exception as e:
         db.rollback()
         raise HTTPException(status_code = 500, detail = f"Error al guardar el archivo: {str(e)}")
 

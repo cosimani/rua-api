@@ -19,6 +19,7 @@ from models.proyecto import Proyecto, ProyectoHistorialEstado
 from models.users import User
 from models.nna import Nna, NnaHistorialEstado
 from models.eventos_y_configs import RuaEvento
+from services.proyecto_unificacion import unify_on_enter_vinculacion
 from fastapi.responses import FileResponse, JSONResponse
 import tempfile, shutil
 
@@ -1008,6 +1009,11 @@ def marcar_con_dictamen(
                 estado_nuevo="vinculacion",
                 fecha_hora=datetime.now()
             ))
+            unify_on_enter_vinculacion(
+                db = db,
+                proyecto_convocatoria_id = proyecto_sel.proyecto_id,
+                login_usuario = current_user["user"]["login"],
+            )
 
             # ✅ Cambiar estado de proyectos no seleccionados a viable y eliminarlos de la carpeta
             for p_id, p_obj in proyectos_dict.items():
@@ -1096,7 +1102,16 @@ def marcar_con_dictamen(
             "next_page": "actual"
         }
 
-    except SQLAlchemyError as e:
+    except HTTPException as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": str(e.detail),
+            "tiempo_mensaje": 6,
+            "next_page": "actual"
+        }
+    except Exception as e:
         db.rollback()
         return {
             "success": False,
