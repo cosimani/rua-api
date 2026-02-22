@@ -33,7 +33,7 @@ from helpers.config_whatsapp import get_whatsapp_settings
 from helpers.mensajeria_utils import registrar_mensaje
 
 from models.eventos_y_configs import RuaEvento, UsuarioNotificadoRatificacion
-from services.proyecto_unificacion import unify_on_enter_vinculacion
+from services.proyecto_unificacion import unify_on_enter_vinculacion, get_unificacion_info
 
 from security.security import get_current_user, verify_api_key, require_roles
 from dotenv import load_dotenv
@@ -5807,6 +5807,87 @@ def baja_por_convocatoria(
 
 
 
+@proyectos_router.get("/unificacion-info/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "supervision", "supervisora"]))])
+def obtener_info_unificacion(
+    proyecto_id: int,
+    db: Session = Depends(get_db),
+    ):
+    """
+    Devuelve un resumen de unificación para proyectos convocatoria en vinculacion.
+    """
+    try:
+        info = get_unificacion_info(db, proyecto_id)
+        return {
+            "success": True,
+            **info,
+        }
+    except HTTPException as e:
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": str(e.detail),
+            "can_unify": False,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al obtener la información de unificación: {str(e)}",
+            "can_unify": False,
+        }
+
+
+@proyectos_router.post("/unificar/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "supervision", "supervisora"]))])
+def unificar_proyecto_convocatoria(
+    proyecto_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    ):
+    """
+    Ejecuta la unificación manual para un proyecto convocatoria ya en vinculacion.
+    """
+    try:
+        unify_on_enter_vinculacion(
+            db = db,
+            proyecto_convocatoria_id = proyecto_id,
+            login_usuario = current_user["user"]["login"],
+        )
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tipo_mensaje": "verde",
+            "mensaje": "Unificación realizada correctamente.",
+            "tiempo_mensaje": 6,
+            "next_page": "actual",
+        }
+    except HTTPException as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "naranja",
+            "mensaje": str(e.detail),
+            "tiempo_mensaje": 6,
+            "next_page": "actual",
+        }
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": f"Error al unificar proyectos: {str(e)}",
+            "tiempo_mensaje": 6,
+            "next_page": "actual",
+        }
+
+
+
+
 @proyectos_router.put("/adopcion/{proyecto_id}", response_model = dict,
     dependencies = [Depends(verify_api_key), Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
 def subir_sentencia_adopcion(
@@ -6968,9 +7049,16 @@ def listar_observaciones_de_proyecto(
         )
 
         for h in historial:
+            comentario = (h.comentarios or "").strip()
+            mismo_estado = (h.estado_anterior or "") == (h.estado_nuevo or "")
+            if mismo_estado and comentario:
+                descripcion = comentario
+            else:
+                descripcion = f"Cambio de estado: {h.estado_anterior or '—'} → {h.estado_nuevo or '—'}"
+
             resultado.append({
                 "tipo": "evento",
-                "observacion": f"Cambio de estado: {h.estado_anterior or '—'} → {h.estado_nuevo or '—'}",
+                "observacion": descripcion,
                 "fecha": h.fecha_hora.strftime("%Y-%m-%d %H:%M") if h.fecha_hora else None,
                 "login_que_observo": None,
                 "nombre_completo_que_observo": None
