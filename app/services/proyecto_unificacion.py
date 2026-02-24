@@ -202,10 +202,10 @@ def get_unificacion_info(db: Session, proyecto_convocatoria_id: int) -> dict:
             "estado_final": None,
         }
 
-    if proyecto_convocatoria.estado_general != "vinculacion":
+    if proyecto_convocatoria.estado_general not in ("vinculacion", "guarda_provisoria"):
         return {
             "can_unify": False,
-            "reason": "El proyecto no está en estado vinculacion.",
+            "reason": "El proyecto no está en estado vinculacion ni guarda provisoria.",
             "proyecto_convocatoria": _serialize_proyecto_compacto(proyecto_convocatoria),
             "proyecto_rua": None,
             "rua_candidatos": [],
@@ -277,7 +277,7 @@ def get_unificacion_info(db: Session, proyecto_convocatoria_id: int) -> dict:
         "docs_to_copy": docs_to_copy,
         "copiar_orden": copiar_orden,
         "estado_final": {
-            "convocatoria": "vinculacion",
+            "convocatoria": proyecto_convocatoria.estado_general,
             "rua": "baja_por_convocatoria",
         },
     }
@@ -362,7 +362,7 @@ def unify_on_enter_vinculacion(
     if proyecto_convocatoria.ingreso_por != "convocatoria":
         return
 
-    if proyecto_convocatoria.estado_general != "vinculacion":
+    if proyecto_convocatoria.estado_general not in ("vinculacion", "guarda_provisoria"):
         return
 
     proyectos_rua = _query_rua_por_grupo(db, proyecto_convocatoria).all()
@@ -426,11 +426,13 @@ def unify_on_enter_vinculacion(
         texto_docs = _format_docs_copiados(detalles_docs)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+        estado_convocatoria = proyecto_convocatoria.estado_general
+
         db.add(RuaEvento(
             login = login_usuario,
             evento_detalle = (
                 "Unificacion proyectos (convocatoria): "
-                f"proyecto {proyecto_convocatoria.proyecto_id} mantiene estado vinculacion, "
+                f"proyecto {proyecto_convocatoria.proyecto_id} mantiene estado {estado_convocatoria}, "
                 f"fuente RUA {proyecto_rua.proyecto_id}; "
                 f"{texto_orden}; {texto_docs}; fecha={timestamp}"
             ),
@@ -439,7 +441,7 @@ def unify_on_enter_vinculacion(
 
         db.add(ObservacionesProyectos(
             observacion = (
-                "Unificacion proyectos: mantiene estado vinculacion; "
+                f"Unificacion proyectos: mantiene estado {estado_convocatoria}; "
                 f"fuente RUA {proyecto_rua.proyecto_id}; "
                 f"{texto_orden}; {texto_docs}; fecha={timestamp}"
             ),
