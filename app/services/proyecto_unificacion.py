@@ -37,6 +37,28 @@ RUA_VALID_STATES = [
     "viable",
 ]
 
+FINAL_PROJECT_STATES = {
+    "adopcion_definitiva",
+    "baja_anulacion",
+    "baja_caducidad",
+    "baja_desistimiento",
+    "baja_interrupcion",
+    "baja_por_convocatoria",
+    "baja_rechazo_invitacion",
+}
+
+CONVOCATORIA_UNIFICACION_STATES = (
+    "vinculacion",
+    "guarda_provisoria",
+    "guarda_confirmada",
+)
+
+
+def _clip_evento_detalle(texto: str, limit: int = 255) -> str:
+    if not texto:
+        return ""
+    return texto[:limit]
+
 
 def _get_docs_base_dir() -> str:
     base_dir = os.getenv("UPLOAD_DIR_DOC_PROYECTOS")
@@ -202,10 +224,10 @@ def get_unificacion_info(db: Session, proyecto_convocatoria_id: int) -> dict:
             "estado_final": None,
         }
 
-    if proyecto_convocatoria.estado_general not in ("vinculacion", "guarda_provisoria"):
+    if proyecto_convocatoria.estado_general not in CONVOCATORIA_UNIFICACION_STATES:
         return {
             "can_unify": False,
-            "reason": "El proyecto no está en estado vinculacion ni guarda provisoria.",
+            "reason": "El proyecto no está en estado vinculacion, guarda provisoria ni guarda confirmada.",
             "proyecto_convocatoria": _serialize_proyecto_compacto(proyecto_convocatoria),
             "proyecto_rua": None,
             "rua_candidatos": [],
@@ -362,7 +384,7 @@ def unify_on_enter_vinculacion(
     if proyecto_convocatoria.ingreso_por != "convocatoria":
         return
 
-    if proyecto_convocatoria.estado_general not in ("vinculacion", "guarda_provisoria"):
+    if proyecto_convocatoria.estado_general not in CONVOCATORIA_UNIFICACION_STATES:
         return
 
     proyectos_rua = _query_rua_por_grupo(db, proyecto_convocatoria).all()
@@ -394,6 +416,11 @@ def unify_on_enter_vinculacion(
     created_paths = []
     detalles_docs = []
     estado_rua_anterior = proyecto_rua.estado_general
+    otros_convocatoria = (
+        _query_convocatoria_por_grupo(db, proyecto_convocatoria)
+        .filter(Proyecto.proyecto_id != proyecto_convocatoria.proyecto_id)
+        .all()
+    )
 
     try:
         for field_name in DOC_FIELDS:
@@ -427,14 +454,57 @@ def unify_on_enter_vinculacion(
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         estado_convocatoria = proyecto_convocatoria.estado_general
+        otros_baja = []
+        for proyecto_otro in otros_convocatoria:
+            estado_otro_anterior = proyecto_otro.estado_general
+            if estado_otro_anterior in FINAL_PROJECT_STATES:
+                continue
+            proyecto_otro.estado_general = "baja_por_convocatoria"
+            otros_baja.append(proyecto_otro.proyecto_id)
+
+            db.add(RuaEvento(
+                login = login_usuario,
+                evento_detalle = _clip_evento_detalle(
+                    "Unificacion proyectos (convocatoria): "
+                    f"proj {proyecto_otro.proyecto_id} {estado_otro_anterior} -> baja_por_convocatoria; "
+                    f"conv {proyecto_convocatoria.proyecto_id}; {timestamp}"
+                ),
+                evento_fecha = datetime.now(),
+            ))
+
+            db.add(ObservacionesProyectos(
+                observacion = (
+                    "Unificacion proyectos: cambio estado a baja_por_convocatoria; "
+                    f"convocatoria {proyecto_convocatoria.proyecto_id}; fecha={timestamp}"
+                ),
+                observacion_fecha = datetime.now(),
+                login_que_observo = login_usuario,
+                observacion_a_cual_proyecto = proyecto_otro.proyecto_id,
+            ))
+
+            db.add(ProyectoHistorialEstado(
+                proyecto_id = proyecto_otro.proyecto_id,
+                estado_anterior = estado_otro_anterior,
+                estado_nuevo = "baja_por_convocatoria",
+                comentarios = (
+                    "Unificacion proyectos: cambio estado a baja_por_convocatoria; "
+                    f"convocatoria {proyecto_convocatoria.proyecto_id}; fecha={timestamp}"
+                ),
+            ))
+
+        texto_otras_convocatorias = (
+            "otras_convocatorias: sin cambios"
+            if not otros_baja
+            else "otras_convocatorias_baja: " + ", ".join(str(pid) for pid in otros_baja)
+        )
 
         db.add(RuaEvento(
             login = login_usuario,
-            evento_detalle = (
+            evento_detalle = _clip_evento_detalle(
                 "Unificacion proyectos (convocatoria): "
-                f"proyecto {proyecto_convocatoria.proyecto_id} mantiene estado {estado_convocatoria}, "
-                f"fuente RUA {proyecto_rua.proyecto_id}; "
-                f"{texto_orden}; {texto_docs}; fecha={timestamp}"
+                f"proj {proyecto_convocatoria.proyecto_id} ok {estado_convocatoria}; "
+                f"rua {proyecto_rua.proyecto_id}; "
+                f"{texto_orden}; {texto_docs}; {texto_otras_convocatorias}; {timestamp}"
             ),
             evento_fecha = datetime.now(),
         ))
@@ -443,7 +513,7 @@ def unify_on_enter_vinculacion(
             observacion = (
                 f"Unificacion proyectos: mantiene estado {estado_convocatoria}; "
                 f"fuente RUA {proyecto_rua.proyecto_id}; "
-                f"{texto_orden}; {texto_docs}; fecha={timestamp}"
+                f"{texto_orden}; {texto_docs}; {texto_otras_convocatorias}; fecha={timestamp}"
             ),
             observacion_fecha = datetime.now(),
             login_que_observo = login_usuario,
@@ -454,11 +524,10 @@ def unify_on_enter_vinculacion(
 
         db.add(RuaEvento(
             login = login_usuario,
-            evento_detalle = (
+            evento_detalle = _clip_evento_detalle(
                 "Unificacion proyectos (RUA): "
-                f"proyecto {proyecto_rua.proyecto_id} cambio estado "
-                f"{estado_rua_anterior} -> baja_por_convocatoria por convocatoria "
-                f"{proyecto_convocatoria.proyecto_id}; fecha={timestamp}"
+                f"proj {proyecto_rua.proyecto_id} {estado_rua_anterior} -> baja_por_convocatoria; "
+                f"conv {proyecto_convocatoria.proyecto_id}; {timestamp}"
             ),
             evento_fecha = datetime.now(),
         ))
