@@ -638,6 +638,15 @@ def cerrar_y_eliminar_convocatoria(
     - La convocatoria NO se elimina: se marca convocatoria_online = 'N'.
     """
     ADVANCED_STATES = ("vinculacion", "guarda_provisoria", "guarda_confirmada", "adopcion_definitiva")
+    FINAL_PROJECT_STATES = {
+        "adopcion_definitiva",
+        "baja_anulacion",
+        "baja_caducidad",
+        "baja_desistimiento",
+        "baja_interrupcion",
+        "baja_por_convocatoria",
+        "baja_rechazo_invitacion",
+    }
 
     convocatoria = (
         db.query(Convocatoria)
@@ -712,8 +721,11 @@ def cerrar_y_eliminar_convocatoria(
               .filter(Postulacion.convocatoria_id == convocatoria_id)
               .all()
         )
+        proyectos_bajados = 0
         for pr in proyectos_a_bajar:
             estado_anterior = pr.estado_general
+            if estado_anterior in FINAL_PROJECT_STATES:
+                continue
             if estado_anterior != "baja_por_convocatoria":
                 # Historial
                 db.add(ProyectoHistorialEstado(
@@ -734,6 +746,7 @@ def cerrar_y_eliminar_convocatoria(
                     observacion_fecha=datetime.now()
                 ))
                 pr.estado_general = "baja_por_convocatoria"
+                proyectos_bajados += 1
 
         # 4) Mantener postulaciones para trazabilidad
 
@@ -745,7 +758,7 @@ def cerrar_y_eliminar_convocatoria(
             login=current_user["user"]["login"],
             evento_detalle=(
                 f"Convocatoria #{convocatoria_id} cerrada (offline). "
-                f"NNA liberados: {len(nna_ids)}; proyectos dados de baja: {len(proyectos_a_bajar)}."
+                f"NNA liberados: {len(nna_ids)}; proyectos dados de baja: {proyectos_bajados}."
             ),
             evento_fecha=datetime.now()
         ))
@@ -756,7 +769,7 @@ def cerrar_y_eliminar_convocatoria(
             "success": True, "tipo_mensaje": "verde",
             "mensaje": (
                 f"Convocatoria cerrada (offline). NNA puestos en 'disponible': {len(nna_ids)}. "
-                f"Proyectos dados de baja por convocatoria: {len(proyectos_a_bajar)}."
+                f"Proyectos dados de baja por convocatoria: {proyectos_bajados}."
             ),
             "tiempo_mensaje": 8, "next_page": "actual",
         }

@@ -370,6 +370,33 @@ def _preparar_pretensos_para_nuevo_proceso(db: Session, proyecto: Proyecto) -> N
             db.add(user)
 
 
+def _preparar_pretensos_para_nuevo_proceso_por_logins(db: Session, logins: List[Optional[str]]) -> None:
+    """Resetea indicadores de DDJJ y documentación para los logins indicados."""
+
+    for login in filter(None, logins):
+        user = db.query(User).filter(User.login == login).first()
+        if not user:
+            continue
+
+        cambios = False
+        if user.doc_adoptante_ddjj_firmada != "N":
+            user.doc_adoptante_ddjj_firmada = "N"
+            cambios = True
+
+        if user.doc_adoptante_estado != "inicial_cargando":
+            user.doc_adoptante_estado = "inicial_cargando"
+            cambios = True
+
+        if cambios:
+            db.add(user)
+
+
+def _clip_evento_detalle(texto: str, limit: int = 255) -> str:
+    if not texto:
+        return ""
+    return texto[:limit]
+
+
 def _calcular_info_ratificacion_proyecto(proyecto: Proyecto, db: Session, logger=None):
     """Centraliza el cálculo de fechas de ratificación para un proyecto."""
 
@@ -5544,6 +5571,27 @@ def interrumpir_vinculacion_o_guarda(
             "next_page": "actual",
         }
 
+    def _is_monoparental_local(p: Proyecto) -> bool:
+        if (p.proyecto_tipo or "").strip() == "Monoparental":
+            return True
+        return not (p.login_2 and str(p.login_2).strip())
+
+    def _query_grupo(p: Proyecto):
+        if _is_monoparental_local(p):
+            return db.query(Proyecto).filter(
+                Proyecto.login_1 == p.login_1,
+                or_(Proyecto.login_2.is_(None), Proyecto.login_2 == "")
+            )
+
+        login_1 = (p.login_1 or "").strip()
+        login_2 = (p.login_2 or "").strip()
+        return db.query(Proyecto).filter(
+            or_(
+                and_(Proyecto.login_1 == login_1, Proyecto.login_2 == login_2),
+                and_(Proyecto.login_1 == login_2, Proyecto.login_2 == login_1)
+            )
+        )
+
     try:
         estado_anterior = proyecto.estado_general
 
@@ -5651,7 +5699,7 @@ def interrumpir_vinculacion_o_guarda(
             # 4) Auditoría
             db.add(RuaEvento(
                 login=current_user["user"]["login"],
-                evento_detalle=(
+                evento_detalle=_clip_evento_detalle(
                     f"Interrupción: eliminada carpeta #{carpeta_id}. "
                     f"NNA liberados: {nna_ids if nna_ids else '[]'}. "
                     f"Proyecto afectado: #{proyecto_id}."
@@ -5672,8 +5720,108 @@ def interrumpir_vinculacion_o_guarda(
 
         total_nna_liberados = len(nna_liberados_set)
 
+        if proyecto.ingreso_por == "convocatoria":
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            estados_rua_a_baja = {
+                "aprobado",
+                "calendarizando",
+                "entrevistando",
+                "para_valorar",
+                "viable",
+            }
+
+            proyectos_rua = (
+                _query_grupo(proyecto)
+                .filter(
+                    Proyecto.ingreso_por == "rua",
+                    Proyecto.estado_general.in_(estados_rua_a_baja),
+                )
+                .all()
+            )
+
+            for proyecto_rua in proyectos_rua:
+                estado_rua_prev = proyecto_rua.estado_general
+                proyecto_rua.estado_general = "baja_por_convocatoria"
+
+                db.add(RuaEvento(
+                    login = current_user["user"]["login"],
+                    evento_detalle = (
+                        "Baja por interrupcion (convocatoria): "
+                        f"RUA {proyecto_rua.proyecto_id} {estado_rua_prev} -> baja_por_convocatoria; "
+                        f"convocatoria {proyecto_id}; {timestamp}"
+                    ),
+                    evento_fecha = datetime.now(),
+                ))
+
+                db.add(ObservacionesProyectos(
+                    observacion_a_cual_proyecto = proyecto_rua.proyecto_id,
+                    observacion = (
+                        "Baja por interrupcion (convocatoria): "
+                        f"RUA {proyecto_rua.proyecto_id} -> baja_por_convocatoria; "
+                        f"convocatoria {proyecto_id}; {timestamp}"
+                    ),
+                    login_que_observo = current_user["user"]["login"],
+                    observacion_fecha = datetime.now(),
+                ))
+
+                db.add(ProyectoHistorialEstado(
+                    proyecto_id = proyecto_rua.proyecto_id,
+                    estado_anterior = estado_rua_prev,
+                    estado_nuevo = "baja_por_convocatoria",
+                    fecha_hora = datetime.now(),
+                ))
+
+                _preparar_pretensos_para_nuevo_proceso(db, proyecto_rua)
+
+            proyectos_convocatoria = (
+                _query_grupo(proyecto)
+                .filter(
+                    Proyecto.ingreso_por == "convocatoria",
+                    Proyecto.proyecto_id != proyecto_id,
+                    Proyecto.estado_general.notin_(FINAL_PROJECT_STATES),
+                )
+                .all()
+            )
+
+            for proyecto_conv in proyectos_convocatoria:
+                estado_conv_prev = proyecto_conv.estado_general
+                proyecto_conv.estado_general = "baja_por_convocatoria"
+
+                db.add(RuaEvento(
+                    login = current_user["user"]["login"],
+                    evento_detalle = (
+                        "Baja por interrupcion (convocatoria): "
+                        f"conv {proyecto_conv.proyecto_id} {estado_conv_prev} -> baja_por_convocatoria; "
+                        f"convocatoria {proyecto_id}; {timestamp}"
+                    ),
+                    evento_fecha = datetime.now(),
+                ))
+
+                db.add(ObservacionesProyectos(
+                    observacion_a_cual_proyecto = proyecto_conv.proyecto_id,
+                    observacion = (
+                        "Baja por interrupcion (convocatoria): "
+                        f"conv {proyecto_conv.proyecto_id} -> baja_por_convocatoria; "
+                        f"convocatoria {proyecto_id}; {timestamp}"
+                    ),
+                    login_que_observo = current_user["user"]["login"],
+                    observacion_fecha = datetime.now(),
+                ))
+
+                db.add(ProyectoHistorialEstado(
+                    proyecto_id = proyecto_conv.proyecto_id,
+                    estado_anterior = estado_conv_prev,
+                    estado_nuevo = "baja_por_convocatoria",
+                    fecha_hora = datetime.now(),
+                ))
+
 
         _preparar_pretensos_para_nuevo_proceso(db, proyecto)
+        if proyecto.ingreso_por == "convocatoria":
+            _preparar_pretensos_para_nuevo_proceso_por_logins(
+                db,
+                [proyecto.login_1, proyecto.login_2],
+            )
 
         db.commit()
 
