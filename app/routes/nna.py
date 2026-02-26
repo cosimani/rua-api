@@ -1720,16 +1720,22 @@ def get_observaciones_nna(nna_id: int, db: Session = Depends(get_db)):
     - Fecha formateada (YYYY-MM-DD HH:MM)
     """
 
+    UserEditor = aliased(User)
     obs = (
         db.query(
             ObservacionesNNAs.observacion_id,
             ObservacionesNNAs.observacion_fecha,
             ObservacionesNNAs.observacion,
+            ObservacionesNNAs.editado_fecha,
             User.login.label("usuario_login"),
             User.nombre.label("usuario_nombre"),
             User.apellido.label("usuario_apellido"),
+            UserEditor.login.label("editor_login"),
+            UserEditor.nombre.label("editor_nombre"),
+            UserEditor.apellido.label("editor_apellido"),
         )
         .join(User, User.login == ObservacionesNNAs.login_que_observo, isouter=True)
+        .join(UserEditor, UserEditor.login == ObservacionesNNAs.editado_por, isouter=True)
         .filter(ObservacionesNNAs.observacion_a_cual_nna == nna_id)
         .order_by(ObservacionesNNAs.observacion_fecha.desc())
         .all()
@@ -1743,6 +1749,13 @@ def get_observaciones_nna(nna_id: int, db: Session = Depends(get_db)):
             "login_que_observo": o.usuario_login or "—",
             "nombre_completo_que_observo": (
                 f"{(o.usuario_nombre or '').strip()} {(o.usuario_apellido or '').strip()}".strip() or "—"
+            ),
+            "fecha_ultima_edicion": o.editado_fecha.strftime("%Y-%m-%d %H:%M") if o.editado_fecha else None,
+            "login_que_edito": o.editor_login or None,
+            "nombre_completo_que_edito": (
+                f"{(o.editor_nombre or '').strip()} {(o.editor_apellido or '').strip()}".strip()
+                if (o.editor_nombre or o.editor_apellido)
+                else None
             ),
         }
         for o in obs
@@ -1763,7 +1776,8 @@ def editar_observacion_nna(
 
     """
     Permite editar una observación del NNA,
-    solo si fue registrada por el mismo usuario que intenta modificarla.
+    solo si fue registrada por el mismo usuario que intenta modificarla
+    o si el usuario actual es supervisora/supervision/administrador.
     """
     try:
         obs = db.query(ObservacionesNNAs).filter_by(observacion_id=observacion_id).first()
@@ -1775,8 +1789,10 @@ def editar_observacion_nna(
                 "next_page": "actual"
             }
 
-        # Validar propiedad de la observación
-        if obs.login_que_observo != current_user["user"]["login"]:
+        # Validar propiedad o rol supervisor/administrador
+        rol_actual = (current_user.get("role") or "").strip().lower()
+        puede_editar_por_rol = rol_actual in {"administrador", "supervision", "supervisora"}
+        if obs.login_que_observo != current_user["user"]["login"] and not puede_editar_por_rol:
             return {
                 "tipo_mensaje": "naranja",
                 "mensaje": "⚠️ Solo podés editar observaciones que registraste vos.",
@@ -1794,6 +1810,8 @@ def editar_observacion_nna(
             }
 
         obs.observacion = nuevo_texto
+        obs.editado_por = current_user["user"]["login"]
+        obs.editado_fecha = datetime.now()
         db.commit()
 
         return {

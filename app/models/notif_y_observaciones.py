@@ -41,6 +41,8 @@ class ObservacionesNNAs(Base):
     observacion = Column(Text, nullable=True)
     login_que_observo = Column(String(190), ForeignKey("sec_users.login", ondelete="SET NULL"), nullable=True)
     observacion_a_cual_nna = Column(Integer, ForeignKey("nna.nna_id", ondelete="SET NULL"), nullable=True)
+    editado_fecha = Column(DateTime, nullable=True)
+    editado_por = Column(String(190), ForeignKey("sec_users.login", ondelete="SET NULL"), nullable=True)
 
 
 
