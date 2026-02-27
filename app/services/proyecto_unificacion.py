@@ -202,7 +202,11 @@ def _build_docs_preview(
     return preview
 
 
-def get_unificacion_info(db: Session, proyecto_convocatoria_id: int) -> dict:
+def get_unificacion_info(
+    db: Session,
+    proyecto_convocatoria_id: int,
+    permitir_pre: bool = False,
+) -> dict:
     proyecto_convocatoria = (
         db.query(Proyecto)
         .filter(Proyecto.proyecto_id == proyecto_convocatoria_id)
@@ -224,7 +228,7 @@ def get_unificacion_info(db: Session, proyecto_convocatoria_id: int) -> dict:
             "estado_final": None,
         }
 
-    if proyecto_convocatoria.estado_general not in CONVOCATORIA_UNIFICACION_STATES:
+    if proyecto_convocatoria.estado_general not in CONVOCATORIA_UNIFICACION_STATES and not permitir_pre:
         return {
             "can_unify": False,
             "reason": "El proyecto no está en estado vinculacion, guarda provisoria ni guarda confirmada.",
@@ -289,6 +293,10 @@ def get_unificacion_info(db: Session, proyecto_convocatoria_id: int) -> dict:
         or (not proyecto_convocatoria.fecha_asignacion_nro_orden and proyecto_rua.fecha_asignacion_nro_orden)
     )
 
+    estado_final_convocatoria = proyecto_convocatoria.estado_general
+    if permitir_pre and proyecto_convocatoria.estado_general not in CONVOCATORIA_UNIFICACION_STATES:
+        estado_final_convocatoria = "vinculacion"
+
     return {
         "can_unify": True,
         "reason": None,
@@ -299,7 +307,7 @@ def get_unificacion_info(db: Session, proyecto_convocatoria_id: int) -> dict:
         "docs_to_copy": docs_to_copy,
         "copiar_orden": copiar_orden,
         "estado_final": {
-            "convocatoria": proyecto_convocatoria.estado_general,
+            "convocatoria": estado_final_convocatoria,
             "rua": "baja_por_convocatoria",
         },
     }

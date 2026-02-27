@@ -397,6 +397,29 @@ def _clip_evento_detalle(texto: str, limit: int = 255) -> str:
     return texto[:limit]
 
 
+def _is_monoparental_local(proyecto: Proyecto) -> bool:
+    if (proyecto.proyecto_tipo or "").strip() == "Monoparental":
+        return True
+    return not (proyecto.login_2 and str(proyecto.login_2).strip())
+
+
+def _query_grupo_proyectos(db: Session, proyecto: Proyecto):
+    if _is_monoparental_local(proyecto):
+        return db.query(Proyecto).filter(
+            Proyecto.login_1 == proyecto.login_1,
+            or_(Proyecto.login_2.is_(None), Proyecto.login_2 == "")
+        )
+
+    login_1 = (proyecto.login_1 or "").strip()
+    login_2 = (proyecto.login_2 or "").strip()
+    return db.query(Proyecto).filter(
+        or_(
+            and_(Proyecto.login_1 == login_1, Proyecto.login_2 == login_2),
+            and_(Proyecto.login_1 == login_2, Proyecto.login_2 == login_1)
+        )
+    )
+
+
 def _calcular_info_ratificacion_proyecto(proyecto: Proyecto, db: Session, logger=None):
     """Centraliza el cálculo de fechas de ratificación para un proyecto."""
 
@@ -5571,27 +5594,6 @@ def interrumpir_vinculacion_o_guarda(
             "next_page": "actual",
         }
 
-    def _is_monoparental_local(p: Proyecto) -> bool:
-        if (p.proyecto_tipo or "").strip() == "Monoparental":
-            return True
-        return not (p.login_2 and str(p.login_2).strip())
-
-    def _query_grupo(p: Proyecto):
-        if _is_monoparental_local(p):
-            return db.query(Proyecto).filter(
-                Proyecto.login_1 == p.login_1,
-                or_(Proyecto.login_2.is_(None), Proyecto.login_2 == "")
-            )
-
-        login_1 = (p.login_1 or "").strip()
-        login_2 = (p.login_2 or "").strip()
-        return db.query(Proyecto).filter(
-            or_(
-                and_(Proyecto.login_1 == login_1, Proyecto.login_2 == login_2),
-                and_(Proyecto.login_1 == login_2, Proyecto.login_2 == login_1)
-            )
-        )
-
     try:
         estado_anterior = proyecto.estado_general
 
@@ -5731,7 +5733,7 @@ def interrumpir_vinculacion_o_guarda(
             }
 
             proyectos_rua = (
-                _query_grupo(proyecto)
+                _query_grupo_proyectos(db, proyecto)
                 .filter(
                     Proyecto.ingreso_por == "rua",
                     Proyecto.estado_general.in_(estados_rua_a_baja),
@@ -5774,7 +5776,7 @@ def interrumpir_vinculacion_o_guarda(
                 _preparar_pretensos_para_nuevo_proceso(db, proyecto_rua)
 
             proyectos_convocatoria = (
-                _query_grupo(proyecto)
+                _query_grupo_proyectos(db, proyecto)
                 .filter(
                     Proyecto.ingreso_por == "convocatoria",
                     Proyecto.proyecto_id != proyecto_id,
@@ -5848,6 +5850,160 @@ def interrumpir_vinculacion_o_guarda(
         }
 
 
+
+@proyectos_router.get("/interrupcion-info/{proyecto_id}", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+                  Depends(require_roles(["administrador", "profesional", "supervision", "supervisora"]))])
+def obtener_info_interrupcion(
+    proyecto_id: int,
+    db: Session = Depends(get_db),
+    ):
+    """
+    Devuelve un resumen de los efectos de la interrupción antes de confirmar.
+    """
+    proyecto = db.query(Proyecto).filter(Proyecto.proyecto_id == proyecto_id).first()
+    if not proyecto:
+        return {
+            "success": False,
+            "tipo_mensaje": "rojo",
+            "mensaje": "Proyecto no encontrado.",
+        }
+
+    carpeta_ids = [
+        x[0]
+        for x in db.query(DetalleProyectosEnCarpeta.carpeta_id)
+                  .filter(DetalleProyectosEnCarpeta.proyecto_id == proyecto_id)
+                  .all()
+    ]
+
+    nna_ids = []
+    carpetas_detalle = []
+    nna_detalle = []
+    if carpeta_ids:
+        nna_ids = [
+            x[0]
+            for x in db.query(DetalleNNAEnCarpeta.nna_id)
+                      .filter(DetalleNNAEnCarpeta.carpeta_id.in_(carpeta_ids))
+                      .distinct()
+                      .all()
+        ]
+
+        proyectos_rows = (
+            db.query(
+                DetalleProyectosEnCarpeta.carpeta_id,
+                Proyecto.proyecto_id,
+                Proyecto.estado_general,
+            )
+            .join(Proyecto, DetalleProyectosEnCarpeta.proyecto_id == Proyecto.proyecto_id)
+            .filter(DetalleProyectosEnCarpeta.carpeta_id.in_(carpeta_ids))
+            .all()
+        )
+
+        nnas_rows = (
+            db.query(
+                DetalleNNAEnCarpeta.carpeta_id,
+                Nna.nna_id,
+                Nna.nna_nombre,
+                Nna.nna_apellido,
+                Nna.nna_estado,
+            )
+            .join(Nna, DetalleNNAEnCarpeta.nna_id == Nna.nna_id)
+            .filter(DetalleNNAEnCarpeta.carpeta_id.in_(carpeta_ids))
+            .all()
+        )
+
+        carpetas_map = {cid: {"carpeta_id": cid, "proyectos": [], "nnas": []} for cid in carpeta_ids}
+
+        for carpeta_id, proyecto_id_row, estado_general in proyectos_rows:
+            if carpeta_id not in carpetas_map:
+                carpetas_map[carpeta_id] = {"carpeta_id": carpeta_id, "proyectos": [], "nnas": []}
+            carpetas_map[carpeta_id]["proyectos"].append(
+                {
+                    "proyecto_id": proyecto_id_row,
+                    "estado_general": estado_general,
+                }
+            )
+
+        nna_map = {}
+        for carpeta_id, nna_id, nna_nombre, nna_apellido, nna_estado in nnas_rows:
+            if carpeta_id not in carpetas_map:
+                carpetas_map[carpeta_id] = {"carpeta_id": carpeta_id, "proyectos": [], "nnas": []}
+            nombre_completo = " ".join([p for p in [nna_nombre, nna_apellido] if p]).strip()
+            if not nombre_completo:
+                nombre_completo = f"NNA #{nna_id}"
+
+            nna_item = {
+                "nna_id": nna_id,
+                "nombre_completo": nombre_completo,
+                "estado_actual": nna_estado,
+                "estado_nuevo": "disponible",
+            }
+            carpetas_map[carpeta_id]["nnas"].append(nna_item)
+            if nna_id not in nna_map:
+                nna_map[nna_id] = nna_item
+
+        carpetas_detalle = list(carpetas_map.values())
+        nna_detalle = list(nna_map.values())
+
+    proyectos_rua_a_baja = []
+    proyectos_convocatoria_a_baja = []
+
+    if proyecto.ingreso_por == "convocatoria":
+        estados_rua_a_baja = {
+            "aprobado",
+            "calendarizando",
+            "entrevistando",
+            "para_valorar",
+            "viable",
+        }
+
+        proyectos_rua = (
+            _query_grupo_proyectos(db, proyecto)
+            .filter(
+                Proyecto.ingreso_por == "rua",
+                Proyecto.estado_general.in_(estados_rua_a_baja),
+            )
+            .all()
+        )
+
+        proyectos_rua_a_baja = [
+            {
+                "proyecto_id": p.proyecto_id,
+                "estado_general": p.estado_general,
+            }
+            for p in proyectos_rua
+        ]
+
+        proyectos_convocatoria = (
+            _query_grupo_proyectos(db, proyecto)
+            .filter(
+                Proyecto.ingreso_por == "convocatoria",
+                Proyecto.proyecto_id != proyecto_id,
+                Proyecto.estado_general.notin_(FINAL_PROJECT_STATES),
+            )
+            .all()
+        )
+
+        proyectos_convocatoria_a_baja = [
+            {
+                "proyecto_id": p.proyecto_id,
+                "estado_general": p.estado_general,
+            }
+            for p in proyectos_convocatoria
+        ]
+
+    return {
+        "success": True,
+        "proyecto_id": proyecto.proyecto_id,
+        "ingreso_por": proyecto.ingreso_por,
+        "carpetas_ids": carpeta_ids,
+        "nna_ids": nna_ids,
+        "carpetas": carpetas_detalle,
+        "nna_detalle": nna_detalle,
+        "nna_estado_nuevo": "disponible",
+        "proyectos_rua_a_baja": proyectos_rua_a_baja,
+        "proyectos_convocatoria_a_baja": proyectos_convocatoria_a_baja,
+    }
 
 
 @proyectos_router.put("/baja-por-convocatoria/{proyecto_id}", response_model=dict,
@@ -5960,13 +6116,14 @@ def baja_por_convocatoria(
                   Depends(require_roles(["administrador", "supervision", "supervisora"]))])
 def obtener_info_unificacion(
     proyecto_id: int,
+    permitir_pre: bool = Query(False),
     db: Session = Depends(get_db),
     ):
     """
     Devuelve un resumen de unificación para proyectos convocatoria en vinculacion.
     """
     try:
-        info = get_unificacion_info(db, proyecto_id)
+        info = get_unificacion_info(db, proyecto_id, permitir_pre=permitir_pre)
         return {
             "success": True,
             **info,
