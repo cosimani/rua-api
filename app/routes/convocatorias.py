@@ -549,6 +549,22 @@ def upsert_convocatoria(
             # 🔄 Reemplazar los NNA asociados
             db.query(DetalleNNAEnConvocatoria).filter_by(convocatoria_id=convocatoria_id).delete()
         else:
+            referencia = (convocatoria_data.get("convocatoria_referencia") or "").strip()
+            if referencia:
+                existente = (
+                    db.query(Convocatoria.convocatoria_id)
+                    .filter(func.lower(Convocatoria.convocatoria_referencia) == referencia.lower())
+                    .first()
+                )
+                if existente:
+                    return {
+                        "success": False,
+                        "tipo_mensaje": "naranja",
+                        "mensaje": "Ya existe una convocatoria con esa referencia.",
+                        "tiempo_mensaje": 8,
+                        "next_page": "actual"
+                    }
+
             # 🆕 Crear nueva convocatoria
             convocatoria = Convocatoria(
                 convocatoria_referencia=convocatoria_data.get("convocatoria_referencia"),
@@ -583,7 +599,8 @@ def upsert_convocatoria(
             "tipo_mensaje": "verde",
             "mensaje": f"Convocatoria {'actualizada' if convocatoria_id else 'creada'} con éxito",
             "tiempo_mensaje": 6,
-            "next_page": "actual"
+            "next_page": "actual",
+            "convocatoria_id": convocatoria.convocatoria_id
         }
 
     except SQLAlchemyError as e:
