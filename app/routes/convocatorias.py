@@ -347,14 +347,16 @@ def get_convocatorias_publicas(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     ranges: List[str] = Query(default=[], description="Ej: ranges=0-3&ranges=4-6"),
-    grupo: Optional[bool] = Query(default=None, description="true => sólo convocatorias con 2+ NNA vinculados")
+    grupo: Optional[bool] = Query(default=None, description="true => sólo convocatorias con 2+ NNA vinculados"),
+    residencia: Optional[str] = Query(default=None, description="provincial|nacional")
 ):
     """
     Filtros:
     - Sin filtros => todas las online.
     - ranges=["a-b", ...] => incluye convocatorias que tengan AL MENOS UN NNA en alguno de esos rangos.
     - grupo=true => incluye convocatorias que tengan 2 o más NNA vinculados (sin usar hermanos_id).
-    - Si ambos se envían => se exige ambos (AND).
+    - residencia=provincial|nacional => filtra por residencia de postulantes.
+    - Si se envían varios filtros => se exige todos (AND).
     """
     try:
         # Base de IDs de convocatorias online (para poder DISTINCT y paginar correctamente)
@@ -394,6 +396,22 @@ def get_convocatorias_publicas(
                 .subquery()
             )
             id_q = id_q.join(grupos_subq, grupos_subq.c.conv_id == Convocatoria.convocatoria_id)
+
+        # --- Filtro por residencia de postulantes ---
+        if residencia:
+            residencia_norm = _normalize_text(residencia)
+            resid_field = func.lower(Convocatoria.convocatoria_residencia_postulantes)
+            if residencia_norm.startswith("prov"):
+                id_q = id_q.filter(resid_field.like("%cordoba%"))
+            elif residencia_norm.startswith("nac"):
+                id_q = id_q.filter(
+                    or_(
+                        resid_field.like("%argentina%"),
+                        resid_field.like("%nacional%"),
+                        resid_field.like("%todo el pais%"),
+                        resid_field.like("%pais%")
+                    )
+                )
 
         # Distinct IDs tras filtros aplicados (si no hubo filtros: todas online)
         id_subq = id_q.distinct().subquery()
