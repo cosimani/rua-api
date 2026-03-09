@@ -1,6 +1,8 @@
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Body, Request
 from typing import Literal, Optional, List
+import os
+import json
 
 from fastapi.responses import PlainTextResponse #NUEVO!
 
@@ -24,7 +26,7 @@ from models.eventos_y_configs import RuaEvento
 from datetime import date, datetime, timedelta
 from security.security import get_current_user, require_roles, verify_api_key
 
-from helpers.utils import enviar_mail, get_setting_value, normalize_phone
+from helpers.utils import enviar_mail, get_setting_value, normalize_phone, normalizar_celular
 from helpers.whatsapp_helper import enviar_whatsapp, enviar_whatsapp_texto, _enviar_template_whatsapp
 from helpers.mensajeria_utils import registrar_mensaje
 
@@ -47,6 +49,19 @@ logger = logging.getLogger(__name__)
 
 
 notificaciones_router = APIRouter()
+
+
+def _get_setting_or_env(db: Session, key: str, env_alias: Optional[str] = None) -> str:
+    value = get_setting_value(db, key)
+    if value:
+        return value
+
+    if env_alias:
+        env_value = os.getenv(env_alias)
+        if env_value:
+            return env_value
+
+    return os.getenv(key, "")
 
 
 
@@ -816,7 +831,10 @@ def actualizar_estado_mensaje(
 @notificaciones_router.get("/config/mensajeria", response_model=dict,
     dependencies=[ Depends(verify_api_key),
         Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
-def get_config_mensajeria(db: Session = Depends(get_db)):
+def get_config_mensajeria(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+    ):
 
     # FECHAS
     now = datetime.now()
@@ -911,7 +929,17 @@ def get_config_mensajeria(db: Session = Depends(get_db)):
         "costo_mensaje": costo_unitario
     }
 
-    return {"config": config, "stats": stats}
+    response = {"config": config, "stats": stats}
+
+    if current_user.get("user", {}).get("login") == "26413920":
+        response["whatsapp_settings"] = {
+            "verify_token": _get_setting_or_env(db, "VERIFY_TOKEN"),
+            "whatsapp_token": _get_setting_or_env(db, "WHATSAPP_TOKEN", env_alias="WHATSAPP_ACCESS_TOKEN"),
+            "phone_number_id": _get_setting_or_env(db, "PHONE_NUMBER_ID", env_alias="WHATSAPP_PHONE_NUMBER_ID"),
+            "waba_id": _get_setting_or_env(db, "WABA_ID"),
+        }
+
+    return response
 
 
 
@@ -960,6 +988,37 @@ def save_config_mensajeria(
     db.commit()
 
     return {"success": True, "mensaje": "Configuración guardada"}
+
+
+@notificaciones_router.post("/config/mensajeria/whatsapp-cred/save", response_model=dict,
+    dependencies=[ Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"]))])
+def save_whatsapp_credentials(
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+    ):
+
+    if current_user.get("user", {}).get("login") != "26413920":
+        raise HTTPException(status_code=403, detail="No autorizado")
+
+    key = data.get("key")
+    value = data.get("value")
+
+    allowed_keys = {"VERIFY_TOKEN", "WHATSAPP_TOKEN", "PHONE_NUMBER_ID", "WABA_ID"}
+    if key not in allowed_keys:
+        raise HTTPException(status_code=400, detail="Key no permitida")
+
+    setting = db.query(SecSettings).filter_by(set_name=key).first()
+    if not setting:
+        setting = SecSettings(set_name=key, set_value=value or "")
+        db.add(setting)
+    else:
+        setting.set_value = value or ""
+
+    db.commit()
+
+    return {"success": True, "mensaje": "Credenciales de WhatsApp actualizadas"}
 
 
 
@@ -1031,7 +1090,7 @@ async def receive_update(request: Request, db: Session = Depends(get_db)):
                     new_event = WebhookEvent(
                         mensaje_externo_id=meta_id,
                         content=content,
-                        status="recibido",
+                        status="respondido",
                         login_usuario=login_user
                     )
                     db.add(new_event)
@@ -1044,14 +1103,14 @@ async def receive_update(request: Request, db: Session = Depends(get_db)):
                     if last_msg:
                         last_msg.mensaje_externo_id = meta_id
                         last_msg.contenido = content
-                        last_msg.estado = "recibido"
+                        last_msg.estado = "respondido"
                         last_msg.destinatario_texto = user_texto
                     else:
                         last_msg = Mensajeria(
                             mensaje_externo_id=meta_id,
                             tipo="whatsapp",
                             contenido=content,
-                            estado="recibido",
+                            estado="respondido",
                             login_destinatario=login_user,
                             destinatario_texto=user_texto
                         )
@@ -1128,13 +1187,124 @@ def send_message(payload: dict = Body(...), db: Session = Depends(get_db)):
     nombre_template = payload.get("message")
     variables = payload.get("vars") or []
 
+    numero_pretenso = numero_destino
+
+    def _mask_token(token: Optional[str]) -> str:
+        if not token:
+            return ""
+        if len(token) <= 10:
+            return "***"
+        return f"{token[:6]}***{token[-4:]}"
+
+    def _normalize_envio(numero: str) -> str:
+        digits = "".join(filter(str.isdigit, numero or ""))
+        if digits.startswith("549") and len(digits) == 13:
+            digits = "54" + digits[3:]
+        return digits
+
+    def registrar_error_envio(
+        *,
+        mensaje_error: str,
+        login_dest: Optional[str],
+        dest_texto: str,
+        content: Optional[str],
+        meta_id: Optional[str] = None,
+    ) -> None:
+        error_content = content or mensaje_error
+
+        new_event = WebhookEvent(
+            mensaje_externo_id=meta_id,
+            asunto=nombre_template,
+            content=error_content,
+            status="error",
+            login_usuario=login_dest
+        )
+        db.add(new_event)
+
+        last_msg = None
+        if login_dest:
+            last_msg = db.query(Mensajeria).filter(Mensajeria.login_destinatario == login_dest).first()
+
+        if last_msg:
+            last_msg.mensaje_externo_id = meta_id
+            last_msg.asunto = nombre_template
+            last_msg.contenido = error_content
+            last_msg.estado = "error"
+            last_msg.destinatario_texto = dest_texto
+        else:
+            last_msg = Mensajeria(
+                mensaje_externo_id=meta_id,
+                tipo="whatsapp",
+                asunto=nombre_template,
+                contenido=error_content,
+                estado="error",
+                login_destinatario=login_dest,
+                destinatario_texto=dest_texto
+            )
+            db.add(last_msg)
+
+        db.commit()
+
     if not numero_destino or not nombre_template:
-        raise HTTPException(400, "Debe indicar 'to' y 'message'.")
+        registrar_error_envio(
+            mensaje_error="Faltan datos obligatorios (to/message).",
+            login_dest=None,
+            dest_texto=numero_destino or "",
+            content=None
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Debe indicar 'to' y 'message'.",
+                "numero_pretenso": numero_pretenso,
+                "template": nombre_template,
+            }
+        )
 
     if not isinstance(variables, list):
-        raise HTTPException(400, "'vars' debe ser una lista.")
+        registrar_error_envio(
+            mensaje_error="'vars' debe ser una lista.",
+            login_dest=None,
+            dest_texto=numero_destino,
+            content=None
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "'vars' debe ser una lista.",
+                "numero_pretenso": numero_pretenso,
+                "template": nombre_template,
+            }
+        )
 
-    normalized_to = normalize_phone(numero_destino)
+    validacion = normalizar_celular(numero_pretenso)
+    if not validacion.get("valido"):
+        registrar_error_envio(
+            mensaje_error=validacion.get("motivo", "Numero de telefono invalido."),
+            login_dest=None,
+            dest_texto=numero_pretenso,
+            content=None
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": validacion.get("motivo", "Numero de telefono invalido."),
+                "numero_pretenso": numero_pretenso,
+                "numero_normalizado": validacion.get("celular"),
+                "template": nombre_template,
+            }
+        )
+
+    numero_normalizado = validacion.get("celular", numero_pretenso)
+
+    whatsapp_solo_a_cesar = os.getenv("WHATSAPP_SOLO_A_CESAR", "Y").strip().upper()
+    numero_prueba = os.getenv("WHATSAPP_NUMERO_PRUEBA", "5493512613442").strip()
+    if whatsapp_solo_a_cesar == "Y":
+        numero_envio = _normalize_envio(numero_prueba)
+    else:
+        numero_envio = _normalize_envio(numero_normalizado)
+
+    normalized_to = normalize_phone(numero_envio)
 
     num_vars = len(variables)
 
@@ -1148,7 +1318,7 @@ def send_message(payload: dict = Body(...), db: Session = Depends(get_db)):
         return {"status": "error", "message": "Solo se soportan hasta 3 variables"}
 
     response = service.send_template_message(
-        numero_destino,
+        numero_envio,
         nombre_template,
         variables,
         whatsapp_settings=whatsapp_settings
@@ -1161,12 +1331,21 @@ def send_message(payload: dict = Body(...), db: Session = Depends(get_db)):
     user = db.query(User).filter(
         or_(
             User.celular == normalized_to,
-            User.celular == numero_destino
+            User.celular == numero_envio,
+            User.celular == numero_normalizado,
+            User.celular == numero_pretenso
         )
     ).first()
 
     login_dest = user.login if user else None
-    dest_texto = f"{user.nombre} {user.apellido}" if user else numero_destino
+    dest_texto = f"{user.nombre} {user.apellido}" if user else numero_pretenso
+
+    if user and user.celular:
+        validacion_user = normalizar_celular(user.celular)
+        if validacion_user.get("valido"):
+            celular_corregido = validacion_user.get("celular")
+            if celular_corregido and celular_corregido != user.celular:
+                user.celular = celular_corregido
 
     content = service.get_template_content(nombre_template, whatsapp_settings) or nombre_template
 
@@ -1174,6 +1353,67 @@ def send_message(payload: dict = Body(...), db: Session = Depends(get_db)):
         for i, var in enumerate(variables):
             placeholder = f"{{{{{i + 1}}}}}"
             content = content.replace(placeholder, var)
+
+    if response.get("error") or not meta_id:
+        mensaje_error = response.get("error", {}).get("message", "Error al enviar WhatsApp.")
+        api_url = f"https://graph.facebook.com/v22.0/{whatsapp_settings.phone_number_id}/messages"
+        debug_headers = {
+            "Authorization": f"Bearer {_mask_token(whatsapp_settings.whatsapp_token)}",
+            "Content-Type": "application/json",
+        }
+        debug_payload = {
+            "messaging_product": "whatsapp",
+            "to": numero_envio,
+            "type": "template",
+            "template": {
+                "name": nombre_template,
+                "language": {"code": "es_AR"},
+            },
+        }
+        if variables:
+            debug_payload["template"]["components"] = [
+                {
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": var} for var in variables
+                    ],
+                }
+            ]
+
+        curl_debug = (
+            "curl -i -X POST \\\n+  "
+            + api_url
+            + " \\\n+  -H 'Authorization: Bearer "
+            + _mask_token(whatsapp_settings.whatsapp_token)
+            + "' \\\n+  -H 'Content-Type: application/json' \\\n+  -d '"
+            + json.dumps(debug_payload)
+            + "'"
+        )
+        registrar_error_envio(
+            mensaje_error=mensaje_error,
+            login_dest=login_dest,
+            dest_texto=dest_texto,
+            content=content,
+            meta_id=meta_id
+        )
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": mensaje_error,
+                "meta_error": response.get("error"),
+                "meta_id": meta_id,
+                "numero_pretenso": numero_pretenso,
+                "numero_normalizado": numero_normalizado,
+                "numero_envio": numero_envio,
+                "whatsapp_solo_a_cesar": whatsapp_solo_a_cesar,
+                "template": nombre_template,
+                "vars_count": len(variables),
+                "request_url": api_url,
+                "request_headers": debug_headers,
+                "request_body": debug_payload,
+                "curl": curl_debug,
+            }
+        )
 
     new_event = WebhookEvent(
         mensaje_externo_id=meta_id,
@@ -1281,27 +1521,121 @@ def listar_mensajeria_whatsapp(
     }
 
 
+@notificaciones_router.get("/mensajeria/whatsapp/resumen", response_model=dict,
+    dependencies=[Depends(verify_api_key),
+        Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"])),],)
+def listar_resumen_whatsapp(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=200),
+    search: Optional[str] = Query(None, description="Buscar por usuario o telefono"),
+    estado: Optional[str] = Query(None, description="Filtrar por estado del ultimo evento"),
+    fecha_desde: Optional[str] = Query(None, alias="fecha_desde"),
+    fecha_hasta: Optional[str] = Query(None, alias="fecha_hasta"),
+    db: Session = Depends(get_db)
+    ):
+    """📱 Devuelve un resumen por usuario con el ultimo estado de WhatsApp."""
+
+    latest_ids_subquery = db.query(
+        WebhookEvent.login_usuario.label("login"),
+        func.max(WebhookEvent.id).label("last_id")
+    ).filter(
+        WebhookEvent.login_usuario.isnot(None)
+    ).group_by(
+        WebhookEvent.login_usuario
+    ).subquery()
+
+    query = db.query(WebhookEvent, User).join(
+        latest_ids_subquery,
+        WebhookEvent.id == latest_ids_subquery.c.last_id
+    ).join(
+        User,
+        User.login == latest_ids_subquery.c.login
+    )
+
+    if estado:
+        query = query.filter(WebhookEvent.status == estado)
+
+    if search:
+        like = f"%{search}%"
+        query = query.filter(
+            (User.nombre.ilike(like)) |
+            (User.apellido.ilike(like)) |
+            (User.login.ilike(like)) |
+            (User.celular.ilike(like))
+        )
+
+    if fecha_desde:
+        query = query.filter(WebhookEvent.received_at >= fecha_desde)
+
+    if fecha_hasta:
+        query = query.filter(WebhookEvent.received_at <= fecha_hasta)
+
+    total_records = query.count()
+    total_pages = max((total_records // limit) + (1 if total_records % limit > 0 else 0), 1)
+
+    rows = (
+        query.order_by(WebhookEvent.received_at.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+
+    resumen = []
+    for event, user in rows:
+        resumen.append({
+            "login": user.login,
+            "nombre": user.nombre,
+            "apellido": user.apellido,
+            "celular": user.celular,
+            "ultimo_estado": event.status,
+            "fecha_ultimo": event.received_at,
+            "mensaje_externo_id": event.mensaje_externo_id
+        })
+
+    return {
+        "page": page,
+        "limit": limit,
+        "total_pages": total_pages,
+        "total_records": total_records,
+        "resumen": resumen
+    }
+
+
 
 
 @notificaciones_router.get("/mensajeria/detalle_mensaje",
     dependencies=[Depends(verify_api_key),
         Depends(require_roles(["administrador", "supervision", "supervisora", "profesional"])),],)
 def get_mensajeria_detalle(
-    login: str = Query(..., description="Login del usuario"),
+    login: Optional[str] = Query(None, description="Login del usuario"),
+    telefono: Optional[str] = Query(None, description="Telefono del usuario"),
     db: Session = Depends(get_db)
     ):
     
     """
     Trae todo el historial de eventos (webhooks) relacionado con un usuario.
     """
+    if not login and not telefono:
+        return {"status": "error", "message": "Debe indicar login o telefono"}
+
+    if not login and telefono:
+        normalized_phone = normalize_phone(telefono)
+        user = db.query(User).filter(
+            or_(
+                User.celular == normalized_phone,
+                User.celular == telefono
+            )
+        ).first()
+        login = user.login if user else None
+    else:
+        user = db.query(User).filter(User.login == login).first()
+    
+    if not user or not login:
+        return {"status": "error", "message": "Usuario no encontrado"}
+
     events = db.query(WebhookEvent).filter(
         WebhookEvent.login_usuario == login
-    ).order_by(WebhookEvent.received_at.asc()).all()
-    
-    user = db.query(User).filter(User.login == login).first()
-    
-    if not user:
-        return {"status": "error", "message": "Usuario no encontrado"}
+    ).order_by(WebhookEvent.received_at.desc()).all()
 
     history = []
     for event in events:

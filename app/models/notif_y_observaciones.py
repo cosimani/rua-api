@@ -147,7 +147,7 @@ class Mensajeria(Base):
     asunto = Column(String(255), nullable=True)
     contenido = Column(Text, nullable=True)
     estado = Column(
-        Enum('no_enviado', 'enviado', 'recibido', 'leido', 'entregado', 'error', name='estado_mensaje_enum'),
+        Enum('no_enviado', 'enviado', 'recibido', 'leido', 'entregado', 'respondido', 'error', name='estado_mensaje_enum'),
         default='enviado',
         nullable=False
     )
@@ -192,6 +192,7 @@ class WebhookEvent(Base):
             'recibido',
             'leido',
             'entregado',
+            'respondido',
             'error',
             name='estado_mensaje_enum'
         ),
